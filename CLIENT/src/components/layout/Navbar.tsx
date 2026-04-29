@@ -20,7 +20,7 @@ export default function Navbar() {
 
         {/* Right */}
         <div className="flex items-center gap-2">
-          <button className="relative rounded-full p-2 hover:bg-accent">
+          <button aria-label="Notifications" title="Notifications" className="relative rounded-full p-2 hover:bg-accent">
             <Bell className="h-4 w-4" />
           </button>
 

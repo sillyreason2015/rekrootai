@@ -44,8 +44,9 @@ export default function Correspondence() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Select Job</label>
+          <label htmlFor="correspondence-job" className="text-sm font-medium">Select Job</label>
           <select
+            id="correspondence-job"
             className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
             value={selectedJob}
             onChange={(e) => { setSelectedJob(e.target.value); setSelectedApp('') }}
@@ -55,8 +56,9 @@ export default function Correspondence() {
           </select>
         </div>
         <div className="space-y-1.5">
-          <label className="text-sm font-medium">Select Candidate</label>
+          <label htmlFor="correspondence-candidate" className="text-sm font-medium">Select Candidate</label>
           <select
+            id="correspondence-candidate"
             className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
             value={selectedApp}
             onChange={(e) => setSelectedApp(e.target.value)}
