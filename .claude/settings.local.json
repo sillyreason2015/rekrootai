@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pandoc \"C:\\\\Users\\\\Nathan\\\\Documents\\\\Claude\\\\Projects\\\\Final Year Project\\\\Chapter 2 - Literature Review.docx\" -t plain)",
+      "Bash(pandoc \"C:\\\\Users\\\\Nathan\\\\Documents\\\\Claude\\\\Projects\\\\Final Year Project\\\\DFD — Level 0, 1, 2.docx\" -t plain)",
+      "Bash(pandoc \"C:\\\\Users\\\\Nathan\\\\Documents\\\\Claude\\\\Projects\\\\Final Year Project\\\\System Architecture, Analysis & Design + Prompting Playbook.docx\" -t plain)",
+      "Bash(pandoc \"C:\\\\Users\\\\Nathan\\\\Documents\\\\Claude\\\\Projects\\\\Final Year Project\\\\Module-by-Module Prompts — Stitch & Claude.docx\" -t plain)",
+      "Bash(npm install *)",
+      "Bash(git init *)",
+      "Bash(git remote *)",
+      "Bash(dir \"C:/Users/Nathan/Documents/Claude/Projects/AIRS/\")"
+    ]
+  }
+}
