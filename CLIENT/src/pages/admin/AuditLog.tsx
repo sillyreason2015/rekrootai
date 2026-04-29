@@ -29,8 +29,15 @@ export default function AuditLog() {
     queryFn: () => adminService.getAuditLog({ page, limit: 25, action: action || undefined }),
   })
 
-  const entries: Array<{ _id: string; action: string; user: { firstName: string; lastName: string; email: string }; resource: string; resourceId: string; createdAt: string; metadata: Record<string, unknown> }> =
-    (data as { data?: unknown[] })?.data ?? []
+  const entries = ((data as { data?: Array<any> })?.data ?? []) as Array<{
+    _id: string
+    action: string
+    user: { firstName?: string; lastName?: string; email?: string }
+    resource?: string
+    resourceId?: string
+    createdAt?: string
+    metadata?: Record<string, unknown>
+  }>
 
   return (
     <div className="space-y-6">
@@ -80,7 +87,7 @@ export default function AuditLog() {
                         <p className="capitalize">{entry.resource}</p>
                         <p className="text-xs text-muted-foreground font-mono">{entry.resourceId?.slice(-8)}</p>
                       </td>
-                      <td className="px-4 py-3 text-muted-foreground">{formatDate(entry.createdAt)}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{entry.createdAt ? formatDate(entry.createdAt) : '-'}</td>
                     </tr>
                   ))}
                 </tbody>

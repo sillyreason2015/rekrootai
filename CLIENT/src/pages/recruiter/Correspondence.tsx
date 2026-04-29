@@ -4,8 +4,6 @@ import { Send, Loader2, Mail } from 'lucide-react'
 import { applicationService } from '../../services/application.service'
 import { jobService } from '../../services/job.service'
 import { Button } from '../../components/ui/button'
-import { Card, CardContent } from '../../components/ui/card'
-import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import type { Application, Candidate, User } from '../../types'
 
 const TEMPLATES = {
@@ -23,7 +21,7 @@ export default function Correspondence() {
   const [sent, setSent] = useState<string[]>([])
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
-  const { data: applications, isLoading } = useQuery({
+  const { data: applications } = useQuery({
     queryKey: ['apps-for-correspondence', selectedJob],
     queryFn: () => applicationService.listForJob(selectedJob),
     enabled: !!selectedJob,

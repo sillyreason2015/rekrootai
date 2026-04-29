@@ -28,7 +28,7 @@ export default function Navbar() {
             <DropdownMenu.Trigger asChild>
               <button className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 hover:bg-accent">
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                  {user ? initials(user.firstName, user.lastName) : '?'}
+                  {user ? initials(user.firstName ?? '', user.lastName ?? '') : '?'}
                 </span>
                 <span className="hidden text-sm sm:inline">
                   {user?.firstName} {user?.lastName}
