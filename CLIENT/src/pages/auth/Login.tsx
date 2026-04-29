@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Eye, EyeOff, Loader2 } from 'lucide-react'
-import { useAuth } from '../../contexts/AuthContext'
+import { MOCK_AUTH, useAuth } from '../../contexts/AuthContext'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
@@ -37,6 +37,17 @@ export default function Login() {
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setError(msg ?? 'Invalid email or password')
+    }
+  }
+
+  const quickLogin = async (email: string) => {
+    setError('')
+    try {
+      await login(email, MOCK_AUTH.password)
+      const from = (location.state as { from?: string })?.from
+      navigate(from ?? '/', { replace: true })
+    } catch {
+      setError('Unable to use the mock session right now.')
     }
   }
 
@@ -107,6 +118,36 @@ export default function Login() {
               Sign in
             </Button>
           </form>
+
+          <div className="mt-6 rounded-xl border bg-card p-4">
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Mock login
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Use these demo accounts to enter the app without a backend.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => quickLogin('candidate@rekroot.local')}
+                className="rounded-lg border px-3 py-2 text-left text-sm hover:bg-accent"
+              >
+                <div className="font-medium">Candidate</div>
+                <div className="text-xs text-muted-foreground">candidate@rekroot.local</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => quickLogin('recruiter@rekroot.local')}
+                className="rounded-lg border px-3 py-2 text-left text-sm hover:bg-accent"
+              >
+                <div className="font-medium">Recruiter</div>
+                <div className="text-xs text-muted-foreground">recruiter@rekroot.local</div>
+              </button>
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Password for both: <span className="font-medium text-foreground">demo1234</span>
+            </p>
+          </div>
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Don't have an account?{' '}
