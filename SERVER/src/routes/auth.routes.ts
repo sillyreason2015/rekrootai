@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import argon2 from 'argon2'
-import { getUserByEmail, getUserById, createUser, logAction } from '../data/store.js'
+import { getUserByEmail, getUserById, createUser, ensureCandidateProfile, logAction } from '../data/store.js'
 import { signAccessToken, generateRefreshToken, requireAuth } from '../lib/auth.js'
 import { storeRefreshToken, getUserIdFromRefreshToken, rotateRefreshToken, deleteRefreshToken } from '../lib/redis.js'
 import { HttpError } from '../lib/http.js'
@@ -61,14 +61,20 @@ authRouter.post('/register', async (req, res, next) => {
 
     const hashed = await argon2.hash(password)
     const user = await createUser({ email, password: hashed, firstName, lastName, role })
+    const userId = String(user._id)
 
-    const accessToken = signAccessToken(String(user._id))
+    // Auto-create candidate profile so /candidates/me works immediately after signup
+    if (role === 'candidate') {
+      await ensureCandidateProfile(userId)
+    }
+
+    const accessToken = signAccessToken(userId)
     const refreshToken = generateRefreshToken()
-    await storeRefreshToken(refreshToken, String(user._id))
+    await storeRefreshToken(refreshToken, userId)
 
     res.cookie('refreshToken', refreshToken, COOKIE_OPTS)
     const { password: _pw, ...safeUser } = user
-    res.status(201).json({ accessToken, user: { ...safeUser, _id: String(user._id) } })
+    res.status(201).json({ accessToken, user: { ...safeUser, _id: userId } })
   } catch (err) {
     next(err)
   }

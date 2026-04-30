@@ -47,7 +47,8 @@ export default function Assessment() {
   useEffect(() => {
     if (!started || activeModule === null || !assessment) return
     const mod = assessment.modules[activeModule]
-    setTimeLeft(mod.timeSpent ? 0 : (60 * (assessment.job as { assessmentModules?: Array<{ timeLimit: number }> })?.assessmentModules?.[activeModule]?.timeLimit ?? 20))
+    const timeLimit = (assessment.job as { assessmentModules?: Array<{ timeLimit: number }> })?.assessmentModules?.[activeModule]?.timeLimit ?? 20
+    setTimeLeft(mod.timeSpent ? 0 : 60 * timeLimit)
     const id = setInterval(() => setTimeLeft((t) => Math.max(0, t - 1)), 1000)
     return () => clearInterval(id)
   }, [started, activeModule, assessment])
