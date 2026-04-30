@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: rekrootai-ml
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free          # upgrade to starter ($7/mo) to keep it warm
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8000
