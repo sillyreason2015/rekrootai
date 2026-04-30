@@ -1,9 +1,0 @@
-{
-  "model_version": "xgb-v1-synth",
-  "synthetic_data": true,
-  "feature_cols": [
-    "resume",
-    "assessment",
-    "interview"
-  ]
-}
