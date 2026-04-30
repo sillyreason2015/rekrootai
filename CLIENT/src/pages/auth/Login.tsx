@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -8,6 +8,7 @@ import { MOCK_AUTH, useAuth } from '../../contexts/AuthContext'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
+import { authService } from '../../services/auth.service'
 
 const schema = z.object({
   email: z.string().email('Enter a valid email'),
@@ -16,7 +17,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>
 
 export default function Login() {
-  const { login } = useAuth()
+  const { login, refreshUser } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [showPw, setShowPw] = useState(false)
@@ -50,6 +51,18 @@ export default function Login() {
       setError('Unable to use the mock session right now.')
     }
   }
+
+  const oauthLogin = (provider: 'google' | 'microsoft') => {
+    const url = provider === 'google' ? authService.oauthGoogleUrl() : authService.oauthMicrosoftUrl()
+    window.location.href = url
+  }
+
+  useEffect(() => {
+    const tokenFromQuery = new URLSearchParams(location.search).get('accessToken')
+    if (!tokenFromQuery) return
+    localStorage.setItem('accessToken', tokenFromQuery)
+    void refreshUser().then(() => navigate('/', { replace: true }))
+  }, [location.search, navigate, refreshUser])
 
   return (
     <div className="flex min-h-screen">
@@ -118,6 +131,15 @@ export default function Login() {
               Sign in
             </Button>
           </form>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <Button type="button" variant="outline" onClick={() => oauthLogin('google')}>
+              Google
+            </Button>
+            <Button type="button" variant="outline" onClick={() => oauthLogin('microsoft')}>
+              Microsoft
+            </Button>
+          </div>
 
           <div className="mt-6 rounded-xl border bg-card p-4">
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">

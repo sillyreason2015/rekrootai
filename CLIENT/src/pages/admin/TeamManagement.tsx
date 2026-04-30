@@ -15,6 +15,7 @@ export default function TeamManagement() {
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<'recruiter' | 'admin'>('recruiter')
   const [inviteSent, setInviteSent] = useState(false)
+  const [inviteLink, setInviteLink] = useState('')
 
   const { data: team, isLoading } = useQuery({
     queryKey: ['admin-team'],
@@ -23,7 +24,12 @@ export default function TeamManagement() {
 
   const inviteMutation = useMutation({
     mutationFn: () => adminService.inviteTeamMember(email, role),
-    onSuccess: () => { setInviteSent(true); setEmail('') },
+    onSuccess: (data) => {
+      setInviteSent(true)
+      setEmail('')
+      const token = (data as { inviteToken?: string })?.inviteToken
+      if (token) setInviteLink(`${window.location.origin}/accept-invite?token=${encodeURIComponent(token)}`)
+    },
   })
 
   const members: User[] = (team as { members?: User[] })?.members ?? []
@@ -42,6 +48,7 @@ export default function TeamManagement() {
           {inviteSent && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
               ✓ Invitation sent successfully.
+              {inviteLink && <div className="mt-1 break-all text-xs">{inviteLink}</div>}
             </div>
           )}
           <div className="grid grid-cols-2 gap-4">

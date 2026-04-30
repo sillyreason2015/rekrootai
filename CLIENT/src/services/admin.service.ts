@@ -18,5 +18,7 @@ export const adminService = {
   getTeam: () => api.get('/admin/team').then((r) => r.data),
   inviteTeamMember: (email: string, role: string) =>
     api.post('/admin/team/invite', { email, role }).then((r) => r.data),
+  acceptInvite: (payload: { token: string; firstName: string; lastName: string; password: string }) =>
+    api.post('/admin/team/invite/accept', payload).then((r) => r.data),
   getBilling: () => api.get('/admin/billing').then((r) => r.data),
 }

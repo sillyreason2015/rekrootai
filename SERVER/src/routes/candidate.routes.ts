@@ -1,100 +1,151 @@
 import { Router } from 'express'
 import multer from 'multer'
-import { db, getCandidateByUserId, getUserById, logAction } from '../data/mockStore.js'
+import { getCandidateByUserId, getUserById, ensureCandidateProfile, logAction } from '../data/store.js'
+import { CandidateModel } from '../models/Candidate.model.js'
+import { UserModel } from '../models/User.model.js'
+import { ApplicationModel } from '../models/Application.model.js'
+import { InterviewModel } from '../models/Interview.model.js'
+import { AssessmentModel } from '../models/Assessment.model.js'
+import { AiOutputModel } from '../models/AiOutput.model.js'
+import { ProtectedAttributeModel } from '../models/ProtectedAttribute.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
-import { HttpError, nowIso } from '../lib/http.js'
+import { HttpError } from '../lib/http.js'
+import { cvKey, presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
 
-const upload = multer({ storage: multer.memoryStorage() })
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
 
 export const candidateRouter = Router()
 
 candidateRouter.use(requireAuth, requireRole('candidate', 'admin'))
 
-candidateRouter.get('/me', (req, res, next) => {
+// GET /candidates/me
+candidateRouter.get('/me', async (req, res, next) => {
   try {
-    const candidate = req.user ? getCandidateByUserId(req.user._id) : null
+    const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
-    const userRaw = getUserById(candidate.user)
+    const userRaw = await getUserById(String(candidate.user))
     const safeUser = userRaw ? (({ password: _pw, ...u }) => u)(userRaw) : candidate.user
-    res.json({ ...candidate, user: safeUser })
-  } catch (error) {
-    next(error)
+    res.json({ ...candidate, _id: String(candidate._id), user: safeUser })
+  } catch (err) {
+    next(err)
   }
 })
 
-candidateRouter.patch('/me', (req, res, next) => {
+// PATCH /candidates/me
+candidateRouter.patch('/me', async (req, res, next) => {
   try {
-    const candidate = req.user ? getCandidateByUserId(req.user._id) : null
+    const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
-    Object.assign(candidate, req.body)
-    logAction({ actor: 'user', action: 'candidate-profile-update', candidateId: candidate._id, mode: 'assist' })
-    res.json(candidate)
-  } catch (error) {
-    next(error)
+    const updated = await CandidateModel.findByIdAndUpdate(candidate._id, req.body, { new: true }).lean()
+    await logAction({ actor: 'user', action: 'candidate-profile-update', candidateId: String(candidate._id), mode: 'assist' })
+    res.json({ ...updated, _id: String(updated!._id) })
+  } catch (err) {
+    next(err)
   }
 })
 
-candidateRouter.post('/me/cv', upload.single('cv'), (req, res, next) => {
+// POST /candidates/me/cv
+candidateRouter.post('/me/cv', upload.single('cv'), async (req, res, next) => {
   try {
-    const candidate = req.user ? getCandidateByUserId(req.user._id) : null
+    const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
-    const fileName = req.file?.originalname ?? 'cv.pdf'
-    candidate.cvUrl = `/uploads/${encodeURIComponent(fileName)}`
-    candidate.cvParsed = {
-      fileName,
-      extracted: true,
-      textPreview: 'Parsed CV content placeholder from scaffold server',
+    if (!req.file) throw new HttpError(400, 'Missing CV file')
+    const fileName = req.file.originalname
+    const key = cvKey(req.user!._id, fileName)
+    await uploadBlob(key, req.file.buffer, req.file.mimetype || 'application/octet-stream')
+    const cvParsed = { fileName, extracted: false, textPreview: 'Uploaded successfully. Parsing pipeline pending.' }
+    await CandidateModel.findByIdAndUpdate(candidate._id, { cvUrl: key, cvParsed })
+    await logAction({ actor: 'user', action: 'cv-upload', candidateId: String(candidate._id), mode: 'assist', payload: { fileName } })
+    res.json({ cvUrl: key, parsed: cvParsed })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /candidates/me/onboarding
+candidateRouter.post('/me/onboarding', async (req, res, next) => {
+  try {
+    const user = await getUserById(req.user!._id)
+    if (!user) throw new HttpError(404, 'User not found')
+    let candidate = await getCandidateByUserId(req.user!._id)
+    if (!candidate) {
+      candidate = await ensureCandidateProfile(req.user!._id)
     }
-    logAction({ actor: 'user', action: 'cv-upload', candidateId: candidate._id, mode: 'assist', payload: { fileName } })
-    res.json({ cvUrl: candidate.cvUrl, parsed: candidate.cvParsed })
-  } catch (error) {
-    next(error)
-  }
-})
-
-candidateRouter.post('/me/onboarding', (req, res, next) => {
-  try {
-    const user = req.user ? getUserById(req.user._id) : null
-    const candidate = req.user ? getCandidateByUserId(req.user._id) : null
-    if (!user || !candidate) throw new HttpError(404, 'Candidate profile not found')
-    user.onboardingComplete = true
-    Object.assign(candidate, req.body)
-    logAction({ actor: 'user', action: 'candidate-onboarding-complete', candidateId: candidate._id, mode: 'assist' })
+    await Promise.all([
+      UserModel.findByIdAndUpdate(user._id, { onboardingComplete: true }),
+      CandidateModel.findByIdAndUpdate(candidate._id, req.body),
+      ProtectedAttributeModel.findOneAndUpdate(
+        { candidate: String(candidate._id) },
+        {
+          candidate: String(candidate._id),
+          gender: (req.body as { gender?: string }).gender,
+          ageRange: (req.body as { ageRange?: string }).ageRange,
+          ethnicity: (req.body as { ethnicity?: string }).ethnicity,
+        },
+        { upsert: true, new: true },
+      ),
+    ])
+    await logAction({ actor: 'user', action: 'candidate-onboarding-complete', candidateId: String(candidate._id), mode: 'assist' })
     res.json({ ok: true })
-  } catch (error) {
-    next(error)
+  } catch (err) {
+    next(err)
   }
 })
 
-candidateRouter.get('/me/dashboard', (req, res, next) => {
+// GET /candidates/me/dashboard
+candidateRouter.get('/me/dashboard', async (req, res, next) => {
   try {
-    const candidate = req.user ? getCandidateByUserId(req.user._id) : null
+    const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
-    const applications = db.applications.filter((application) => application.candidate === candidate._id)
-    const assessmentsPending = applications.filter((application) => application.status === 'assessment_sent').length
-    const interviewsScheduled = db.interviews.filter((interview) => interview.candidate === candidate._id).length
+    const candidateId = String(candidate._id)
+    const [applications, interviews] = await Promise.all([
+      ApplicationModel.find({ candidate: candidateId }).lean(),
+      InterviewModel.find({ candidate: candidateId }).lean(),
+    ])
+    const assessmentsPending = applications.filter((a) => a.status === 'assessment_sent').length
     res.json({
       applications: applications.length,
       assessmentsPending,
-      interviewsScheduled,
-      recentApplications: applications.slice(0, 5),
+      interviewsScheduled: interviews.length,
+      recentApplications: applications.slice(0, 5).map((a) => ({ ...a, _id: String(a._id) })),
     })
-  } catch (error) {
-    next(error)
+  } catch (err) {
+    next(err)
   }
 })
 
-candidateRouter.get('/me/cv/download', (_req, res) => {
-  res.json({ url: '/uploads/mock-cv-download.pdf', expiresAt: nowIso() })
+// GET /candidates/me/cv/download
+candidateRouter.get('/me/cv/download', async (req, res, next) => {
+  try {
+    const candidate = await getCandidateByUserId(req.user!._id)
+    if (!candidate?.cvUrl) throw new HttpError(404, 'No CV on file')
+    const url = await presignedDownloadUrl(candidate.cvUrl, 3600)
+    res.json({ url, expiresAt: new Date(Date.now() + 3600_000).toISOString() })
+  } catch (err) {
+    next(err)
+  }
 })
 
-candidateRouter.delete('/me', (req, res, next) => {
+// DELETE /candidates/me
+candidateRouter.delete('/me', async (req, res, next) => {
   try {
-    const candidate = req.user ? getCandidateByUserId(req.user._id) : null
+    const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
-    logAction({ actor: 'user', action: 'candidate-delete', candidateId: candidate._id, mode: 'assist' })
+    const candidateId = String(candidate._id)
+    const appIds = (await ApplicationModel.find({ candidate: candidateId }).select('_id').lean()).map((a) => String(a._id))
+
+    await Promise.all([
+      ProtectedAttributeModel.deleteOne({ candidate: candidateId }),
+      AiOutputModel.deleteMany({ application: { $in: appIds } }),
+      AssessmentModel.deleteMany({ application: { $in: appIds } }),
+      InterviewModel.deleteMany({ application: { $in: appIds } }),
+      ApplicationModel.deleteMany({ candidate: candidateId }),
+      CandidateModel.deleteOne({ _id: candidateId }),
+      UserModel.deleteOne({ _id: req.user!._id }),
+    ])
+    await logAction({ actor: 'user', action: 'candidate-delete', candidateId: String(candidate._id), mode: 'assist' })
     res.json({ ok: true })
-  } catch (error) {
-    next(error)
+  } catch (err) {
+    next(err)
   }
 })

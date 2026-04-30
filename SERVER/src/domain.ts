@@ -82,7 +82,12 @@ export interface Job {
   status: 'draft' | 'published' | 'closed'
   applicationDeadline?: string
   assessmentModules: AssessmentModuleConfig[]
-  thresholds: { tau1: number; tau2: number }
+  thresholds: {
+    screening: number
+    assessment: number
+    fairness: number
+    interview: number
+  }
   alpha: number
   createdBy: string
   createdAt: string

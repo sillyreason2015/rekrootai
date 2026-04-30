@@ -11,6 +11,7 @@ import Register from './pages/auth/Register'
 import CheckEmail from './pages/auth/CheckEmail'
 import Onboarding from './pages/auth/Onboarding'
 import ForgotPassword from './pages/auth/ForgotPassword'
+import AcceptInvite from './pages/auth/AcceptInvite'
 
 // Candidate pages
 import CandidateDashboard from './pages/candidate/Dashboard'
@@ -52,6 +53,7 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/check-email" element={<CheckEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/accept-invite" element={<AcceptInvite />} />
 
           {/* Onboarding — requires login but not completed onboarding */}
           <Route element={<ProtectedRoute requireOnboarding={false} />}>
