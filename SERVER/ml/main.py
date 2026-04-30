@@ -47,9 +47,12 @@ def _ensure_model_loaded():
         return
     if not MODEL_PATH.exists() or not BACKGROUND_PATH.exists():
         raise HTTPException(status_code=503, detail="Model artifacts missing. Call /train or provide artifacts.")
-    _model = joblib.load(MODEL_PATH)
-    _background = joblib.load(BACKGROUND_PATH)
-    _explainer = shap.TreeExplainer(_model, _background)
+    try:
+        _model = joblib.load(MODEL_PATH)
+        _background = joblib.load(BACKGROUND_PATH)
+        _explainer = shap.TreeExplainer(_model, _background)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Model load failed: {exc}") from exc
 
 
 @app.get("/health")
