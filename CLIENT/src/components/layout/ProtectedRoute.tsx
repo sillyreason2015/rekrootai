@@ -20,8 +20,13 @@ export default function ProtectedRoute({ allowedRoles, requireOnboarding = true 
 
   if (!user) return <Navigate to="/login" replace />
 
+  if (!user.isVerified && user.role !== 'admin') {
+    return <Navigate to="/check-email" replace />
+  }
+
   if (requireOnboarding && !user.onboardingComplete && user.role !== 'admin') {
-    return <Navigate to="/onboarding" replace />
+    const dest = user.role === 'recruiter' ? '/recruiter/onboarding' : '/onboarding'
+    return <Navigate to={dest} replace />
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {

@@ -38,6 +38,7 @@ export default function CreateJob() {
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
   const [publishing, setPublishing] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   const form = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -57,20 +58,37 @@ export default function CreateJob() {
   const { fields: skillFields, append: addSkill, remove: rmSkill } = useFieldArray({ control: form.control, name: 'skills' })
   const { fields: modFields, append: addMod, remove: rmMod } = useFieldArray({ control: form.control, name: 'assessmentModules' })
 
+  const buildPayload = (data: FormData, status: 'draft' | 'published') => ({
+    ...data,
+    requirements: data.requirements.map((r) => r.value).filter(Boolean),
+    responsibilities: data.responsibilities.map((r) => r.value).filter(Boolean),
+    skills: data.skills.map((s) => s.value).filter(Boolean),
+    status,
+  })
+
+  const onSaveDraft = form.handleSubmit(async (data) => {
+    setPublishing(true)
+    setSubmitError('')
+    try {
+      await jobService.create(buildPayload(data, 'draft'))
+      navigate('/recruiter/jobs')
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setSubmitError(msg ?? 'Failed to save draft. Please try again.')
+    } finally {
+      setPublishing(false)
+    }
+  })
+
   const onPublish = form.handleSubmit(async (data) => {
     setPublishing(true)
+    setSubmitError('')
     try {
-      const payload = {
-        ...data,
-        requirements: data.requirements.map((r) => r.value).filter(Boolean),
-        responsibilities: data.responsibilities.map((r) => r.value).filter(Boolean),
-        skills: data.skills.map((s) => s.value).filter(Boolean),
-        status: 'published' as const,
-      }
-      const job = await jobService.create(payload)
+      const job = await jobService.create(buildPayload(data, 'published'))
       navigate(`/recruiter/shortlist?job=${job._id}`)
-    } catch {
-      // TODO toast
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setSubmitError(msg ?? 'Failed to publish. Check the question bank has enough questions first.')
     } finally {
       setPublishing(false)
     }
@@ -249,20 +267,32 @@ export default function CreateJob() {
         )}
       </div>
 
+      {submitError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {submitError}
+        </div>
+      )}
       <div className="flex justify-between">
         <Button variant="outline" onClick={() => setStep((s) => s - 1)} disabled={step === 0}>
           <ChevronLeft className="h-4 w-4" /> Back
         </Button>
-        {step < STEPS.length - 1 ? (
-          <Button onClick={() => setStep((s) => s + 1)}>
-            Next <ChevronRight className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button onClick={onPublish} disabled={publishing}>
-            {publishing && <Loader2 className="h-4 w-4 animate-spin" />}
-            Publish Job
-          </Button>
-        )}
+        <div className="flex gap-2">
+          {step === STEPS.length - 1 && (
+            <Button variant="outline" onClick={onSaveDraft} disabled={publishing}>
+              Save Draft
+            </Button>
+          )}
+          {step < STEPS.length - 1 ? (
+            <Button onClick={() => setStep((s) => s + 1)}>
+              Next <ChevronRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button onClick={onPublish} disabled={publishing}>
+              {publishing && <Loader2 className="h-4 w-4 animate-spin" />}
+              Publish Job
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   )

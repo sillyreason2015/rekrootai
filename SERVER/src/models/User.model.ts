@@ -14,6 +14,8 @@ const userSchema = new Schema<UserDoc>(
     lastName: { type: String, required: true, trim: true },
     isVerified: { type: Boolean, default: false },
     onboardingComplete: { type: Boolean, default: false },
+    companyName: { type: String, trim: true },
+    phone: { type: String, trim: true },
   },
   baseSchemaOptions,
 )

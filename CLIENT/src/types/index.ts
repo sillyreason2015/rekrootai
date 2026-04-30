@@ -10,6 +10,8 @@ export interface User {
   isVerified: boolean
   onboardingComplete: boolean
   createdAt: string
+  companyName?: string
+  phone?: string
 }
 
 // ─── Candidate ───────────────────────────────────────────────────────────────
@@ -107,6 +109,7 @@ export interface Application {
   decisionBy?: string | User
   decisionAt?: string
   createdAt: string
+  interviewId?: string
 }
 
 export type ApplicationStatus =

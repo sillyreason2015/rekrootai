@@ -102,12 +102,18 @@ candidateRouter.get('/me/dashboard', async (req, res, next) => {
       ApplicationModel.find({ candidate: candidateId }).lean(),
       InterviewModel.find({ candidate: candidateId }).lean(),
     ])
-    const assessmentsPending = applications.filter((a) => a.status === 'assessment_sent').length
+    const assessmentsPending = applications.filter((a) => a.stage === 'assessment').length
+    // Populate job titles for recent applications
+    const recent = applications.slice(0, 5)
+    const jobIds = [...new Set(recent.map((a) => a.job))]
+    const { JobModel } = await import('../models/Job.model.js')
+    const jobs = await JobModel.find({ _id: { $in: jobIds } }).lean()
+    const jobMap = Object.fromEntries(jobs.map((j) => [String(j._id), { ...j, _id: String(j._id) }]))
     res.json({
       applications: applications.length,
       assessmentsPending,
       interviewsScheduled: interviews.length,
-      recentApplications: applications.slice(0, 5).map((a) => ({ ...a, _id: String(a._id) })),
+      recentApplications: recent.map((a) => ({ ...a, _id: String(a._id), job: jobMap[a.job] ?? a.job })),
     })
   } catch (err) {
     next(err)

@@ -23,14 +23,8 @@ export function generateRefreshToken(): string {
 }
 
 // ---------------------------------------------------------------------------
-// requireAuth middleware — supports real JWT and (dev-only) mock tokens
+// requireAuth middleware
 // ---------------------------------------------------------------------------
-
-const MOCK_EMAIL_MAP: Record<string, string> = {
-  'mock-admin': 'admin@rekroot.local',
-  'mock-recruiter': 'recruiter@rekroot.local',
-  'mock-candidate': 'candidate@rekroot.local',
-}
 
 export async function requireAuth(req: Request, _res: Response, next: NextFunction): Promise<void> {
   try {
@@ -38,19 +32,6 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
     if (!header?.startsWith('Bearer ')) throw new HttpError(401, 'Missing or invalid authorization header')
 
     const token = header.slice(7)
-
-    // ── Development mock tokens ─────────────────────────────────────────────
-    if (env.NODE_ENV !== 'production' && token.startsWith('mock-token:')) {
-      const userId = token.slice('mock-token:'.length)
-      const email = MOCK_EMAIL_MAP[userId]
-      if (!email) throw new HttpError(401, 'Unknown mock token')
-      const user = await UserModel.findOne({ email }).lean()
-      if (!user) throw new HttpError(401, 'Mock user not found in database — run the seed script first')
-      req.user = { _id: String(user._id), role: user.role as Role, email: user.email }
-      return next()
-    }
-
-    // ── Real JWT ────────────────────────────────────────────────────────────
     const payload = verifyAccessToken(token)
     const user = await UserModel.findById(payload.sub).lean()
     if (!user) throw new HttpError(401, 'User not found')

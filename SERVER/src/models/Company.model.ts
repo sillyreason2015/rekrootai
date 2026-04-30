@@ -5,14 +5,17 @@ import { baseSchemaOptions } from './_base.js'
 const companySchema = new Schema<Company>(
   {
     name: { type: String, required: true },
+    legalName: String,
     industry: String,
     size: String,
+    hqCountry: String,
     website: String,
     logoUrl: String,
     description: String,
     mission: String,
     vision: String,
     values: [String],
+    createdBy: { type: String, ref: 'User', index: true },
   },
   baseSchemaOptions,
 )

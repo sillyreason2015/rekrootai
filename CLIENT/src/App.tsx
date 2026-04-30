@@ -10,6 +10,7 @@ import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
 import CheckEmail from './pages/auth/CheckEmail'
 import Onboarding from './pages/auth/Onboarding'
+import RecruiterOnboarding from './pages/auth/RecruiterOnboarding'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import AcceptInvite from './pages/auth/AcceptInvite'
 
@@ -24,6 +25,7 @@ import DecisionExplanation from './pages/candidate/DecisionExplanation'
 
 // Recruiter pages
 import RecruiterDashboard from './pages/recruiter/Dashboard'
+import RecruiterInterviews from './pages/recruiter/Interviews'
 import RecruiterJobs from './pages/recruiter/Jobs'
 import CreateJob from './pages/recruiter/CreateJob'
 import Shortlist from './pages/recruiter/Shortlist'
@@ -58,6 +60,7 @@ export default function App() {
           {/* Onboarding — requires login but not completed onboarding */}
           <Route element={<ProtectedRoute requireOnboarding={false} />}>
             <Route path="/onboarding" element={<Onboarding />} />
+            <Route path="/recruiter/onboarding" element={<RecruiterOnboarding />} />
           </Route>
 
           {/* Candidate routes */}
@@ -84,6 +87,7 @@ export default function App() {
               <Route path="/recruiter/shortlist" element={<Shortlist />} />
               <Route path="/recruiter/question-bank" element={<QuestionBank />} />
               <Route path="/recruiter/final-selection" element={<FinalSelection />} />
+              <Route path="/recruiter/interviews" element={<RecruiterInterviews />} />
               <Route path="/recruiter/correspondence" element={<Correspondence />} />
               <Route path="/settings" element={<Settings />} />
             </Route>

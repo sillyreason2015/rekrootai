@@ -2,7 +2,8 @@ import { Router } from 'express'
 import argon2 from 'argon2'
 import { getUserByEmail, getUserById, createUser, ensureCandidateProfile, logAction } from '../data/store.js'
 import { signAccessToken, generateRefreshToken, requireAuth } from '../lib/auth.js'
-import { storeRefreshToken, getUserIdFromRefreshToken, rotateRefreshToken, deleteRefreshToken } from '../lib/redis.js'
+import { storeRefreshToken, getUserIdFromRefreshToken, rotateRefreshToken, deleteRefreshToken, storeOtp, verifyAndConsumeOtp } from '../lib/redis.js'
+import { sendOtpEmail } from '../lib/mail.js'
 import { HttpError } from '../lib/http.js'
 import { env } from '../config/env.js'
 import crypto from 'crypto'
@@ -28,6 +29,15 @@ authRouter.post('/login', async (req, res, next) => {
 
     const valid = await argon2.verify(user.password, password)
     if (!valid) throw new HttpError(401, 'Invalid email or password')
+
+    if (!user.isVerified) {
+      const otp = String(Math.floor(100000 + Math.random() * 900000))
+      await storeOtp(String(user._id), otp)
+      sendOtpEmail(user.email, otp, user.firstName).catch((err) =>
+        console.error('[mail] Failed to resend OTP to', user.email, err),
+      )
+      throw new HttpError(403, 'EMAIL_NOT_VERIFIED')
+    }
 
     const accessToken = signAccessToken(String(user._id))
     const refreshToken = generateRefreshToken()
@@ -67,6 +77,13 @@ authRouter.post('/register', async (req, res, next) => {
     if (role === 'candidate') {
       await ensureCandidateProfile(userId)
     }
+
+    // Generate and send verification OTP (non-blocking — SMTP failure must not kill registration)
+    const otp = String(Math.floor(100000 + Math.random() * 900000))
+    await storeOtp(userId, otp)
+    sendOtpEmail(email, otp, firstName).catch((err) =>
+      console.error('[mail] Failed to send OTP to', email, err),
+    )
 
     const accessToken = signAccessToken(userId)
     const refreshToken = generateRefreshToken()
@@ -164,8 +181,83 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
   }
 })
 
-// Stubs for email flows (wire up Nodemailer later)
-authRouter.post('/verify-email', (_req, res) => res.json({ ok: true }))
+// POST /auth/onboarding — marks onboarding complete; creates Company record for recruiters
+authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
+  try {
+    const { UserModel } = await import('../models/User.model.js')
+    const { CompanyModel } = await import('../models/Company.model.js')
+    const body = req.body as {
+      companyName?: string; legalName?: string; phone?: string
+      industry?: string; companySize?: string; hqCountry?: string; website?: string
+      mission?: string; vision?: string; values?: string[]; description?: string
+    }
+    const userUpdates: Record<string, unknown> = { onboardingComplete: true }
+    if (body.companyName) userUpdates.companyName = body.companyName.trim()
+    if (body.phone) userUpdates.phone = body.phone.trim()
+    await UserModel.findByIdAndUpdate(req.user!._id, userUpdates)
+
+    // For recruiters — upsert Company record
+    if (req.user!.role === 'recruiter' && body.companyName) {
+      await CompanyModel.findOneAndUpdate(
+        { createdBy: req.user!._id },
+        {
+          name: body.companyName.trim(),
+          legalName: body.legalName,
+          industry: body.industry,
+          size: body.companySize,
+          hqCountry: body.hqCountry,
+          website: body.website,
+          mission: body.mission,
+          vision: body.vision,
+          values: body.values ?? [],
+          description: body.description,
+          createdBy: req.user!._id,
+        },
+        { upsert: true, new: true },
+      )
+    }
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /auth/verify-email
+authRouter.post('/verify-email', requireAuth, async (req, res, next) => {
+  try {
+    const { UserModel } = await import('../models/User.model.js')
+    const { otp } = req.body as { otp?: string }
+    if (!otp) throw new HttpError(400, 'OTP is required')
+
+    const ok = await verifyAndConsumeOtp(req.user!._id, otp.trim())
+    if (!ok) throw new HttpError(400, 'Invalid or expired code')
+
+    await UserModel.findByIdAndUpdate(req.user!._id, { isVerified: true })
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /auth/resend-verification
+authRouter.post('/resend-verification', requireAuth, async (req, res, next) => {
+  try {
+    const user = await getUserById(req.user!._id)
+    if (!user) throw new HttpError(404, 'User not found')
+    if (user.isVerified) throw new HttpError(400, 'Email already verified')
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000))
+    await storeOtp(req.user!._id, otp)
+    sendOtpEmail(user.email, otp, user.firstName).catch((err) =>
+      console.error('[mail] Failed to resend OTP to', user.email, err),
+    )
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /auth/forgot-password — stub (wire up later)
 authRouter.post('/forgot-password', (_req, res) => res.json({ ok: true }))
 authRouter.post('/reset-password', (_req, res) => res.json({ ok: true }))
 

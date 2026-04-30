@@ -69,9 +69,17 @@ export default function JobBoard() {
       ) : (
         <>
           <p className="text-sm text-muted-foreground">{data?.total ?? 0} roles found</p>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {data?.data.map((job: Job) => <JobCard key={job._id} job={job} />)}
-          </div>
+          {data?.data.length === 0 ? (
+            <div className="rounded-xl border border-dashed py-20 text-center text-muted-foreground">
+              <Search className="mx-auto mb-3 h-8 w-8 opacity-30" />
+              <p className="font-medium">No roles match your search</p>
+              <p className="mt-1 text-sm">Try adjusting your filters or search terms.</p>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {data?.data.map((job: Job) => <JobCard key={job._id} job={job} />)}
+            </div>
+          )}
 
           {/* Pagination */}
           {(data?.totalPages ?? 1) > 1 && (

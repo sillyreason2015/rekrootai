@@ -105,6 +105,20 @@ export default function RecruiterDashboard() {
           )}
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Notifications</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="rounded-lg border bg-muted/30 p-3">
+            Candidate decisions are now surfaced in the candidate applications view with explanation links.
+          </div>
+          <div className="rounded-lg border bg-muted/30 p-3">
+            Team invite links can be created from Admin â†’ Team and accepted from `/accept-invite`.
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -53,7 +53,21 @@ applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin'), 
     const applications = candidate
       ? await ApplicationModel.find({ candidate: String(candidate._id) }).lean()
       : []
-    res.json(applications.map((a) => ({ ...a, _id: String(a._id) })))
+    // Manually populate job (stored as string ref)
+    const jobIds = [...new Set(applications.map((a) => a.job))]
+    const jobs = await JobModel.find({ _id: { $in: jobIds } }).lean()
+    const jobMap = Object.fromEntries(jobs.map((j) => [String(j._id), { ...j, _id: String(j._id) }]))
+    // Attach interviewId for applications in interview stage
+    const { InterviewModel } = await import('../models/Interview.model.js')
+    const appIds = applications.map((a) => String(a._id))
+    const interviews = await InterviewModel.find({ application: { $in: appIds } }).lean()
+    const interviewMap = Object.fromEntries(interviews.map((i) => [String(i.application), String(i._id)]))
+    res.json(applications.map((a) => ({
+      ...a,
+      _id: String(a._id),
+      job: jobMap[a.job] ?? a.job,
+      interviewId: interviewMap[String(a._id)],
+    })))
   } catch (err) {
     next(err)
   }

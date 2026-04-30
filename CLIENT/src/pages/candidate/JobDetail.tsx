@@ -1,34 +1,59 @@
-import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { MapPin, Wifi, Clock, ChevronLeft, Loader2, Building2, CheckCircle2 } from 'lucide-react'
+import { MapPin, Wifi, Clock, ChevronLeft, Loader2, Building2, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { jobService } from '../../services/job.service'
 import { applicationService } from '../../services/application.service'
 import { Button } from '../../components/ui/button'
 import { Badge } from '../../components/ui/badge'
 import { Card, CardContent } from '../../components/ui/card'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import { useState } from 'react'
+import type { Application } from '../../types'
 
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const [applied, setApplied] = useState(false)
+  const [applyError, setApplyError] = useState('')
 
-  const { data: job, isLoading } = useQuery({
+  const { data: job, isLoading: jobLoading } = useQuery({
     queryKey: ['job', id],
     queryFn: () => jobService.get(id!),
     enabled: !!id,
   })
 
-  const applyMutation = useMutation({
-    mutationFn: () => applicationService.apply(id!),
-    onSuccess: () => setApplied(true),
+  // Check if already applied
+  const { data: myApplications } = useQuery({
+    queryKey: ['my-applications'],
+    queryFn: applicationService.myApplications,
   })
 
-  if (isLoading) return <LoadingSpinner />
+  const alreadyApplied = myApplications?.some(
+    (a: Application) => (typeof a.job === 'object' ? a.job._id : a.job) === id,
+  )
+
+  const applyMutation = useMutation({
+    mutationFn: () => applicationService.apply(id!),
+    onSuccess: () => {
+      setApplyError('')
+    },
+    onError: (err: unknown) => {
+      const status = (err as { response?: { status?: number; data?: { message?: string } } })?.response?.status
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      if (status === 409) {
+        setApplyError('You have already applied to this role.')
+      } else if (status === 404) {
+        setApplyError('Your candidate profile is incomplete. Please update your profile first.')
+      } else {
+        setApplyError(msg ?? 'Something went wrong. Please try again.')
+      }
+    },
+  })
+
+  if (jobLoading) return <LoadingSpinner />
   if (!job) return <p className="text-muted-foreground">Job not found.</p>
 
   const company = typeof job.company === 'object' ? job.company : null
+  const applied = alreadyApplied || applyMutation.isSuccess
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -111,11 +136,17 @@ export default function JobDetail() {
             </div>
           )}
 
-          <div className="mt-8 flex gap-3">
+          <div className="mt-8 space-y-3">
+            {applyError && (
+              <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {applyError}
+              </div>
+            )}
             {applied ? (
-              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-5 py-3 text-sm font-medium text-emerald-700">
+              <div className="flex items-center gap-2 rounded-lg bg-emerald-50 px-5 py-3 text-sm font-medium text-emerald-700 border border-emerald-200">
                 <CheckCircle2 className="h-5 w-5" />
-                Application submitted! We'll be in touch.
+                Application submitted — we'll be in touch.
               </div>
             ) : (
               <Button

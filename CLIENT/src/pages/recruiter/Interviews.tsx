@@ -1,0 +1,134 @@
+import { useQuery } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { Video, Calendar, Clock, CheckCircle2, AlertCircle } from 'lucide-react'
+import { interviewService } from '../../services/interview.service'
+import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
+import { Badge } from '../../components/ui/badge'
+import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import { formatDate } from '../../lib/utils'
+import type { Interview } from '../../types'
+
+const statusVariant: Record<string, 'default' | 'secondary' | 'success' | 'destructive' | 'warning'> = {
+  scheduled: 'secondary',
+  live: 'warning',
+  completed: 'success',
+  cancelled: 'destructive',
+}
+
+export default function RecruiterInterviews() {
+  const { data: interviews, isLoading } = useQuery({
+    queryKey: ['my-interviews'],
+    queryFn: interviewService.getMine,
+  })
+
+  if (isLoading) return <LoadingSpinner />
+
+  const upcoming = interviews?.filter((i: Interview) => i.status === 'scheduled') ?? []
+  const past = interviews?.filter((i: Interview) => i.status !== 'scheduled') ?? []
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="font-serif text-2xl font-semibold">Interviews</h1>
+        <p className="text-sm text-muted-foreground">
+          {interviews?.length ?? 0} total · {upcoming.length} upcoming
+        </p>
+      </div>
+
+      {!interviews?.length ? (
+        <Card>
+          <CardContent className="py-20 text-center">
+            <Video className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
+            <p className="font-medium">No interviews scheduled yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Interviews are scheduled from the Shortlist page once you advance a candidate.
+            </p>
+            <Link
+              to="/recruiter/shortlist"
+              className="mt-4 inline-block rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+            >
+              Go to Shortlist
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <>
+          {upcoming.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="font-serif text-lg font-semibold">Upcoming</h2>
+              {upcoming.map((interview: Interview) => (
+                <InterviewCard key={interview._id} interview={interview} />
+              ))}
+            </div>
+          )}
+          {past.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="font-serif text-lg font-semibold text-muted-foreground">Past</h2>
+              {past.map((interview: Interview) => (
+                <InterviewCard key={interview._id} interview={interview} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function InterviewCard({ interview }: { interview: Interview }) {
+  const job = typeof interview.job === 'object' ? interview.job : null
+  const isLive = interview.status === 'live'
+  const isScheduled = interview.status === 'scheduled'
+  const isUpcoming = isLive || isScheduled
+
+  return (
+    <Card className={isLive ? 'border-destructive/40 bg-destructive/5' : ''}>
+      <CardContent className="flex items-center justify-between gap-4 p-5">
+        <div className="flex items-center gap-4">
+          <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${isLive ? 'bg-destructive/10' : 'bg-primary/10'}`}>
+            {isLive ? (
+              <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-destructive" />
+            ) : interview.status === 'completed' ? (
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            ) : (
+              <Video className="h-5 w-5 text-primary" />
+            )}
+          </div>
+          <div>
+            <p className="font-medium">{job?.title ?? 'Interview'}</p>
+            <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <Calendar className="h-3 w-3" />
+                {formatDate(interview.scheduledAt)}
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {interview.durationMin} min
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Badge variant={statusVariant[interview.status] ?? 'secondary'} className="capitalize">
+            {isLive ? '● LIVE' : interview.status}
+          </Badge>
+          {isUpcoming && (
+            <Link
+              to={`/recruiter/interview/${interview._id}`}
+              className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
+                isLive ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'
+              }`}
+            >
+              {isLive ? 'Join Now' : 'Enter Room'}
+            </Link>
+          )}
+          {interview.status === 'completed' && interview.score !== undefined && (
+            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
+              Score: {interview.score}
+            </span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}

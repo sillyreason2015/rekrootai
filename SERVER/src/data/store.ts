@@ -78,8 +78,8 @@ export async function createUser(payload: {
 }) {
   const user = await UserModel.create({
     ...payload,
-    isVerified: true,
-    onboardingComplete: payload.role !== 'candidate',
+    isVerified: false,
+    onboardingComplete: false,
   })
   return user.toJSON()
 }

@@ -10,6 +10,8 @@ export interface User {
   isVerified: boolean
   onboardingComplete: boolean
   createdAt: string
+  companyName?: string
+  phone?: string
 }
 
 export interface Candidate {
@@ -48,14 +50,17 @@ export interface EducationEntry {
 export interface Company {
   _id: string
   name: string
+  legalName?: string
   industry: string
   size: string
+  hqCountry?: string
   website?: string
   logoUrl?: string
   description?: string
   mission?: string
   vision?: string
   values?: string[]
+  createdBy?: string
 }
 
 export interface AssessmentModuleConfig {

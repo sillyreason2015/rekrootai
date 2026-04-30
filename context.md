@@ -1,6 +1,6 @@
 # Integra-Hire (AIRS) Context
 
-Last updated: 2026-04-30  
+Last updated: 2026-05-01  
 Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 
 ## Live state (defense mode)
@@ -58,6 +58,9 @@ Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 - Invite acceptance page added:
   - `/accept-invite`
 - Admin team page now surfaces acceptance link after invite creation.
+- Recruiter onboarding upgraded to 5 steps and now sends team invites (`/admin/team/invite`) for entered emails.
+- Candidate applications now show explicit decision/rejection notifications with explanation links.
+- Recruiter dashboard includes a notifications panel for defense clarity.
 
 ## Infra/devops added
 
@@ -82,6 +85,7 @@ Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 3. Add ESLint config for CLIENT to make `npm run lint` pass.
 4. Expand integration and E2E coverage beyond smoke tests.
 5. Post-defense secret rotation (AWS/SMTP/LiveKit/Redis credentials were shared in session).
+6. Replace recruiter notifications placeholder card with live notification feed from server events.
 
 ## Quick run commands
 

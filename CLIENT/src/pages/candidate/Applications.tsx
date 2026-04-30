@@ -69,13 +69,18 @@ export default function Applications() {
                         Complete Assessment <ExternalLink className="h-3 w-3" />
                       </Link>
                     )}
-                    {app.stage === 'interview' && (
+                    {app.stage === 'interview' && app.interviewId && (
                       <Link
-                        to={`/candidate/interview/${app._id}`}
+                        to={`/candidate/interview/${app.interviewId}`}
                         className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/20"
                       >
                         Join Interview Room <ExternalLink className="h-3 w-3" />
                       </Link>
+                    )}
+                    {app.stage === 'interview' && !app.interviewId && (
+                      <span className="mt-2 inline-flex items-center gap-1 rounded-md bg-muted px-3 py-1 text-xs text-muted-foreground">
+                        Interview link pending
+                      </span>
                     )}
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
@@ -85,12 +90,26 @@ export default function Applications() {
                       </div>
                     )}
                     {app.stage === 'decision' && (
-                      <Link
-                        to={`/candidate/explanation/${app._id}`}
-                        className="text-xs text-primary hover:underline"
-                      >
-                        View explanation
-                      </Link>
+                      <div className="text-right">
+                        <p className="text-xs font-medium text-emerald-700">Decision available</p>
+                        <Link
+                          to={`/candidate/explanation/${app._id}`}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          View explanation
+                        </Link>
+                      </div>
+                    )}
+                    {app.stage === 'rejected' && (
+                      <div className="text-right">
+                        <p className="text-xs font-medium text-destructive">Application rejected</p>
+                        <Link
+                          to={`/candidate/explanation/${app._id}`}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Why this decision
+                        </Link>
+                      </div>
                     )}
                   </div>
                 </CardContent>
