@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, MessageSquare } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, MessageSquare, ShieldAlert, X } from 'lucide-react'
+import ProctoringModal from '../../components/shared/ProctoringModal'
+import { useProctoringMonitor } from '../../hooks/useProctoringMonitor'
 import {
   Room,
   RoomEvent,
@@ -35,6 +37,7 @@ export default function CandidateInterviewRoom() {
   const [connState, setConnState] = useState<'connecting' | 'connected' | 'error'>('connecting')
   const [errorMsg, setErrorMsg] = useState('')
   const [remoteConnected, setRemoteConnected] = useState(false)
+  const [proctoringAccepted, setProctoringAccepted] = useState(false)
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
@@ -87,8 +90,13 @@ export default function CandidateInterviewRoom() {
     recognitionRef.current = recognition
   }, [addTranscriptLine, micOn])
 
+  // Proctoring monitor — active once inside the room
+  const { violations, lastViolationReason, showWarning, dismissWarning } = useProctoringMonitor({
+    enabled: proctoringAccepted && connState === 'connected',
+  })
+
   useEffect(() => {
-    if (!id) return
+    if (!id || !proctoringAccepted) return
     let room: Room
 
     const connect = async () => {
@@ -180,7 +188,7 @@ export default function CandidateInterviewRoom() {
       room?.disconnect()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [id, proctoringAccepted])
 
   const toggleMic = () => {
     const track = localAudioTrackRef.current
@@ -205,6 +213,11 @@ export default function CandidateInterviewRoom() {
 
   if (isLoading) return <LoadingSpinner />
   if (!interview) return <p>Interview not found.</p>
+
+  // Show proctoring consent before entering
+  if (!proctoringAccepted) {
+    return <ProctoringModal type="interview" onAccept={() => setProctoringAccepted(true)} />
+  }
 
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
@@ -239,6 +252,19 @@ export default function CandidateInterviewRoom() {
           </div>
         </div>
       </div>
+
+      {/* Proctoring violation banner */}
+      {showWarning && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-500/40 bg-red-500/20 px-4 py-2.5 text-sm text-red-300 shrink-0">
+          <div className="flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0" />
+            <span><strong>Proctoring violation ({violations}):</strong> {lastViolationReason}. This has been logged.</span>
+          </div>
+          <button onClick={dismissWarning} className="shrink-0 rounded p-0.5 hover:bg-red-500/20">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Main: side-by-side videos + transcript */}
       <div className="flex flex-1 gap-3 overflow-hidden min-h-0">

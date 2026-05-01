@@ -1,0 +1,84 @@
+import { useEffect, useRef, useState, useCallback } from 'react'
+
+interface Options {
+  /** Whether monitoring is active (set true once the session actually starts) */
+  enabled: boolean
+  /** Max violations before onMaxViolations fires. Default 3 */
+  maxViolations?: number
+  /** Called each time a violation is detected, with the current count */
+  onViolation?: (count: number) => void
+  /** Called when violations reach maxViolations */
+  onMaxViolations?: () => void
+}
+
+interface ProctoringState {
+  violations: number
+  lastViolationReason: string
+  /** True while the warning banner should be visible */
+  showWarning: boolean
+  dismissWarning: () => void
+}
+
+export function useProctoringMonitor({
+  enabled,
+  maxViolations = 3,
+  onViolation,
+  onMaxViolations,
+}: Options): ProctoringState {
+  const [violations, setViolations] = useState(0)
+  const [lastViolationReason, setLastViolationReason] = useState('')
+  const [showWarning, setShowWarning] = useState(false)
+  const violationsRef = useRef(0)
+  const onViolationRef = useRef(onViolation)
+  const onMaxRef = useRef(onMaxViolations)
+  onViolationRef.current = onViolation
+  onMaxRef.current = onMaxViolations
+
+  const recordViolation = useCallback((reason: string) => {
+    violationsRef.current += 1
+    const count = violationsRef.current
+    setViolations(count)
+    setLastViolationReason(reason)
+    setShowWarning(true)
+    onViolationRef.current?.(count)
+    if (count >= maxViolations) {
+      onMaxRef.current?.()
+    }
+  }, [maxViolations])
+
+  const dismissWarning = useCallback(() => setShowWarning(false), [])
+
+  useEffect(() => {
+    if (!enabled) return
+
+    // Tab visibility change (most reliable cross-browser signal)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        recordViolation('Tab switch detected')
+      }
+    }
+
+    // Window blur — catches Alt+Tab, clicking outside browser, etc.
+    const handleBlur = () => {
+      // Only fire if the document itself is still visible (not a tab switch, which fires visibilitychange)
+      if (document.visibilityState === 'visible') {
+        recordViolation('Window focus lost')
+      }
+    }
+
+    // Block right-click during proctored session
+    const blockContextMenu = (e: MouseEvent) => e.preventDefault()
+
+    document.addEventListener('visibilitychange', handleVisibility)
+    window.addEventListener('blur', handleBlur)
+    document.addEventListener('contextmenu', blockContextMenu)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('blur', handleBlur)
+      document.removeEventListener('contextmenu', blockContextMenu)
+    }
+  }, [enabled, recordViolation])
+
+  return { violations, lastViolationReason, showWarning, dismissWarning }
+}
