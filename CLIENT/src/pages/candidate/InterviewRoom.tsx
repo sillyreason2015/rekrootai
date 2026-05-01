@@ -139,11 +139,15 @@ export default function CandidateInterviewRoom() {
 
         room.on(RoomEvent.ConnectionStateChanged, (state: ConnectionState) => {
           if (state === ConnectionState.Connected) setConnState('connected')
-          if (state === ConnectionState.Disconnected) navigate(-1)
+          if (state === ConnectionState.Disconnected) {
+            setConnState('error')
+            setErrorMsg('Connection dropped. You can stay here and reconnect.')
+          }
         })
 
         room.on(RoomEvent.Disconnected, () => {
-          navigate(-1)
+          setConnState('error')
+          setErrorMsg('Disconnected from room.')
         })
 
         await room.connect(wsUrl, token)
@@ -225,7 +229,15 @@ export default function CandidateInterviewRoom() {
             <span className="text-xs text-muted-foreground animate-pulse">Connecting…</span>
           )}
           {connState === 'error' && (
-            <span className="text-xs text-destructive">{errorMsg}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-destructive">{errorMsg}</span>
+              <button
+                className="rounded border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive hover:bg-destructive/10"
+                onClick={() => window.location.reload()}
+              >
+                Reconnect
+              </button>
+            </div>
           )}
           <div className="flex items-center gap-2 rounded-full bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive">
             <span className={cn('h-2 w-2 rounded-full bg-destructive', connState === 'connected' && 'animate-pulse')} />

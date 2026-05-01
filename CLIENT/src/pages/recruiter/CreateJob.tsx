@@ -30,6 +30,11 @@ const schema = z.object({
     timeLimit: z.coerce.number().min(5).max(120),
     weight: z.coerce.number().min(0.1).max(1),
   })).default([]),
+  thresholds: z.object({
+    assessment: z.coerce.number().min(0).max(100).default(60),
+    fairness: z.coerce.number().min(0).max(100).default(50),
+    interview: z.coerce.number().min(0).max(100).default(60),
+  }).default({ assessment: 60, fairness: 50, interview: 60 }),
 })
 type FormData = z.infer<typeof schema>
 
@@ -49,6 +54,7 @@ export default function CreateJob() {
       responsibilities: [{ value: '' }],
       skills: [{ value: '' }],
       assessmentModules: [{ type: 'aptitude', timeLimit: 20, weight: 0.25 }],
+      thresholds: { assessment: 60, fairness: 50, interview: 60 },
     },
   })
 
@@ -63,6 +69,11 @@ export default function CreateJob() {
     responsibilities: data.responsibilities.map((r) => r.value).filter(Boolean),
     skills: data.skills.map((s) => s.value).filter(Boolean),
     status,
+    thresholds: {
+      assessment: data.thresholds.assessment,       // stored as 0-100 (e.g. 60)
+      fairness: data.thresholds.fairness / 100,     // stored as 0-1 (e.g. 0.5)
+      interview: data.thresholds.interview,         // stored as 0-100 (e.g. 60)
+    },
   })
 
   const onSaveDraft = form.handleSubmit(async (data) => {
@@ -246,6 +257,80 @@ export default function CreateJob() {
             <Button type="button" variant="outline" onClick={() => addMod({ type: 'technical', timeLimit: 20, weight: 0.25 })}>
               <Plus className="h-4 w-4" /> Add Module
             </Button>
+
+            {/* AI Decision Thresholds */}
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4 mt-2">
+              <div>
+                <h3 className="text-sm font-semibold text-primary">AI Decision Thresholds</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Candidates scoring below these thresholds are automatically failed at each gate.
+                  The AI explains the decision to them immediately. You can override at any time.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5">
+                    Assessment pass mark
+                    <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">auto-reject below</span>
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      {...register('thresholds.assessment')}
+                      className="w-full"
+                    />
+                    <span className="text-sm text-muted-foreground shrink-0">%</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Default: 60%</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5">
+                    Fairness gate threshold
+                    <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">bias control</span>
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      {...register('thresholds.fairness')}
+                      className="w-full"
+                    />
+                    <span className="text-sm text-muted-foreground shrink-0">%</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Disparate impact ratio (default: 50%)</p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5">
+                    Interview pass mark
+                    <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">post-interview</span>
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      {...register('thresholds.interview')}
+                      className="w-full"
+                    />
+                    <span className="text-sm text-muted-foreground shrink-0">%</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Default: 60%</p>
+                </div>
+              </div>
+
+              <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                <strong>How thresholds work:</strong> If a candidate scores below the assessment mark, the AI immediately
+                rejects them and sends a personalised explanation to their dashboard. The fairness gate checks for
+                demographic disparate impact — if bias is detected, the AI applies a correction before the interview stage.
+                The interview mark guides the recruiter&apos;s final decision but does not auto-reject.
+              </div>
+            </div>
           </>
         )}
 
@@ -260,6 +345,12 @@ export default function CreateJob() {
               <div className="flex justify-between"><span className="text-muted-foreground">Remote</span><span>{values.remote}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Assessment Modules</span><span>{values.assessmentModules?.length}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Skills Required</span><span>{values.skills?.filter((s) => s.value).length}</span></div>
+              <div className="border-t pt-3 mt-1">
+                <p className="text-muted-foreground text-xs font-medium mb-2">AI Thresholds</p>
+                <div className="flex justify-between"><span className="text-muted-foreground">Assessment pass mark</span><span className="font-medium">{values.thresholds?.assessment ?? 60}%</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Fairness gate</span><span className="font-medium">{values.thresholds?.fairness ?? 50}% disparate impact</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">Interview guide</span><span className="font-medium">{values.thresholds?.interview ?? 60}%</span></div>
+              </div>
             </div>
             <p className="text-xs text-muted-foreground">Publishing will make this role visible to all candidates on the job board.</p>
           </>

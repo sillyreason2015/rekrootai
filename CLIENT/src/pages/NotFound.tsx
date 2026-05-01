@@ -7,6 +7,7 @@ export default function NotFound() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const home = user?.role === 'admin' ? '/admin/dashboard'
+    : user?.role === 'super_admin' ? '/internal/super-admin/audit-log'
     : user?.role === 'recruiter' ? '/recruiter/dashboard'
     : user ? '/candidate/dashboard'
     : '/login'

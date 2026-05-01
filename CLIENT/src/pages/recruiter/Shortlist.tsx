@@ -46,6 +46,7 @@ export default function Shortlist() {
     return d.toISOString().slice(0, 16)
   })
   const [duration, setDuration] = useState(45)
+  const [vetoSummary, setVetoSummary] = useState<{ processed: number; shortlisted: number; rejected: number; review: number } | null>(null)
   const qc = useQueryClient()
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
@@ -72,6 +73,19 @@ export default function Shortlist() {
     mutationFn: (interviewId: string) => api.post(`/interviews/${interviewId}/complete`, {}),
     ...mutOpts,
   })
+  const vetoMutation = useMutation({
+    mutationFn: () => applicationService.aiDecide({ jobId: selectedJob }),
+    onSuccess: (resp: any) => {
+      const results = Array.isArray(resp?.results) ? resp.results : []
+      setVetoSummary({
+        processed: Number(resp?.processed ?? results.length),
+        shortlisted: results.filter((r: any) => r.action === 'shortlisted').length,
+        rejected: results.filter((r: any) => r.action === 'rejected').length,
+        review: results.filter((r: any) => r.action === 'review').length,
+      })
+      qc.invalidateQueries({ queryKey: ['applications', selectedJob] })
+    },
+  })
 
   return (
     <div className="space-y-6">
@@ -82,7 +96,10 @@ export default function Shortlist() {
         </div>
         <div className="flex rounded-xl border bg-card p-1">
           {(['Assist', 'Veto', 'Override'] as Mode[]).map((m) => (
-            <button key={m} onClick={() => setMode(m)}
+            <button key={m} onClick={() => {
+              setMode(m)
+              if (m === 'Veto' && selectedJob) vetoMutation.mutate()
+            }}
               className={cn('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                 mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
               {m === 'Assist' && <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -99,6 +116,11 @@ export default function Shortlist() {
         {mode === 'Veto' && 'AI shortlists automatically. You can veto individual candidates.'}
         {mode === 'Override' && 'Full manual control. AI scores are advisory only.'}
       </div>
+      {mode === 'Veto' && vetoSummary && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
+          Veto run complete: processed {vetoSummary.processed}, shortlisted {vetoSummary.shortlisted}, rejected {vetoSummary.rejected}, manual review {vetoSummary.review}.
+        </div>
+      )}
 
       <div className="flex items-center gap-3">
         <label className="text-sm font-medium">Job:</label>
@@ -143,17 +165,24 @@ export default function Shortlist() {
                       </div>
 
                       {/* Score */}
-                      {(app.scores?.final ?? 0) > 0 && (
-                        <div className={cn('rounded-full border px-3 py-1 text-sm font-bold shrink-0', scoreBg(app.scores?.final ?? 0))}>
-                          {(app.scores?.final ?? 0).toFixed(0)}%
-                        </div>
-                      )}
-                      <AiBadge />
+                        {(app.scores?.final ?? 0) > 0 && (
+                          <div className={cn('rounded-full border px-3 py-1 text-sm font-bold shrink-0', scoreBg(app.scores?.final ?? 0))}>
+                            {(app.scores?.final ?? 0).toFixed(0)}%
+                          </div>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => window.open(`/candidate/explanation/${app._id}`, '_blank')}
+                        >
+                          Explain
+                        </Button>
+                        <AiBadge />
 
                       {/* Pipeline action buttons */}
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {/* Step 1: Shortlist (applied → screening) */}
-                        {app.stage === 'applied' && (
+                        {app.stage === 'applied' && mode !== 'Veto' && (
                           <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
                             onClick={() => shortlistMutation.mutate(app._id)} disabled={shortlistMutation.isPending}>
                             <CheckCircle2 className="h-3.5 w-3.5" /> Shortlist
@@ -161,7 +190,7 @@ export default function Shortlist() {
                         )}
 
                         {/* Step 2: Send Assessment (screening) */}
-                        {app.stage === 'screening' && (
+                        {app.stage === 'screening' && mode !== 'Override' && (
                           <Button size="sm" variant="outline"
                             onClick={() => sendAssessmentMutation.mutate(app._id)} disabled={sendAssessmentMutation.isPending}>
                             <ArrowRight className="h-3.5 w-3.5" /> Send Assessment
@@ -169,7 +198,7 @@ export default function Shortlist() {
                         )}
 
                         {/* Step 3: Run Fairness Gate (assessment) */}
-                        {app.stage === 'assessment' && (
+                        {app.stage === 'assessment' && mode !== 'Override' && (
                           <Button size="sm" variant="outline" className="text-purple-600 border-purple-200 hover:bg-purple-50"
                             onClick={() => fairnessMutation.mutate(app._id)} disabled={fairnessMutation.isPending}>
                             <Shield className="h-3.5 w-3.5" /> Run Fairness
@@ -199,7 +228,7 @@ export default function Shortlist() {
                         )}
 
                         {/* Reject (available at all non-final stages) */}
-                        {!['decision', 'rejected'].includes(app.stage) && (
+                        {!['decision', 'rejected'].includes(app.stage) && mode !== 'Veto' && (
                           <Button size="sm" variant="outline" className="text-destructive border-destructive/20 hover:bg-destructive/5"
                             onClick={() => rejectMutation.mutate(app._id)} disabled={rejectMutation.isPending}>
                             <Ban className="h-3.5 w-3.5" />
@@ -242,12 +271,14 @@ export default function Shortlist() {
                     {/* SHAP details expansion */}
                     {isExpand && (
                       <div className="border-t px-4 pb-4 pt-3 space-y-3">
-                        <AiSuggestion
-                          stage={app.stage}
-                          scores={app.scores}
-                          fairnessComputedAt={extApp.fairnessComputedAt}
-                          decision={(app as any).decision}
-                        />
+                        {mode === 'Assist' && (
+                          <AiSuggestion
+                            stage={app.stage}
+                            scores={app.scores}
+                            fairnessComputedAt={extApp.fairnessComputedAt}
+                            decision={(app as any).decision}
+                          />
+                        )}
                         <AiBadge label="SHAP Score Breakdown" size="md" />
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                           {[

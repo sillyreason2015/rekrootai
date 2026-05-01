@@ -106,6 +106,30 @@ jobsRouter.post('/:id/publish', requireAuth, requireRole('admin', 'super_admin')
   } catch (err) { next(err) }
 })
 
+// PATCH /jobs/:id/thresholds — admin or the job's creator can update AI thresholds
+jobsRouter.patch('/:id/thresholds', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const job = await JobModel.findById(String(req.params.id)).lean()
+    if (!job) throw new HttpError(404, 'Job not found')
+    // Only creator or admin can edit
+    const isCreator = String(job.createdBy) === String(req.user!._id)
+    const isAdmin = ['admin', 'super_admin'].includes(req.user!.role ?? '')
+    if (!isCreator && !isAdmin) throw new HttpError(403, 'Not authorised to update this job')
+
+    const { assessment, fairness, interview } = req.body as {
+      assessment?: number; fairness?: number; interview?: number
+    }
+    const update: Record<string, unknown> = {}
+    if (assessment !== undefined) update['thresholds.assessment'] = Number(assessment)
+    if (fairness !== undefined) update['thresholds.fairness'] = Number(fairness)
+    if (interview !== undefined) update['thresholds.interview'] = Number(interview)
+
+    const updated = await JobModel.findByIdAndUpdate(String(req.params.id), { $set: update }, { new: true }).lean()
+    await logAction({ actor: 'user', action: 'job-thresholds-update', jobId: String(req.params.id), mode: 'assist', payload: req.body as Record<string, unknown> })
+    res.json({ ...updated, _id: String(updated!._id) })
+  } catch (err) { next(err) }
+})
+
 jobsRouter.post('/:id/close', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
   try {
     const job = await JobModel.findByIdAndUpdate(String(req.params.id), { status: 'closed' }, { new: true }).lean()

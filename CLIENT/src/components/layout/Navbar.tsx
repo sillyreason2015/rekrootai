@@ -5,23 +5,13 @@ import * as Popover from '@radix-ui/react-popover'
 import { useAuth } from '../../contexts/AuthContext'
 import { initials, cn } from '../../lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import api from '../../lib/axios'
+import { notificationService, type Notification } from '../../services/notification.service'
 import { formatDistanceToNow } from 'date-fns'
 
-interface Notification {
-  _id: string
-  type: string
-  title: string
-  body: string
-  link?: string
-  read: boolean
-  createdAt: string
-}
-
 function useNotifications() {
-  return useQuery<{ notifications: Notification[]; unreadCount: number }>({
+  return useQuery({
     queryKey: ['notifications'],
-    queryFn: () => api.get('/notifications/mine').then((r) => r.data),
+    queryFn: notificationService.getMine,
     refetchInterval: 30_000,
   })
 }
@@ -32,6 +22,12 @@ const typeIcon: Record<string, string> = {
   assessment_sent: '📝',
   assessment_completed: '✅',
   assessment_result: '📊',
+  assessment_failed: '⚠️',
+  fairness_passed: '🛡️',
+  fairness_rejected: '🚫',
+  recruiter_feedback: '💬',
+  interview_completed: '🎙️',
+  interview_scored: '📈',
   decision_made: '🏆',
   offer_extended: '🎉',
 }
@@ -46,12 +42,12 @@ export default function Navbar() {
   const notifications = data?.notifications ?? []
 
   const markRead = useMutation({
-    mutationFn: (ids?: string[]) => api.patch('/notifications/mark-read', ids ? { ids } : {}),
+    mutationFn: (ids?: string[]) => notificationService.markRead(ids),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   })
 
   const dismiss = useMutation({
-    mutationFn: (id: string) => api.delete(`/notifications/${id}`),
+    mutationFn: (id: string) => notificationService.dismiss(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   })
 

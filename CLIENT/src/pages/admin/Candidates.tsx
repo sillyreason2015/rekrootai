@@ -23,7 +23,7 @@ export default function AdminCandidates() {
     enabled: !!effectiveJobId,
   })
 
-  const appList = (applications?.data ?? []) as Application[]
+  const appList = useMemo(() => (applications?.data ?? []) as Application[], [applications?.data])
   const stats = useMemo(() => ({
     total: appList.length,
     screened: appList.filter((a) => a.stage === 'screening').length,

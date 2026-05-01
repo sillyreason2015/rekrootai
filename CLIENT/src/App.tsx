@@ -14,6 +14,7 @@ import CheckEmail from './pages/auth/CheckEmail'
 import Onboarding from './pages/auth/Onboarding'
 import RecruiterOnboarding from './pages/auth/RecruiterOnboarding'
 import ForgotPassword from './pages/auth/ForgotPassword'
+import ResetPassword from './pages/auth/ResetPassword'
 import AcceptInvite from './pages/auth/AcceptInvite'
 
 // Candidate pages
@@ -69,6 +70,7 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/check-email" element={<CheckEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
           <Route path="/jobs" element={<PublicJobBoard />} />
           <Route path="/jobs/:id" element={<PublicJobDetail />} />

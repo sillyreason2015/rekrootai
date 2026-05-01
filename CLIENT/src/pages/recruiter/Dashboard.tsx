@@ -1,20 +1,36 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Briefcase, Users, Video, TrendingUp, ChevronRight, Sparkles } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { jobService } from '../../services/job.service'
+import { recruiterService } from '../../services/recruiter.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
+import { Button } from '../../components/ui/button'
 import AiBadge from '../../components/shared/AiBadge'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { formatRelative } from '../../lib/utils'
+import { applicationService } from '../../services/application.service'
 import type { Job } from '../../types'
 
 export default function RecruiterDashboard() {
   const { user } = useAuth()
+  const qc = useQueryClient()
   const { data: jobs, isLoading } = useQuery({
     queryKey: ['my-jobs'],
     queryFn: () => jobService.myJobs({ page: 1 }),
+  })
+  const { data: pipeline } = useQuery({
+    queryKey: ['recruiter-pipeline-summary'],
+    queryFn: recruiterService.getPipelineSummary,
+  })
+  const [firstPublished] = (jobs?.data ?? []).filter((j: Job) => j.status === 'published')
+  const vetoMutation = useMutation({
+    mutationFn: () => applicationService.aiDecide({ jobId: String(firstPublished?._id ?? '') }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['applications', String(firstPublished?._id ?? '')] })
+      qc.invalidateQueries({ queryKey: ['recruiter-pipeline-summary'] })
+    },
   })
   if (isLoading) return <LoadingSpinner />
   const published = jobs?.data.filter((j: Job) => j.status === 'published').length ?? 0
@@ -38,6 +54,35 @@ export default function RecruiterDashboard() {
           <Link key={label} to={href}><Card><CardContent className="flex items-center gap-4 p-5"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div><div><p className="text-2xl font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card></Link>
         ))}
       </div>
+      <Card>
+        <CardHeader className="pb-2"><CardTitle>Pipeline Snapshot</CardTitle></CardHeader>
+        <CardContent className="grid grid-cols-3 gap-3 text-sm">
+          <div>Applied: {Number(pipeline?.applied ?? 0)}</div>
+          <div>Screening: {Number(pipeline?.screening ?? 0)}</div>
+          <div>Assessment: {Number(pipeline?.assessment ?? 0)}</div>
+          <div>Interview: {Number(pipeline?.interview ?? 0)}</div>
+          <div>Decision: {Number(pipeline?.decision ?? 0)}</div>
+          <div>Rejected: {Number(pipeline?.rejected ?? 0)}</div>
+          <div className="col-span-3 pt-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!firstPublished?._id || vetoMutation.isPending}
+              onClick={() => vetoMutation.mutate()}
+            >
+              Run Veto Now
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2"><CardTitle>Demo Checklist</CardTitle></CardHeader>
+        <CardContent className="space-y-1 text-sm">
+          <p>1. Open Shortlist and advance one candidate through each stage.</p>
+          <p>2. Confirm candidate receives notification + explanation at every gate.</p>
+          <p>3. Complete interview and open Final Selection for final decision.</p>
+        </CardContent>
+      </Card>
       {/* AI Suggestions */}
       <Card>
         <CardHeader className="pb-2">

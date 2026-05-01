@@ -131,6 +131,46 @@ Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 - Recruiter shortlist fairness trigger is now constrained to later stages only (`assessment|interview|decision`).
 - Question bank backend is now Mongo-backed (no in-memory loss on restart), with company scoping for recruiter/admin and global access for super_admin.
 - Publish-time minimum question validation now scopes by company (super_admin remains global), preventing cross-company leakage in publish checks.
+- Fixed interview room auto-close regression: candidate and recruiter rooms no longer force-navigate away on `Disconnected`; they now remain open and show connection error state.
+- Assist/Veto/Override now have real shortlist behavior:
+  - `Veto`: selecting mode triggers backend `/applications/ai-decide` run for selected job.
+  - `Override`: disables AI pipeline actions (`Send Assessment`, `Run Fairness`) for manual control.
+  - `Assist`: displays AI stage suggestions panel (`AiSuggestion`) for each expanded candidate row.
+- Notification backend routes added and mounted:
+  - `GET /notifications/mine`
+  - `PATCH /notifications/mark-read`
+  - `DELETE /notifications/:id`
+  - Router mounted at `/notifications` so Navbar notification center is now functional.
+- Interview completion now writes immediate AI explanation summary + updates `scores.final` + sends candidate/recruiter notifications (`interview_completed`, `interview_scored`) for continuous stage feedback.
+- Final recruiter decisions (`hire`/`reject`/`hold`) now always create a fresh AI explanation output snapshot at decision time (`decision-summary-v1`) so candidate-facing rationale is immediate and current.
+- 3-task speed pass completed:
+  1) Candidate and recruiter interview rooms now show an explicit `Reconnect` action on connection error.
+  2) Recruiter feedback note endpoint now notifies candidate immediately and deep-links to explanation.
+  3) Veto mode now shows post-run summary counts (processed/shortlisted/rejected/review) in shortlist UI.
+- Next 3-task pass completed:
+  1) Fairness gate now sends immediate candidate notifications on pass/fail with explanation deep link.
+  2) Final decision `hold` now remains in `decision` stage (not forced into `rejected` stage).
+  3) Final Selection UI now shows compact fairness/SHAP readiness badges per candidate row.
+- Simultaneous track pass (1,3,4):
+  - #1 Live verification: added super-admin `GET /admin/super/system-readiness` endpoint + dashboard readiness indicator.
+  - #3 Recruiter AI depth: Final Selection now includes inline AI preview narrative per candidate row.
+  - #4 Super-admin governance safety: Global user deletion now requires explicit confirm dialog in UI.
+- Final sprint reliability pass:
+  1) 404 fallback now routes super_admin users to `/internal/super-admin/audit-log`.
+  2) Super dashboard now includes an explicit on-screen defense readiness checklist.
+  3) OAuth access token handoff in login now removes `accessToken` from URL after capture (cleaner, safer callback flow).
+- Additional 3-task UX pass:
+  1) Navbar notification center now maps icons for newly introduced AI pipeline event types (`fairness_*`, `recruiter_feedback`, `interview_*`, etc.).
+  2) Final Selection now keeps `hold` candidates visually active (no dimming), distinguishing hold from terminal outcomes.
+  3) Shortlist rows now include a direct `Explain` action opening candidate explanation in a new tab for recruiter transparency.
+- Recruiter transparency speed pass:
+  1) Added `GET /recruiter/pipeline-summary` backend endpoint with stage counts.
+  2) Recruiter dashboard now shows live Pipeline Snapshot card using this endpoint.
+  3) Recruiter dashboard now includes a concise demo checklist card for rapid defense execution.
+- Latest 3-task continuation pass:
+  1) Candidate dashboard now shows per-application stage guidance text (clear next-state explanation under each row).
+  2) Super admin dashboard now includes quick governance links (`Manage Users`, `Verify Companies`, `Global Audit Log`, `Platform Settings`).
+  3) Recruiter dashboard now has a one-click `Run Veto Now` control tied to the first published job and refreshes pipeline snapshot after execution.
 
 ## Quick run commands
 

@@ -22,6 +22,17 @@ type AppExt = Application & {
   interviewScheduledAt?: string
 }
 
+function aiPreview(app: AppExt) {
+  const f = Number(app.scores?.final ?? 0)
+  if (app.stage === 'interview') return 'Interview completed candidates should be moved to decision after scoring.'
+  if (app.decision === 'hire') return 'AI and human review align on positive outcome.'
+  if (app.decision === 'reject') return 'Candidate did not meet composite threshold for this role.'
+  if (app.decision === 'hold') return 'Candidate on hold pending additional comparisons.'
+  if (f >= 75) return `High composite score (${f.toFixed(0)}%).`
+  if (f >= 55) return `Moderate composite score (${f.toFixed(0)}%).`
+  return `Low composite score (${f.toFixed(0)}%).`
+}
+
 const stageOrder: Record<string, number> = { interview: 0, decision: 1, offered: 2, rejected: 99 }
 
 export default function FinalSelection() {
@@ -129,7 +140,7 @@ export default function FinalSelection() {
             const email = getEmail(app)
 
             return (
-              <Card key={app._id} className={cn(decided ? 'opacity-70' : '', app.stage === 'interview' ? 'border-purple-200' : 'border-emerald-200')}>
+              <Card key={app._id} className={cn(decided && app.decision !== 'hold' ? 'opacity-70' : '', app.stage === 'interview' ? 'border-purple-200' : 'border-emerald-200')}>
                 <CardContent className="p-5 space-y-4">
                   {/* Candidate header */}
                   <div className="flex items-start gap-4">
@@ -154,6 +165,12 @@ export default function FinalSelection() {
                             <FileText className="h-3 w-3" /> AI Explanation
                           </Link>
                         )}
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                          Fairness: {app.fairnessComputedAt ? 'done' : 'pending'}
+                        </span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                          SHAP: {app.explanationComputedAt ? 'done' : 'pending'}
+                        </span>
                       </div>
                     </div>
                     {decided && (
@@ -174,6 +191,9 @@ export default function FinalSelection() {
                     fairnessComputedAt={app.fairnessComputedAt}
                     decision={app.decision}
                   />
+                  <div className="rounded-md bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                    AI Preview: {aiPreview(app)}
+                  </div>
 
                   {/* Interview stage: complete interview to advance */}
                   {isInterviewStage && app.interviewId && (

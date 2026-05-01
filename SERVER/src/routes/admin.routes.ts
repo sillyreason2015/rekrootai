@@ -16,6 +16,7 @@ import { CompanyModel } from '../models/Company.model.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { InterviewModel } from '../models/Interview.model.js'
 import { AssessmentModel } from '../models/Assessment.model.js'
+import { NotificationModel } from '../models/Notification.model.js'
 
 export const adminRouter = Router()
 
@@ -291,6 +292,34 @@ adminRouter.get('/super/metrics', async (req, res, next) => {
       AiOutputModel.countDocuments(),
     ])
     res.json({ users, companies, verifiedCompanies, jobs, applications, interviews, assessments, aiOutputs })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/super/system-readiness', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const [users, companies, jobs, applications, interviews, notifications] = await Promise.all([
+      UserModel.countDocuments(),
+      CompanyModel.countDocuments(),
+      JobModel.countDocuments(),
+      ApplicationModel.countDocuments(),
+      InterviewModel.countDocuments(),
+      NotificationModel.countDocuments(),
+    ])
+    const readiness = {
+      auth: Boolean(process.env.JWT_SECRET),
+      db: true,
+      redis: Boolean(process.env.REDIS_URL || process.env.UPSTASH_REDIS_REST_URL),
+      blob: Boolean(process.env.BLOB_ENDPOINT && process.env.BLOB_BUCKET),
+      smtp: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER),
+      livekit: Boolean(process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET && process.env.LIVEKIT_HOST),
+      ml: Boolean(process.env.ML_SERVICE_URL),
+    }
+    res.json({
+      readiness,
+      counts: { users, companies, jobs, applications, interviews, notifications },
+      allGreen: Object.values(readiness).every(Boolean),
+    })
   } catch (err) { next(err) }
 })
 

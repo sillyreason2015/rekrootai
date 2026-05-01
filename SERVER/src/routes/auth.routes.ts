@@ -341,9 +341,78 @@ authRouter.post('/resend-verification', requireAuth, async (req, res, next) => {
   }
 })
 
-// POST /auth/forgot-password — stub (wire up later)
-authRouter.post('/forgot-password', (_req, res) => res.json({ ok: true }))
-authRouter.post('/reset-password', (_req, res) => res.json({ ok: true }))
+// POST /auth/forgot-password
+authRouter.post('/forgot-password', async (req, res) => {
+  // Always return ok=true — never reveal whether email exists or if any internal step failed
+  try {
+    const { email } = req.body as { email?: string }
+    if (!email) return res.json({ ok: true })
+
+    const { UserModel } = await import('../models/User.model.js')
+    const { EmailTokenModel } = await import('../models/EmailToken.model.js')
+    const { sendEmail } = await import('../lib/email.js')
+    const { env } = await import('../config/env.js')
+
+    const user = await UserModel.findOne({ email: email.toLowerCase() }).lean()
+    if (!user) return res.json({ ok: true })
+
+    // Invalidate any previous reset tokens for this email
+    await EmailTokenModel.deleteMany({ email: email.toLowerCase(), kind: 'reset' })
+
+    const token = crypto.randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString() // 1 hour
+
+    await EmailTokenModel.create({ email: email.toLowerCase(), kind: 'reset', token, expiresAt })
+
+    const resetUrl = `${env.CORS_ORIGIN}/reset-password?token=${token}`
+
+    await sendEmail({
+      to: email,
+      subject: 'Reset your RekrootAI password',
+      text: `You requested a password reset. Click the link below within 1 hour:\n\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto">
+          <h2 style="font-size:20px;margin-bottom:8px">Reset your password</h2>
+          <p style="color:#6b7280;margin-bottom:24px">Click the button below to set a new password. This link expires in 1 hour.</p>
+          <a href="${resetUrl}" style="display:inline-block;background:#7c3aed;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600">Reset Password</a>
+          <p style="color:#9ca3af;font-size:12px;margin-top:24px">If you didn't request this, you can safely ignore this email.</p>
+        </div>
+      `,
+    })
+  } catch (err) {
+    // Intentionally swallow — never leak whether the email exists or if infra is down
+    console.error('[auth] forgot-password internal error (suppressed):', err)
+  }
+  res.json({ ok: true })
+})
+
+// POST /auth/reset-password
+authRouter.post('/reset-password', async (req, res, next) => {
+  try {
+    const { token, password } = req.body as { token?: string; password?: string }
+    if (!token || !password) throw new HttpError(400, 'token and password required')
+    if (password.length < 8) throw new HttpError(400, 'Password must be at least 8 characters')
+
+    const { UserModel } = await import('../models/User.model.js')
+    const { EmailTokenModel } = await import('../models/EmailToken.model.js')
+
+    const record = await EmailTokenModel.findOne({ token, kind: 'reset' }).lean()
+    if (!record) throw new HttpError(400, 'Invalid or expired reset link')
+    if (record.usedAt) throw new HttpError(400, 'Reset link already used')
+    if (new Date(record.expiresAt) < new Date()) throw new HttpError(400, 'Reset link has expired')
+
+    const hashed = await argon2.hash(password)
+    await UserModel.findOneAndUpdate(
+      { email: record.email },
+      { password: hashed },
+    )
+    await EmailTokenModel.findByIdAndUpdate(record._id, { usedAt: new Date().toISOString() })
+
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
 
 async function oauthUpsertAndIssue(res: Response, profile: { email: string; firstName: string; lastName: string }) {
   const { UserModel } = await import('../models/User.model.js')

@@ -111,14 +111,30 @@ export default function RecruiterInterviewRoom() {
     }
 
     recognition.onerror = () => {
-      setTimeout(() => { try { recognition.start() } catch {} }, 1000)
+      setTimeout(() => {
+        try {
+          recognition.start()
+        } catch {
+          // Ignore restart errors from browser speech API.
+        }
+      }, 1000)
     }
 
     recognition.onend = () => {
-      if (micOn) { try { recognition.start() } catch {} }
+      if (micOn) {
+        try {
+          recognition.start()
+        } catch {
+          // Ignore restart errors from browser speech API.
+        }
+      }
     }
 
-    try { recognition.start() } catch {}
+    try {
+      recognition.start()
+    } catch {
+      // Ignore initial start errors from unsupported browsers.
+    }
     recognitionRef.current = recognition
   }, [addTranscriptLine, micOn])
 
@@ -156,9 +172,16 @@ export default function RecruiterInterviewRoom() {
 
         room.on(RoomEvent.ConnectionStateChanged, (state: ConnectionState) => {
           if (state === ConnectionState.Connected) setConnState('connected')
+          if (state === ConnectionState.Disconnected) {
+            setConnState('error')
+            setErrorMsg('Connection dropped. Stay on page and reconnect.')
+          }
         })
 
-        room.on(RoomEvent.Disconnected, () => navigate('/recruiter/final-selection'))
+        room.on(RoomEvent.Disconnected, () => {
+          setConnState('error')
+          setErrorMsg('Disconnected from room.')
+        })
 
         await room.connect(wsUrl, token)
 
@@ -232,7 +255,15 @@ export default function RecruiterInterviewRoom() {
               <span className="text-xs text-muted-foreground animate-pulse">Connecting…</span>
             )}
             {connState === 'error' && (
-              <span className="text-xs text-destructive">{errorMsg}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-destructive">{errorMsg}</span>
+                <button
+                  className="rounded border border-destructive/30 px-2 py-0.5 text-[11px] text-destructive hover:bg-destructive/10"
+                  onClick={() => window.location.reload()}
+                >
+                  Reconnect
+                </button>
+              </div>
             )}
             <div className="flex items-center gap-2 rounded-full bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive">
               <span className={cn('h-2 w-2 rounded-full bg-destructive', connState === 'connected' && 'animate-pulse')} />

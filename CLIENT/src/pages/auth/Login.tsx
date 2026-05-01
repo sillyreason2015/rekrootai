@@ -69,6 +69,9 @@ export default function Login() {
     const tokenFromQuery = new URLSearchParams(location.search).get('accessToken')
     if (!tokenFromQuery) return
     localStorage.setItem('accessToken', tokenFromQuery)
+    const clean = new URL(window.location.href)
+    clean.searchParams.delete('accessToken')
+    window.history.replaceState({}, '', clean.toString())
     void refreshUser().then(async () => {
       const me = await authService.me()
       navigate(routeForUser(me), { replace: true })

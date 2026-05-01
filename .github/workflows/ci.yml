@@ -36,3 +36,4 @@ jobs:
           cache-dependency-path: SERVER/package-lock.json
       - run: npm ci
       - run: npm run type-check
+      - run: node --test --import tsx ./tests/app.test.ts

@@ -9,6 +9,33 @@ import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { formatRelative, scoreBg } from '../../lib/utils'
 import type { Application } from '../../types'
 
+function stageTone(stage: string): 'destructive' | 'success' | 'secondary' {
+  if (stage === 'rejected') return 'destructive'
+  if (stage === 'offered') return 'success'
+  return 'secondary'
+}
+
+function stageMessage(stage: string): string {
+  switch (stage) {
+    case 'applied':
+      return 'Application received. AI screening is next.'
+    case 'screening':
+      return 'AI screening in progress.'
+    case 'assessment':
+      return 'Assessment stage active. Complete pending modules.'
+    case 'interview':
+      return 'Interview stage active. Check your schedule.'
+    case 'decision':
+      return 'Final decision in progress.'
+    case 'offered':
+      return 'Offer extended. Check your inbox and dashboard.'
+    case 'rejected':
+      return 'Not selected at current stage. See explanation for details.'
+    default:
+      return 'Pipeline update available.'
+  }
+}
+
 export default function CandidateDashboard() {
   const { user } = useAuth()
   const { data, isLoading } = useQuery({
@@ -91,27 +118,26 @@ export default function CandidateDashboard() {
           ) : (
             <div className="divide-y">
               {(data.recentApplications as Application[]).map((app) => (
-                <div key={app._id} className="flex items-center justify-between py-3">
-                  <div>
-                    <p className="text-sm font-medium">
-                      {typeof app.job === 'object' ? app.job.title : 'Job'}
-                    </p>
-                    <p className="text-xs text-muted-foreground">{formatRelative(app.createdAt)}</p>
+                <div key={app._id}>
+                  <div className="flex items-center justify-between py-3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        {typeof app.job === 'object' ? app.job.title : 'Job'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{formatRelative(app.createdAt)}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {app.scores?.final !== undefined && (
+                        <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreBg(app.scores.final)}`}>
+                          {app.scores.final.toFixed(0)}%
+                        </span>
+                      )}
+                      <Badge variant={stageTone(app.stage)}>
+                        {app.stage}
+                      </Badge>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    {app.scores?.final !== undefined && (
-                      <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${scoreBg(app.scores.final)}`}>
-                        {app.scores.final.toFixed(0)}%
-                      </span>
-                    )}
-                    <Badge variant={
-                      app.stage === 'rejected' ? 'destructive'
-                        : app.stage === 'offered' ? 'success'
-                        : 'secondary'
-                    }>
-                      {app.stage}
-                    </Badge>
-                  </div>
+                  <div className="pb-3 text-xs text-muted-foreground">{stageMessage(app.stage)}</div>
                 </div>
               ))}
             </div>

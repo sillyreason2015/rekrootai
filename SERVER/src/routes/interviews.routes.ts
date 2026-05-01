@@ -6,6 +6,9 @@ import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError, nowIso } from '../lib/http.js'
 import { AccessToken } from 'livekit-server-sdk'
 import { env } from '../config/env.js'
+import { AiOutputModel } from '../models/AiOutput.model.js'
+import { CandidateModel } from '../models/Candidate.model.js'
+import { notify } from '../lib/notify.js'
 
 export const interviewsRouter = Router()
 
@@ -121,11 +124,53 @@ interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'ad
     ).lean()
     if (!interview) throw new HttpError(404, 'Interview not found')
 
-    await ApplicationModel.findByIdAndUpdate(interview.application, {
+    const app = await ApplicationModel.findByIdAndUpdate(interview.application, {
       status: 'decision_made',
       stage: 'decision',
       'scores.interview': score,
-    })
+    }, { new: true }).lean()
+
+    if (app) {
+      const resume = Number(app.scores?.resume ?? 0)
+      const assess = Number(app.scores?.assessment ?? 0)
+      const penalty = Number(app.scores?.penalty ?? 0)
+      const interviewScore = Number(score)
+      const finalScore = (0.3 * resume) + (0.3 * assess) + (0.1 * penalty) + (0.3 * interviewScore)
+
+      await ApplicationModel.findByIdAndUpdate(String(app._id), { 'scores.final': finalScore })
+      await AiOutputModel.create({
+        application: String(app._id),
+        type: 'explanation',
+        input: { stage: 'interview_complete', scores: { resume, assess, penalty, interviewScore, finalScore } },
+        output: {
+          stage: 'decision',
+          explanation: `Interview completed with score ${interviewScore}%. Your current composite score is ${finalScore.toFixed(1)}%. The recruiter will now make a final decision with full AI and human review context.`,
+          topFeatures: [
+            { name: 'interview_score', value: +(interviewScore / 100).toFixed(2) },
+            { name: 'assessment_score', value: +(assess / 100).toFixed(2) },
+            { name: 'resume_score', value: +(resume / 100).toFixed(2) },
+          ],
+        },
+        modelVersion: 'interview-summary-v1',
+      })
+
+      const candidate = await CandidateModel.findById(app.candidate).lean()
+      if (candidate?.user) {
+        notify(String(candidate.user), {
+          type: 'interview_completed',
+          title: 'Interview completed — AI summary ready',
+          body: `Your interview has been scored at ${interviewScore}%. You can now view your updated AI explanation while recruiter final review is in progress.`,
+          link: `/candidate/explanation/${String(app._id)}`,
+        })
+      }
+
+      notify(String(interview.recruiter), {
+        type: 'interview_scored',
+        title: 'Interview scoring completed',
+        body: `Candidate interview scored ${interviewScore}%. Proceed to final decision with updated AI explanation.`,
+        link: '/recruiter/final-selection',
+      })
+    }
 
     await logAction({ actor: 'ai', action: 'interview-complete', candidateId: String(interview.candidate), jobId: String(interview.job), mode: 'assist' })
     res.json({ ...interview, _id: String(interview._id) })

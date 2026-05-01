@@ -29,4 +29,5 @@ export const adminService = {
   getSuperCompanies: (params?: { page?: number; limit?: number; q?: string }) =>
     api.get('/admin/super/companies', { params }).then((r) => r.data),
   verifySuperCompany: (id: string) => api.post(`/admin/super/companies/${id}/verify`).then((r) => r.data),
+  getSystemReadiness: () => api.get('/admin/super/system-readiness').then((r) => r.data),
 }

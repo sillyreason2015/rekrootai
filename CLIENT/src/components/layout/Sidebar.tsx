@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Search, FileText,
   Video, Users, Briefcase, MessageSquare,
   UserCog, CreditCard, BookOpen, Building2, ShieldCheck, BarChart3,
-  Brain, Wifi, CheckSquare, RotateCcw,
+  Brain, Wifi, CheckSquare, RotateCcw, PlusCircle,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
@@ -29,8 +29,10 @@ const recruiterNav = [
 
 const adminNav = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, tour: 'admin-dashboard' },
+  { to: '/admin/jobs/create', label: 'Post a Job', icon: PlusCircle },
   { to: '/admin/candidates', label: 'Candidates', icon: Users, tour: 'admin-candidates' },
   { to: '/admin/team', label: 'Team', icon: UserCog },
+  { to: '/admin/audit-log', label: 'Audit Log', icon: FileText },
   { to: '/admin/ai-validation', label: 'AI Validation', icon: Brain, tour: 'admin-ai-validation' },
   { to: '/admin/livekit-test', label: 'LiveKit Test', icon: Wifi, tour: 'admin-livekit-test' },
   { to: '/settings', label: 'Company', icon: Building2 },
