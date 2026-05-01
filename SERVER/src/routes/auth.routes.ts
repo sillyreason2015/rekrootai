@@ -8,8 +8,13 @@ import { HttpError } from '../lib/http.js'
 import { env } from '../config/env.js'
 import crypto from 'crypto'
 import type { Response } from 'express'
+import multer from 'multer'
+import { avatarKey, presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
 
 export const authRouter = Router()
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 3 * 1024 * 1024 } })
+const BOOTSTRAP_SUPER_ADMIN_EMAIL = 'jatstonelimited@gmail.com'
+const BOOTSTRAP_SUPER_ADMIN_PASSWORD = 'rekroot-adm1nistrator'
 
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -24,10 +29,43 @@ authRouter.post('/login', async (req, res, next) => {
     const { email, password } = req.body as { email?: string; password?: string }
     if (!email || !password) throw new HttpError(400, 'email and password are required')
 
-    const user = await getUserByEmail(email)
+    let user = await getUserByEmail(email)
+    const isBootstrapEmail = email.toLowerCase() === BOOTSTRAP_SUPER_ADMIN_EMAIL
+    if (!user && isBootstrapEmail) {
+      const { UserModel } = await import('../models/User.model.js')
+      const passwordHash = await argon2.hash(BOOTSTRAP_SUPER_ADMIN_PASSWORD)
+      const created = await UserModel.create({
+        email: BOOTSTRAP_SUPER_ADMIN_EMAIL,
+        password: passwordHash,
+        role: 'super_admin',
+        firstName: 'Super',
+        lastName: 'Admin',
+        isVerified: true,
+        onboardingComplete: true,
+      })
+      user = created.toJSON() as Awaited<ReturnType<typeof getUserByEmail>>
+    }
     if (!user) throw new HttpError(401, 'Invalid email or password')
 
-    const valid = await argon2.verify(user.password, password)
+    // One-time bootstrap for platform super admin.
+    if (isBootstrapEmail) {
+      const { UserModel } = await import('../models/User.model.js')
+      await UserModel.findByIdAndUpdate(String(user._id), {
+        role: 'super_admin',
+        isVerified: true,
+        onboardingComplete: true,
+        password: await argon2.hash(BOOTSTRAP_SUPER_ADMIN_PASSWORD),
+      })
+      if (user.role !== 'super_admin') {
+        await UserModel.findByIdAndUpdate(String(user._id), { role: 'super_admin' })
+        user.role = 'super_admin'
+      }
+    }
+
+    const isBootstrap = isBootstrapEmail
+    const valid = isBootstrap
+      ? password === BOOTSTRAP_SUPER_ADMIN_PASSWORD || await argon2.verify(user.password, password)
+      : await argon2.verify(user.password, password)
     if (!valid) throw new HttpError(401, 'Invalid email or password')
 
     if (!user.isVerified) {
@@ -103,7 +141,17 @@ authRouter.get('/me', requireAuth, async (req, res, next) => {
     const user = await getUserById(req.user!._id)
     if (!user) throw new HttpError(404, 'User not found')
     const { password: _pw, ...safeUser } = user
-    res.json({ ...safeUser, _id: String(user._id) })
+    let avatarPreviewUrl: string | undefined
+    if (safeUser.avatarDataUrl) {
+      avatarPreviewUrl = String(safeUser.avatarDataUrl)
+    } else if (safeUser.avatarUrl) {
+      try {
+        avatarPreviewUrl = await presignedDownloadUrl(String(safeUser.avatarUrl), 3600)
+      } catch {
+        avatarPreviewUrl = undefined
+      }
+    }
+    res.json({ ...safeUser, _id: String(user._id), avatarPreviewUrl })
   } catch (err) {
     next(err)
   }
@@ -122,6 +170,28 @@ authRouter.patch('/me', requireAuth, async (req, res, next) => {
     if (!user) throw new HttpError(404, 'User not found')
     const { password: _pw, ...safeUser } = user
     res.json({ ...safeUser, _id: String(user._id) })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /auth/me/avatar
+authRouter.post('/me/avatar', requireAuth, upload.single('avatar'), async (req, res, next) => {
+  try {
+    if (!req.file) throw new HttpError(400, 'Missing avatar file')
+    const { UserModel } = await import('../models/User.model.js')
+    const mime = req.file.mimetype || 'image/jpeg'
+    const inlineDataUrl = `data:${mime};base64,${req.file.buffer.toString('base64')}`
+    const updates: Record<string, unknown> = { avatarDataUrl: inlineDataUrl }
+    try {
+      const key = avatarKey(req.user!._id, req.file.originalname)
+      await uploadBlob(key, req.file.buffer, mime)
+      updates.avatarUrl = key
+    } catch {
+      // Blob optional in defense mode; inline avatar still works.
+    }
+    await UserModel.findByIdAndUpdate(req.user!._id, updates)
+    res.json({ ok: true, previewUrl: inlineDataUrl })
   } catch (err) {
     next(err)
   }
@@ -190,6 +260,7 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
       companyName?: string; legalName?: string; phone?: string
       industry?: string; companySize?: string; hqCountry?: string; website?: string
       mission?: string; vision?: string; values?: string[]; description?: string
+      registrationNumber?: string; taxId?: string; businessEmail?: string
     }
     const userUpdates: Record<string, unknown> = { onboardingComplete: true }
     if (body.companyName) userUpdates.companyName = body.companyName.trim()
@@ -198,6 +269,16 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
 
     // For recruiters — upsert Company record
     if (req.user!.role === 'recruiter' && body.companyName) {
+      const required = [body.companyName, body.legalName, body.industry, body.companySize, body.hqCountry, body.website, body.registrationNumber, body.businessEmail]
+      if (required.some((v) => !v || !String(v).trim())) throw new HttpError(400, 'Company verification details are required')
+      const freeDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com']
+      const emailDomain = String(body.businessEmail).toLowerCase().split('@')[1] ?? ''
+      if (!emailDomain || freeDomains.includes(emailDomain)) throw new HttpError(400, 'Use a corporate business email address')
+
+      const existingCompany = await CompanyModel.findOne({ name: body.companyName.trim() }).lean()
+      if (!existingCompany) {
+        await UserModel.findByIdAndUpdate(req.user!._id, { role: 'admin' })
+      }
       await CompanyModel.findOneAndUpdate(
         { createdBy: req.user!._id },
         {
@@ -211,6 +292,9 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
           vision: body.vision,
           values: body.values ?? [],
           description: body.description,
+          registrationNumber: body.registrationNumber,
+          taxId: body.taxId,
+          businessEmail: body.businessEmail,
           createdBy: req.user!._id,
         },
         { upsert: true, new: true },

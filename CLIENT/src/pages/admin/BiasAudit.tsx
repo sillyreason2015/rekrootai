@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { BarChart3, AlertTriangle, CheckCircle2, Loader2, Play } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Loader2, Play } from 'lucide-react'
 import { adminService } from '../../services/admin.service'
 import { jobService } from '../../services/job.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'

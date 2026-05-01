@@ -1,5 +1,5 @@
 // ─── Auth ────────────────────────────────────────────────────────────────────
-export type Role = 'candidate' | 'recruiter' | 'admin'
+export type Role = 'candidate' | 'recruiter' | 'admin' | 'super_admin'
 
 export interface User {
   _id: string
@@ -12,6 +12,8 @@ export interface User {
   createdAt: string
   companyName?: string
   phone?: string
+  avatarUrl?: string
+  avatarPreviewUrl?: string
 }
 
 // ─── Candidate ───────────────────────────────────────────────────────────────

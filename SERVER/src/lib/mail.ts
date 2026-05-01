@@ -35,3 +35,25 @@ export async function sendOtpEmail(to: string, otp: string, firstName: string): 
     `,
   })
 }
+
+export async function sendInviteEmail(to: string, inviteUrl: string, inviterName?: string): Promise<void> {
+  if (!transport) {
+    console.warn(`[mail] SMTP not configured - invite for ${to}: ${inviteUrl}`)
+    return
+  }
+  const inviter = inviterName?.trim() || 'A RekrootAI admin'
+  await transport.sendMail({
+    from: `"RekrootAI" <${env.EMAIL_FROM ?? env.SMTP_USER}>`,
+    to,
+    subject: 'You have been invited to join a RekrootAI workspace',
+    text: `Hello,\n\n${inviter} invited you to join their RekrootAI hiring workspace.\n\nAccept invite: ${inviteUrl}\n\nIf you were not expecting this, you can ignore this email.`,
+    html: `
+      <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">
+        <h2 style="margin:0 0 8px;color:#0f172a">Workspace Invitation</h2>
+        <p style="color:#334155">${inviter} invited you to join their RekrootAI hiring workspace.</p>
+        <a href="${inviteUrl}" style="display:inline-block;margin:12px 0;padding:10px 16px;background:#8B3A1E;color:white;text-decoration:none;border-radius:8px">Accept Invitation</a>
+        <p style="color:#64748b;font-size:13px">If the button does not work, copy this link:<br/>${inviteUrl}</p>
+      </div>
+    `,
+  })
+}

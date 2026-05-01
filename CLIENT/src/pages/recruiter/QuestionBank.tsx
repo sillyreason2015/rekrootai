@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Search, Filter } from 'lucide-react'
+import { Plus, Trash2, Search } from 'lucide-react'
 import api from '../../lib/axios'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'

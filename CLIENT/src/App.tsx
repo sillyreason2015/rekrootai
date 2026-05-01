@@ -1,9 +1,10 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 
 // Layout
 import Layout from './components/layout/Layout'
 import ProtectedRoute from './components/layout/ProtectedRoute'
+import AuthRedirect from './components/layout/AuthRedirect'
 
 // Auth pages
 import Login from './pages/auth/Login'
@@ -33,6 +34,7 @@ import QuestionBank from './pages/recruiter/QuestionBank'
 import RecruiterInterviewRoom from './pages/recruiter/InterviewRoom'
 import FinalSelection from './pages/recruiter/FinalSelection'
 import Correspondence from './pages/recruiter/Correspondence'
+import RecruiterAuditLog from './pages/recruiter/AuditLog'
 
 // Admin pages
 import AdminDashboard from './pages/admin/Dashboard'
@@ -40,10 +42,18 @@ import AuditLog from './pages/admin/AuditLog'
 import BiasAudit from './pages/admin/BiasAudit'
 import TeamManagement from './pages/admin/TeamManagement'
 import Billing from './pages/admin/Billing'
+import AdminCandidates from './pages/admin/Candidates'
+import SuperDashboard from './pages/admin/SuperDashboard'
+import SuperUsers from './pages/admin/SuperUsers'
+import SuperCompanies from './pages/admin/SuperCompanies'
+import SuperSettings from './pages/admin/SuperSettings'
 
 // Shared
 import Settings from './pages/Settings'
 import NotFound from './pages/NotFound'
+import Landing from './pages/Landing'
+import PublicJobBoard from './pages/PublicJobBoard'
+import PublicJobDetail from './pages/PublicJobDetail'
 
 export default function App() {
   return (
@@ -56,6 +66,10 @@ export default function App() {
           <Route path="/check-email" element={<CheckEmail />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/accept-invite" element={<AcceptInvite />} />
+          <Route path="/jobs" element={<PublicJobBoard />} />
+          <Route path="/jobs/:id" element={<PublicJobDetail />} />
+          <Route path="/" element={<Landing />} />
+          <Route path="/redirect" element={<AuthRedirect />} />
 
           {/* Onboarding — requires login but not completed onboarding */}
           <Route element={<ProtectedRoute requireOnboarding={false} />}>
@@ -83,8 +97,8 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
               <Route path="/recruiter/jobs" element={<RecruiterJobs />} />
-              <Route path="/recruiter/jobs/create" element={<CreateJob />} />
               <Route path="/recruiter/shortlist" element={<Shortlist />} />
+              <Route path="/recruiter/audit-log" element={<RecruiterAuditLog />} />
               <Route path="/recruiter/question-bank" element={<QuestionBank />} />
               <Route path="/recruiter/final-selection" element={<FinalSelection />} />
               <Route path="/recruiter/interviews" element={<RecruiterInterviews />} />
@@ -99,16 +113,26 @@ export default function App() {
           <Route element={<ProtectedRoute allowedRoles={['admin']} requireOnboarding={false} />}>
             <Route element={<Layout />}>
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
-              <Route path="/admin/audit-log" element={<AuditLog />} />
-              <Route path="/admin/bias-audit" element={<BiasAudit />} />
+              <Route path="/admin/candidates" element={<AdminCandidates />} />
               <Route path="/admin/team" element={<TeamManagement />} />
               <Route path="/admin/billing" element={<Billing />} />
+              <Route path="/admin/jobs/create" element={<CreateJob />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Route>
 
-          {/* Root redirect */}
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          {/* Hidden internal super-admin routes (not linked in normal nav) */}
+          <Route element={<ProtectedRoute allowedRoles={['super_admin']} requireOnboarding={false} />}>
+            <Route element={<Layout />}>
+              <Route path="/internal/super-admin/dashboard" element={<SuperDashboard />} />
+              <Route path="/internal/super-admin/users" element={<SuperUsers />} />
+              <Route path="/internal/super-admin/companies" element={<SuperCompanies />} />
+              <Route path="/internal/super-admin/audit-log" element={<AuditLog />} />
+              <Route path="/internal/super-admin/bias-audit" element={<BiasAudit />} />
+              <Route path="/internal/super-admin/settings" element={<SuperSettings />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
+          </Route>
 
           {/* 404 */}
           <Route path="*" element={<NotFound />} />

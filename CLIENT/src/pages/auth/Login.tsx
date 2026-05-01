@@ -17,7 +17,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>
 
 export default function Login() {
-  const { login, refreshUser } = useAuth()
+  const { login, refreshUser, user } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [showPw, setShowPw] = useState(false)
@@ -30,13 +30,22 @@ export default function Login() {
     formState: { errors, isSubmitting },
   } = useForm<FormData>({ resolver: zodResolver(schema) })
 
+  const routeForUser = (u: { role?: string; onboardingComplete?: boolean }) => {
+    if (u.role === 'candidate') return u.onboardingComplete ? '/candidate/dashboard' : '/onboarding'
+    if (u.role === 'recruiter') return u.onboardingComplete ? '/recruiter/dashboard' : '/recruiter/onboarding'
+    if (u.role === 'admin') return '/admin/dashboard'
+    if (u.role === 'super_admin') return '/internal/super-admin/audit-log'
+    return '/'
+  }
+
   const onSubmit = async (data: FormData) => {
     setError('')
     setUnverified(false)
     try {
       await login(data.email, data.password)
+      const me = await authService.me()
       const from = (location.state as { from?: string })?.from
-      navigate(from ?? '/', { replace: true })
+      navigate(from ?? routeForUser(me), { replace: true })
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       if (msg === 'EMAIL_NOT_VERIFIED') {
@@ -53,11 +62,18 @@ export default function Login() {
   }
 
   useEffect(() => {
+    if (user) {
+      navigate('/redirect', { replace: true })
+      return
+    }
     const tokenFromQuery = new URLSearchParams(location.search).get('accessToken')
     if (!tokenFromQuery) return
     localStorage.setItem('accessToken', tokenFromQuery)
-    void refreshUser().then(() => navigate('/', { replace: true }))
-  }, [location.search, navigate, refreshUser])
+    void refreshUser().then(async () => {
+      const me = await authService.me()
+      navigate(routeForUser(me), { replace: true })
+    })
+  }, [location.search, navigate, refreshUser, user])
 
   return (
     <div className="flex min-h-screen">

@@ -27,8 +27,12 @@ export default function Navbar() {
           <DropdownMenu.Root>
             <DropdownMenu.Trigger asChild>
               <button className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 hover:bg-accent">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-                  {user ? initials(user.firstName ?? '', user.lastName ?? '') : '?'}
+                <span className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                  {user?.avatarPreviewUrl ? (
+                    <img src={user.avatarPreviewUrl} alt="Profile" className="h-full w-full object-cover" />
+                  ) : (
+                    <>{user ? initials(user.firstName ?? '', user.lastName ?? '') : '?'}</>
+                  )}
                 </span>
                 <span className="hidden text-sm sm:inline">
                   {user?.firstName} {user?.lastName}
@@ -57,7 +61,7 @@ export default function Navbar() {
                 </DropdownMenu.Item>
                 <DropdownMenu.Item asChild>
                   <Link
-                    to="/settings/profile"
+                    to="/settings"
                     className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                   >
                     <User className="h-4 w-4" /> Profile

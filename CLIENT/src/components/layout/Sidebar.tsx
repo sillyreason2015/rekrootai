@@ -1,8 +1,8 @@
 import { NavLink } from 'react-router-dom'
 import {
-  LayoutDashboard, Search, FileText, ClipboardList,
+  LayoutDashboard, Search, FileText,
   Video, Users, Briefcase, MessageSquare,
-  ShieldCheck, BarChart3, UserCog, CreditCard, BookOpen,
+  UserCog, CreditCard, BookOpen, Building2, ShieldCheck, BarChart3,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
@@ -18,23 +18,32 @@ const recruiterNav = [
   { to: '/recruiter/jobs', label: 'My Jobs', icon: Briefcase },
   { to: '/recruiter/shortlist', label: 'Shortlist', icon: Users },
   { to: '/recruiter/interviews', label: 'Interviews', icon: Video },
+  { to: '/recruiter/audit-log', label: 'My Audit Log', icon: FileText },
   { to: '/recruiter/question-bank', label: 'Question Bank', icon: BookOpen },
   { to: '/recruiter/correspondence', label: 'Correspondence', icon: MessageSquare },
+  { to: '/settings', label: 'Settings', icon: UserCog },
 ]
 
 const adminNav = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/admin/audit-log', label: 'Audit Log', icon: ClipboardList },
-  { to: '/admin/bias-audit', label: 'Bias Audit', icon: BarChart3 },
+  { to: '/admin/candidates', label: 'Candidates', icon: Users },
   { to: '/admin/team', label: 'Team', icon: UserCog },
+  { to: '/settings', label: 'Company', icon: Building2 },
   { to: '/admin/billing', label: 'Billing', icon: CreditCard },
-  { to: '/admin/compliance', label: 'Compliance', icon: ShieldCheck },
+]
+const superAdminNav = [
+  { to: '/internal/super-admin/dashboard', label: 'Platform', icon: LayoutDashboard },
+  { to: '/internal/super-admin/users', label: 'Users', icon: Users },
+  { to: '/internal/super-admin/companies', label: 'Companies', icon: Building2 },
+  { to: '/internal/super-admin/audit-log', label: 'Audit Log', icon: FileText },
+  { to: '/internal/super-admin/bias-audit', label: 'Bias Audit', icon: BarChart3 },
+  { to: '/internal/super-admin/settings', label: 'Settings', icon: ShieldCheck },
 ]
 
 export default function Sidebar() {
   const { user } = useAuth()
   const nav =
-    user?.role === 'admin' ? adminNav : user?.role === 'recruiter' ? recruiterNav : candidateNav
+    user?.role === 'super_admin' ? superAdminNav : user?.role === 'admin' ? adminNav : user?.role === 'recruiter' ? recruiterNav : candidateNav
 
   return (
     <aside className="hidden w-56 shrink-0 border-r border-border bg-card md:flex md:flex-col">

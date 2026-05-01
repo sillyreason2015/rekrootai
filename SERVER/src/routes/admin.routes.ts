@@ -10,20 +10,41 @@ import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError, paginate, nowIso } from '../lib/http.js'
 import { EmailTokenModel } from '../models/EmailToken.model.js'
 import crypto from 'crypto'
+import { env } from '../config/env.js'
+import { sendInviteEmail } from '../lib/mail.js'
+import { CompanyModel } from '../models/Company.model.js'
+import { CandidateModel } from '../models/Candidate.model.js'
+import { InterviewModel } from '../models/Interview.model.js'
+import { AssessmentModel } from '../models/Assessment.model.js'
 
 export const adminRouter = Router()
 
-adminRouter.use(requireAuth, requireRole('admin'))
+adminRouter.use(requireAuth, requireRole('admin', 'super_admin'))
 
 // GET /admin/dashboard
-adminRouter.get('/dashboard', async (_req, res, next) => {
+adminRouter.get('/dashboard', async (req, res, next) => {
   try {
+    const isSuper = req.user?.role === 'super_admin'
+    const me = await UserModel.findById(req.user!._id).lean()
+    const companyName = me?.companyName
+    const companyUserIds = !isSuper && companyName
+      ? (await UserModel.find({ companyName }, { _id: 1 }).lean()).map((u) => String(u._id))
+      : []
+    const companyJobs = !isSuper && companyUserIds.length
+      ? await JobModel.find({ createdBy: { $in: companyUserIds } }, { _id: 1 }).lean()
+      : []
+    const companyJobIds = companyJobs.map((j) => String(j._id))
+
     const [totalUsers, totalJobs, totalApplications, pipelineCounts, recentActivity] = await Promise.all([
-      UserModel.countDocuments(),
-      JobModel.countDocuments(),
-      ApplicationModel.countDocuments(),
-      ApplicationModel.aggregate([{ $group: { _id: '$stage', count: { $sum: 1 } } }]),
-      AuditLogModel.find().sort({ timestamp: -1 }).limit(5).lean(),
+      isSuper ? UserModel.countDocuments() : UserModel.countDocuments({ companyName }),
+      isSuper ? JobModel.countDocuments() : JobModel.countDocuments({ _id: { $in: companyJobIds } }),
+      isSuper ? ApplicationModel.countDocuments() : ApplicationModel.countDocuments({ job: { $in: companyJobIds } }),
+      isSuper
+        ? ApplicationModel.aggregate([{ $group: { _id: '$stage', count: { $sum: 1 } } }])
+        : ApplicationModel.aggregate([{ $match: { job: { $in: companyJobIds } } }, { $group: { _id: '$stage', count: { $sum: 1 } } }]),
+      isSuper
+        ? AuditLogModel.find().sort({ timestamp: -1 }).limit(5).lean()
+        : AuditLogModel.find({ actor: 'user' }).sort({ timestamp: -1 }).limit(5).lean(),
     ])
 
     const pipelineStats = { screening: 0, assessment: 0, interview: 0, decision: 0 }
@@ -77,11 +98,33 @@ adminRouter.get('/stats', async (_req, res, next) => {
 // GET /admin/audit-log
 adminRouter.get('/audit-log', async (req, res, next) => {
   try {
+    const isSuper = req.user?.role === 'super_admin'
+    const me = await UserModel.findById(req.user!._id).lean()
+    const companyName = me?.companyName
+    const companyUserIds = !isSuper && companyName
+      ? (await UserModel.find({ companyName }, { _id: 1 }).lean()).map((u) => String(u._id))
+      : []
+    const companyJobs = !isSuper && companyUserIds.length
+      ? await JobModel.find({ createdBy: { $in: companyUserIds } }, { _id: 1 }).lean()
+      : []
+    const companyJobIds = companyJobs.map((j) => String(j._id))
+    const companyApps = !isSuper && companyJobIds.length
+      ? await ApplicationModel.find({ job: { $in: companyJobIds } }, { candidate: 1 }).lean()
+      : []
+    const companyCandidateIds = [...new Set(companyApps.map((a) => String(a.candidate)))]
+
     const page = Number(req.query.page ?? 1)
     const limit = Number(req.query.limit ?? 20)
     const action = String(req.query.action ?? '').toLowerCase()
 
-    const filter = action ? { action: { $regex: action, $options: 'i' } } : {}
+    const baseFilter: Record<string, unknown> = action ? { action: { $regex: action, $options: 'i' } } : {}
+    const scopeFilter = isSuper ? {} : {
+      $or: [
+        { jobId: { $in: companyJobIds } },
+        { candidateId: { $in: companyCandidateIds } },
+      ],
+    }
+    const filter = { ...baseFilter, ...scopeFilter }
     const entries = await AuditLogModel.find(filter).sort({ timestamp: -1 }).lean()
 
     // Enrich with user info
@@ -142,9 +185,14 @@ adminRouter.post('/bias-audits/run', async (req, res, next) => {
 })
 
 // GET /admin/team
-adminRouter.get('/team', async (_req, res, next) => {
+adminRouter.get('/team', async (req, res, next) => {
   try {
-    const members = await UserModel.find({ role: { $ne: 'candidate' } }).lean()
+    const isSuper = req.user?.role === 'super_admin'
+    const me = await UserModel.findById(req.user!._id).lean()
+    const filter = isSuper
+      ? ({ role: { $in: ['recruiter', 'admin', 'super_admin'] } })
+      : ({ role: { $in: ['recruiter', 'admin', 'super_admin'] }, companyName: me?.companyName })
+    const members = await UserModel.find(filter as any).lean()
     res.json({
       members: members.map(({ password: _pw, ...u }) => ({ ...u, _id: String(u._id) })),
     })
@@ -158,11 +206,15 @@ adminRouter.post('/team/invite', async (req, res, next) => {
   try {
     const { email, role } = req.body as { email?: string; role?: string }
     if (!email || !role) throw new HttpError(400, 'email and role are required')
+    const me = await UserModel.findById(req.user!._id).lean()
     const token = crypto.randomBytes(24).toString('hex')
     const expiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString()
     await EmailTokenModel.create({ email: email.toLowerCase(), kind: 'invite', role: role as 'recruiter' | 'admin', token, expiresAt })
+    const frontendBase = env.CORS_ORIGIN || 'http://localhost:3000'
+    const inviteUrl = `${frontendBase}/accept-invite?token=${encodeURIComponent(token)}`
+    await sendInviteEmail(email.toLowerCase(), inviteUrl, me ? `${me.firstName} ${me.lastName}` : 'A RekrootAI admin')
     await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role } })
-    res.status(201).json({ ok: true, inviteToken: token, expiresAt })
+    res.status(201).json({ ok: true, inviteToken: token, inviteUrl, expiresAt })
   } catch (err) {
     next(err)
   }
@@ -218,4 +270,88 @@ adminRouter.get('/billing', async (_req, res, next) => {
   } catch (err) {
     next(err)
   }
+})
+
+function requireSuper(req: Parameters<typeof adminRouter.get>[1] extends (req: infer R, ...args: infer _Rest) => unknown ? R : never) {
+  if (req.user?.role !== 'super_admin') throw new HttpError(403, 'Super admin only')
+}
+
+adminRouter.get('/super/metrics', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const [users, companies, verifiedCompanies, jobs, applications, interviews, assessments, aiOutputs] = await Promise.all([
+      UserModel.countDocuments(),
+      CompanyModel.countDocuments(),
+      CompanyModel.countDocuments({ isVerified: true }),
+      JobModel.countDocuments(),
+      ApplicationModel.countDocuments(),
+      InterviewModel.countDocuments(),
+      AssessmentModel.countDocuments(),
+      AiOutputModel.countDocuments(),
+    ])
+    res.json({ users, companies, verifiedCompanies, jobs, applications, interviews, assessments, aiOutputs })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/super/users', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const page = Number(req.query.page ?? 1)
+    const limit = Number(req.query.limit ?? 25)
+    const role = String(req.query.role ?? '')
+    const q = String(req.query.q ?? '').trim()
+    const filter: Record<string, unknown> = {}
+    if (role) filter.role = role
+    if (q) filter.$or = [{ email: { $regex: q, $options: 'i' } }, { firstName: { $regex: q, $options: 'i' } }, { lastName: { $regex: q, $options: 'i' } }]
+    const users = await UserModel.find(filter).sort({ createdAt: -1 }).lean()
+    const safe = users.map(({ password: _pw, ...u }) => ({ ...u, _id: String(u._id) }))
+    res.json(paginate(safe, page, limit))
+  } catch (err) { next(err) }
+})
+
+adminRouter.delete('/super/users/:id', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    if (String(req.params.id) === String(req.user!._id)) throw new HttpError(400, 'Cannot delete self')
+    const user = await UserModel.findById(String(req.params.id)).lean()
+    if (!user) throw new HttpError(404, 'User not found')
+    const candidate = await CandidateModel.findOne({ user: String(user._id) }).lean()
+    if (candidate) {
+      const appIds = (await ApplicationModel.find({ candidate: String(candidate._id) }).select('_id').lean()).map((a) => String(a._id))
+      await Promise.all([
+        AiOutputModel.deleteMany({ application: { $in: appIds } }),
+        AssessmentModel.deleteMany({ application: { $in: appIds } }),
+        InterviewModel.deleteMany({ application: { $in: appIds } }),
+        ApplicationModel.deleteMany({ candidate: String(candidate._id) }),
+        CandidateModel.deleteOne({ _id: String(candidate._id) }),
+      ])
+    }
+    await UserModel.deleteOne({ _id: String(user._id) })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/super/companies', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const page = Number(req.query.page ?? 1)
+    const limit = Number(req.query.limit ?? 25)
+    const q = String(req.query.q ?? '').trim()
+    const filter: Record<string, unknown> = q ? { $or: [{ name: { $regex: q, $options: 'i' } }, { legalName: { $regex: q, $options: 'i' } }] } : {}
+    const companies = await CompanyModel.find(filter).sort({ createdAt: -1 }).lean()
+    res.json(paginate(companies.map((c) => ({ ...c, _id: String(c._id) })), page, limit))
+  } catch (err) { next(err) }
+})
+
+adminRouter.post('/super/companies/:id/verify', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const company = await CompanyModel.findByIdAndUpdate(
+      String(req.params.id),
+      { isVerified: true, verifiedAt: nowIso(), verifiedBy: req.user!._id },
+      { new: true },
+    ).lean()
+    if (!company) throw new HttpError(404, 'Company not found')
+    res.json({ ...company, _id: String(company._id) })
+  } catch (err) { next(err) }
 })

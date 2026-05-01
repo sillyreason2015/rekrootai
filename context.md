@@ -1,6 +1,6 @@
 # Integra-Hire (AIRS) Context
 
-Last updated: 2026-05-01  
+Last updated: 2026-05-01 (Codex continuation)  
 Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 
 ## Live state (defense mode)
@@ -54,11 +54,21 @@ Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 
 ## Frontend completed
 
+- Public-first routing added:
+  - `/` -> `Landing`
+  - `/jobs` -> public board
+  - `/jobs/:id` -> public detail
+- Apply guard now enforced in UI:
+  - unauthenticated apply attempts redirect to `/register`.
 - OAuth buttons wired in login page and callback token handoff handled.
 - Invite acceptance page added:
   - `/accept-invite`
 - Admin team page now surfaces acceptance link after invite creation.
 - Recruiter onboarding upgraded to 5 steps and now sends team invites (`/admin/team/invite`) for entered emails.
+- Recruiter onboarding hardening added:
+  - `registrationNumber` (required)
+  - `businessEmail` (required, non-free-domain)
+  - `taxId` (optional)
 - Candidate applications now show explicit decision/rejection notifications with explanation links.
 - Recruiter dashboard includes a notifications panel for defense clarity.
 
@@ -74,6 +84,8 @@ Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 ## Testing status
 
 - Server type-check passes.
+- Client TypeScript compile issues (unused imports and strictness noise) were patched across admin/candidate/recruiter pages.
+- Client `vite build` currently fails in this local environment with `spawn EPERM` (esbuild process spawn), which is environment/runtime permission related.
 - Server test scaffold added (`SERVER/tests/app.test.ts`) but `npm test` currently hits local `spawn EPERM` in this environment.
 - Client Playwright scaffold added (`CLIENT/tests/e2e/auth.spec.ts`).
 - Client lint script exists but repo lacks ESLint config, so lint currently fails until config is added.

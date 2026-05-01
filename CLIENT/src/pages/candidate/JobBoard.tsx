@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Search, MapPin, Clock, Wifi, Building2 } from 'lucide-react'
 import { jobService } from '../../services/job.service'
 import { Input } from '../../components/ui/input'
@@ -13,6 +13,8 @@ const TYPES = ['All', 'full-time', 'part-time', 'contract', 'internship']
 const REMOTE = ['All', 'on-site', 'hybrid', 'remote']
 
 export default function JobBoard() {
+  const location = useLocation()
+  const publicMode = location.pathname.startsWith('/jobs')
   const [search, setSearch] = useState('')
   const [type, setType] = useState('All')
   const [remote, setRemote] = useState('All')
@@ -77,7 +79,7 @@ export default function JobBoard() {
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {data?.data.map((job: Job) => <JobCard key={job._id} job={job} />)}
+              {data?.data.map((job: Job) => <JobCard key={job._id} job={job} publicMode={publicMode} />)}
             </div>
           )}
 
@@ -107,7 +109,7 @@ export default function JobBoard() {
   )
 }
 
-function JobCard({ job }: { job: Job }) {
+function JobCard({ job, publicMode }: { job: Job; publicMode?: boolean }) {
   const company = typeof job.company === 'object' ? job.company : null
 
   return (
@@ -149,7 +151,7 @@ function JobCard({ job }: { job: Job }) {
 
         <div className="mt-4">
           <Link
-            to={`/candidate/jobs/${job._id}`}
+            to={publicMode ? `/jobs/${job._id}` : `/candidate/jobs/${job._id}`}
             className="block w-full rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
           >
             View & Apply

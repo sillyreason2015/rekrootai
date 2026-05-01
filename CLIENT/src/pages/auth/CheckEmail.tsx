@@ -20,7 +20,14 @@ export default function CheckEmail() {
   // If user is already verified, skip ahead
   useEffect(() => {
     if (user?.isVerified) {
-      const dest = user.role === 'recruiter' ? '/recruiter/onboarding' : '/onboarding'
+      const dest =
+        user.role === 'recruiter'
+          ? '/recruiter/onboarding'
+          : user.role === 'admin'
+            ? '/admin/dashboard'
+            : user.role === 'super_admin'
+              ? '/internal/super-admin/audit-log'
+              : '/onboarding'
       navigate(dest, { replace: true })
     }
   }, [user, navigate])

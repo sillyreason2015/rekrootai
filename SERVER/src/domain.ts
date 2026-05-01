@@ -1,4 +1,4 @@
-export type Role = 'candidate' | 'recruiter' | 'admin'
+export type Role = 'candidate' | 'recruiter' | 'admin' | 'super_admin'
 
 export interface User {
   _id: string
@@ -12,6 +12,8 @@ export interface User {
   createdAt: string
   companyName?: string
   phone?: string
+  avatarUrl?: string
+  avatarDataUrl?: string
 }
 
 export interface Candidate {
@@ -60,6 +62,12 @@ export interface Company {
   mission?: string
   vision?: string
   values?: string[]
+  registrationNumber?: string
+  taxId?: string
+  businessEmail?: string
+  isVerified?: boolean
+  verifiedAt?: string
+  verifiedBy?: string
   createdBy?: string
 }
 

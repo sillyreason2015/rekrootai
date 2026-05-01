@@ -20,17 +20,24 @@ export default function ProtectedRoute({ allowedRoles, requireOnboarding = true 
 
   if (!user) return <Navigate to="/login" replace />
 
-  if (!user.isVerified && user.role !== 'admin') {
+  if (!user.isVerified && user.role !== 'admin' && user.role !== 'super_admin') {
     return <Navigate to="/check-email" replace />
   }
 
-  if (requireOnboarding && !user.onboardingComplete && user.role !== 'admin') {
+  if (requireOnboarding && !user.onboardingComplete && user.role !== 'admin' && user.role !== 'super_admin') {
     const dest = user.role === 'recruiter' ? '/recruiter/onboarding' : '/onboarding'
     return <Navigate to={dest} replace />
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
-    const dest = user.role === 'candidate' ? '/candidate/dashboard' : '/recruiter/dashboard'
+    const dest =
+      user.role === 'candidate'
+        ? '/candidate/dashboard'
+        : user.role === 'admin'
+          ? '/admin/dashboard'
+          : user.role === 'super_admin'
+            ? '/internal/super-admin/audit-log'
+          : '/recruiter/dashboard'
     return <Navigate to={dest} replace />
   }
 

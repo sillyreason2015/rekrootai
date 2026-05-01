@@ -16,40 +16,7 @@ const questions: Array<{
   difficulty: 'easy' | 'medium' | 'hard'
   tags: string[]
   createdAt: string
-}> = [
-  {
-    _id: 'q-1',
-    text: 'Which React hook is used to manage side effects?',
-    type: 'mcq',
-    options: ['useState', 'useEffect', 'useContext', 'useRef'],
-    correctIndex: 1,
-    points: 1,
-    category: 'technical',
-    difficulty: 'easy',
-    tags: ['react', 'hooks'],
-    createdAt: nowIso(),
-  },
-  {
-    _id: 'q-2',
-    text: 'What does SOLID stand for in software engineering?',
-    type: 'open',
-    points: 2,
-    category: 'technical',
-    difficulty: 'medium',
-    tags: ['software-design', 'principles'],
-    createdAt: nowIso(),
-  },
-  {
-    _id: 'q-3',
-    text: 'A colleague disagrees with your technical approach. How do you handle it?',
-    type: 'open',
-    points: 2,
-    category: 'situational',
-    difficulty: 'medium',
-    tags: ['communication', 'teamwork'],
-    createdAt: nowIso(),
-  },
-]
+}> = []
 
 questionBankRouter.get('/', requireAuth, requireRole('recruiter', 'admin'), (_req, res) => {
   res.json(questions)

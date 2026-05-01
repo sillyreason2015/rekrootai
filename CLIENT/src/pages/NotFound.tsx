@@ -1,12 +1,22 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 export default function NotFound() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const home = user?.role === 'admin' ? '/admin/dashboard'
     : user?.role === 'recruiter' ? '/recruiter/dashboard'
     : user ? '/candidate/dashboard'
     : '/login'
+
+  useEffect(() => {
+    if (user) {
+      const t = setTimeout(() => navigate(home, { replace: true }), 900)
+      return () => clearTimeout(t)
+    }
+  }, [user, home, navigate])
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 text-center">

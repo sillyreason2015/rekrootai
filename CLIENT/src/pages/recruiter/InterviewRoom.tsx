@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Save, Plus, MessageSquare } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Save, MessageSquare } from 'lucide-react'
 import { interviewService } from '../../services/interview.service'
 import { Button } from '../../components/ui/button'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { cn } from '../../lib/utils'
-import type { Interview } from '../../types'
 
 const DEFAULT_CRITERIA = [
   'Communication',
@@ -32,7 +31,7 @@ export default function RecruiterInterviewRoom() {
   const [rubric, setRubric] = useState<RubricEntry[]>(
     DEFAULT_CRITERIA.map((c) => ({ criterion: c, score: 0, notes: '' })),
   )
-  const [transcript, setTranscript] = useState<Array<{ speaker: string; text: string }>>([])
+  const [transcript] = useState<Array<{ speaker: string; text: string }>>([])
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   const { data: interview, isLoading } = useQuery({

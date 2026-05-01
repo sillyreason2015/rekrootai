@@ -1,10 +1,10 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, MessageSquare, Clock } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, MessageSquare } from 'lucide-react'
 import { interviewService } from '../../services/interview.service'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
-import { Card, CardContent } from '../../components/ui/card'
+import { Card } from '../../components/ui/card'
 import { cn } from '../../lib/utils'
 
 interface TranscriptLine {

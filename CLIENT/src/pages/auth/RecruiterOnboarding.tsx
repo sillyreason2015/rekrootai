@@ -28,6 +28,9 @@ const companySchema = z.object({
   hqCountry: z.string().min(2, 'HQ country is required'),
   jobTitle: z.string().min(2, 'Your job title is required'),
   phone: z.string().optional(),
+  registrationNumber: z.string().min(5, 'Registration number is required'),
+  taxId: z.string().optional(),
+  businessEmail: z.string().email('Valid business email required'),
 })
 type CompanyForm = z.infer<typeof companySchema>
 
@@ -85,6 +88,7 @@ export default function RecruiterOnboarding() {
   const [inviteInput, setInviteInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  const [stepError, setStepError] = useState('')
 
   const companyForm = useForm<CompanyForm>({ resolver: zodResolver(companySchema) })
   const missionForm = useForm<MissionForm>({ resolver: zodResolver(missionSchema) })
@@ -102,13 +106,24 @@ export default function RecruiterOnboarding() {
   }
 
   const handleNext = async () => {
+    setStepError('')
     if (step === 0) {
       const valid = await companyForm.trigger()
-      if (!valid) return
+      if (!valid) {
+        const firstErrorField = Object.keys(companyForm.formState.errors)[0] as keyof CompanyForm | undefined
+        if (firstErrorField) companyForm.setFocus(firstErrorField)
+        setStepError('Please complete all required company details before continuing.')
+        return
+      }
     }
     if (step === 1) {
       const valid = await missionForm.trigger()
-      if (!valid) return
+      if (!valid) {
+        const firstErrorField = Object.keys(missionForm.formState.errors)[0] as keyof MissionForm | undefined
+        if (firstErrorField) missionForm.setFocus(firstErrorField)
+        setStepError('Please add a valid mission statement before continuing.')
+        return
+      }
     }
     setStep((s) => s + 1)
   }
@@ -137,7 +152,9 @@ export default function RecruiterOnboarding() {
         )
       }
       await refreshUser()
-      navigate('/recruiter/dashboard')
+      const me = await api.get<{ role: 'candidate' | 'recruiter' | 'admin' }>('/auth/me')
+      const role = me.data?.role
+      navigate(role === 'admin' ? '/admin/dashboard' : '/recruiter/dashboard')
     } catch {
       setSaveError('Something went wrong. Please try again.')
     } finally {
@@ -212,6 +229,22 @@ export default function RecruiterOnboarding() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
+                    <Label>Business registration number <span className="text-destructive">*</span></Label>
+                    <Input placeholder="RC1234567" {...companyForm.register('registrationNumber')} />
+                    {companyForm.formState.errors.registrationNumber && <p className="text-xs text-destructive">{companyForm.formState.errors.registrationNumber.message}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Tax ID (optional)</Label>
+                    <Input placeholder="TIN-XXXX" {...companyForm.register('taxId')} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Corporate business email <span className="text-destructive">*</span></Label>
+                  <Input placeholder="hiring@yourcompany.com" {...companyForm.register('businessEmail')} />
+                  {companyForm.formState.errors.businessEmail && <p className="text-xs text-destructive">{companyForm.formState.errors.businessEmail.message}</p>}
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
                     <Label>Size band</Label>
                     <div className="flex flex-wrap gap-2">
                       {SIZES.map((s) => (
@@ -237,14 +270,11 @@ export default function RecruiterOnboarding() {
                 </div>
                 <div className="space-y-1.5">
                   <Label>Company website <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                  <div className="flex items-center rounded-md border border-input bg-background">
-                    <span className="border-r px-3 py-2 text-sm text-muted-foreground">https://</span>
-                    <Input
-                      placeholder="yourcompany.com"
-                      className="border-0 focus-visible:ring-0"
-                      {...companyForm.register('website')}
-                    />
-                  </div>
+                  <Input
+                    placeholder="https://yourcompany.com"
+                    {...companyForm.register('website')}
+                  />
+                  {companyForm.formState.errors.website && <p className="text-xs text-destructive">{companyForm.formState.errors.website.message}</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
@@ -457,6 +487,9 @@ export default function RecruiterOnboarding() {
             <ChevronLeft className="h-4 w-4" /> Back
           </Button>
           <div className="flex gap-3">
+            {stepError && (
+              <p className="self-center text-sm text-destructive">{stepError}</p>
+            )}
             {step < STEPS.length - 1 ? (
               <>
                 {step >= 2 && (

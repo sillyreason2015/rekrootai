@@ -5,7 +5,7 @@ interface EmailTokenDoc {
   email: string
   kind: 'verify' | 'reset' | 'invite'
   token: string
-  role?: 'candidate' | 'recruiter' | 'admin'
+  role?: 'candidate' | 'recruiter' | 'admin' | 'super_admin'
   expiresAt: string
   usedAt?: string
 }
@@ -15,7 +15,7 @@ const emailTokenSchema = new Schema<EmailTokenDoc>(
     email: { type: String, required: true, index: true },
     kind: { type: String, enum: ['verify', 'reset', 'invite'], required: true, index: true },
     token: { type: String, required: true, unique: true, index: true },
-    role: { type: String, enum: ['candidate', 'recruiter', 'admin'] },
+    role: { type: String, enum: ['candidate', 'recruiter', 'admin', 'super_admin'] },
     expiresAt: { type: String, required: true },
     usedAt: String,
   },

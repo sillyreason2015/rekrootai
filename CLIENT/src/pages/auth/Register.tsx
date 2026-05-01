@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { cn } from '../../lib/utils'
+import { authService } from '../../services/auth.service'
 
 const schema = z.object({
   firstName: z.string().min(2, 'First name is required'),
@@ -41,7 +42,7 @@ const strengthMeta: Record<number, { label: string; color: string }> = {
 }
 
 export default function Register() {
-  const { register: authRegister } = useAuth()
+  const { register: authRegister, user } = useAuth()
   const navigate = useNavigate()
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
@@ -65,12 +66,22 @@ export default function Register() {
     setError('')
     try {
       await authRegister(data)
-      navigate('/check-email')
+      const me = await authService.me()
+      if (!me.isVerified) {
+        navigate('/check-email', { replace: true })
+        return
+      }
+      if (me.role === 'candidate') navigate(me.onboardingComplete ? '/candidate/dashboard' : '/onboarding', { replace: true })
+      else navigate(me.onboardingComplete ? '/recruiter/dashboard' : '/recruiter/onboarding', { replace: true })
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setError(msg ?? 'Registration failed. Try again.')
     }
   }
+
+  useEffect(() => {
+    if (user) navigate('/redirect', { replace: true })
+  }, [user, navigate])
 
   return (
     <div className="flex min-h-screen">

@@ -8,7 +8,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
-import { initials, formatDate } from '../../lib/utils'
+import { initials } from '../../lib/utils'
 import type { User } from '../../types'
 
 export default function TeamManagement() {

@@ -27,6 +27,11 @@ export function cvKey(userId: string, fileName: string): string {
   return `cv/${userId}/${Date.now()}-${safe}`
 }
 
+export function avatarKey(userId: string, fileName: string): string {
+  const safe = fileName.replace(/[^\w.\-]/g, '_')
+  return `avatar/${userId}/${Date.now()}-${safe}`
+}
+
 export async function uploadBlob(key: string, body: Buffer, contentType: string): Promise<void> {
   requireBlobReady()
   await s3!.send(

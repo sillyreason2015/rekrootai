@@ -9,11 +9,13 @@ import { Card, CardContent } from '../../components/ui/card'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { useState } from 'react'
 import type { Application } from '../../types'
+import { useAuth } from '../../contexts/AuthContext'
 
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [applyError, setApplyError] = useState('')
+  const { user } = useAuth()
 
   const { data: job, isLoading: jobLoading } = useQuery({
     queryKey: ['job', id],
@@ -151,7 +153,13 @@ export default function JobDetail() {
             ) : (
               <Button
                 size="lg"
-                onClick={() => applyMutation.mutate()}
+                onClick={() => {
+                  if (!user) {
+                    navigate('/register')
+                    return
+                  }
+                  applyMutation.mutate()
+                }}
                 disabled={applyMutation.isPending}
                 className="px-10"
               >

@@ -21,4 +21,11 @@ export const adminService = {
   acceptInvite: (payload: { token: string; firstName: string; lastName: string; password: string }) =>
     api.post('/admin/team/invite/accept', payload).then((r) => r.data),
   getBilling: () => api.get('/admin/billing').then((r) => r.data),
+  getSuperMetrics: () => api.get('/admin/super/metrics').then((r) => r.data),
+  getSuperUsers: (params?: { page?: number; limit?: number; role?: string; q?: string }) =>
+    api.get('/admin/super/users', { params }).then((r) => r.data),
+  deleteSuperUser: (id: string) => api.delete(`/admin/super/users/${id}`).then((r) => r.data),
+  getSuperCompanies: (params?: { page?: number; limit?: number; q?: string }) =>
+    api.get('/admin/super/companies', { params }).then((r) => r.data),
+  verifySuperCompany: (id: string) => api.post(`/admin/super/companies/${id}/verify`).then((r) => r.data),
 }

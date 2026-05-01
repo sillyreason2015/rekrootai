@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -52,11 +52,16 @@ function SaveBanner({ show }: { show: boolean }) {
 export default function Settings() {
   const { user, refreshUser } = useAuth()
   const qc = useQueryClient()
+  const isCompanyAdmin = user?.role === 'admin'
   const isRecruiter = user?.role === 'recruiter'
+  const canManageCompany = isRecruiter || isCompanyAdmin
   const [profileSaved, setProfileSaved] = useState(false)
   const [pwSaved, setPwSaved] = useState(false)
   const [pwError, setPwError] = useState('')
   const [companySaved, setCompanySaved] = useState(false)
+  const [avatarUploading, setAvatarUploading] = useState(false)
+  const [avatarPreview, setAvatarPreview] = useState('')
+  const avatarSrc = useMemo(() => avatarPreview || user?.avatarUrl || '', [avatarPreview, user?.avatarUrl])
 
   const profileForm = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
@@ -69,7 +74,7 @@ export default function Settings() {
   const { data: company } = useQuery({
     queryKey: ['my-company'],
     queryFn: () => api.get('/companies/mine').then((r) => r.data),
-    enabled: isRecruiter,
+    enabled: canManageCompany,
   })
 
   const companyForm = useForm<CompanyForm>({
@@ -101,6 +106,19 @@ export default function Settings() {
     await refreshUser()
     setProfileSaved(true)
     setTimeout(() => setProfileSaved(false), 3000)
+  }
+
+  const uploadAvatar = async (file: File) => {
+    setAvatarUploading(true)
+    try {
+      const form = new FormData()
+      form.append('avatar', file)
+      const { data } = await api.post<{ avatarUrl: string; previewUrl?: string }>('/auth/me/avatar', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      if (data.previewUrl) setAvatarPreview(data.previewUrl)
+      await refreshUser()
+    } finally {
+      setAvatarUploading(false)
+    }
   }
 
   const changePassword = async (data: PasswordForm) => {
@@ -137,10 +155,10 @@ export default function Settings() {
         <p className="text-sm text-muted-foreground">Manage your account and preferences.</p>
       </div>
 
-      <Tabs defaultValue="profile">
+      <Tabs defaultValue={canManageCompany ? 'company' : 'profile'}>
         <TabsList>
           <TabsTrigger value="profile" className="gap-1.5"><User className="h-4 w-4" /> Profile</TabsTrigger>
-          {isRecruiter && (
+          {canManageCompany && (
             <TabsTrigger value="company" className="gap-1.5"><Building2 className="h-4 w-4" /> Company</TabsTrigger>
           )}
           <TabsTrigger value="security" className="gap-1.5"><Lock className="h-4 w-4" /> Security</TabsTrigger>
@@ -154,6 +172,23 @@ export default function Settings() {
             <CardContent>
               <SaveBanner show={profileSaved} />
               <form onSubmit={profileForm.handleSubmit(saveProfile)} className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <div className="h-14 w-14 overflow-hidden rounded-full border bg-muted">
+                    {avatarSrc ? <img src={avatarSrc} alt="avatar" className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">No photo</div>}
+                  </div>
+                  <div>
+                    <Label className="mb-1 block">Headshot</Label>
+                    <Input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) void uploadAvatar(f)
+                      }}
+                    />
+                    {avatarUploading && <p className="mt-1 text-xs text-muted-foreground">Uploading...</p>}
+                  </div>
+                </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
                     <Label>First name</Label>
@@ -188,7 +223,7 @@ export default function Settings() {
         </TabsContent>
 
         {/* Company (recruiter only) */}
-        {isRecruiter && (
+        {canManageCompany && (
           <TabsContent value="company">
             <Card>
               <CardHeader><CardTitle>Company Profile</CardTitle></CardHeader>
