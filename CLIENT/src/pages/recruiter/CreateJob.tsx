@@ -4,6 +4,7 @@ import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2 } from 'lucide-react'
+import InfoTip from '../../components/shared/InfoTip'
 import { jobService } from '../../services/job.service'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -26,7 +27,7 @@ const schema = z.object({
   responsibilities: z.array(z.object({ value: z.string() })).default([]),
   skills: z.array(z.object({ value: z.string() })).default([]),
   assessmentModules: z.array(z.object({
-    type: z.enum(['aptitude', 'technical', 'situational', 'personality']),
+    type: z.enum(['aptitude', 'technical', 'situational', 'personality', 'values']),
     timeLimit: z.coerce.number().min(5).max(120),
     weight: z.coerce.number().min(0.1).max(1),
   })).default([]),
@@ -238,9 +239,12 @@ export default function CreateJob() {
                 </div>
                 <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5">
-                    <Label>Type</Label>
+                    <Label className="flex items-center gap-1">
+                      Type
+                      <InfoTip content="Aptitude: numerical/logical reasoning. Technical: role-specific skills. Situational: scenario judgement. Personality: traits & working style. Values: alignment with company culture and ethics." />
+                    </Label>
                     <select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" {...register(`assessmentModules.${i}.type`)}>
-                      {['aptitude', 'technical', 'situational', 'personality'].map((t) => <option key={t}>{t}</option>)}
+                      {['aptitude', 'technical', 'situational', 'personality', 'values'].map((t) => <option key={t}>{t}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1.5">
@@ -248,7 +252,10 @@ export default function CreateJob() {
                     <Input type="number" {...register(`assessmentModules.${i}.timeLimit`)} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Weight (0–1)</Label>
+                    <Label className="flex items-center gap-1">
+                      Weight (0–1)
+                      <InfoTip content="How much this module contributes to the composite assessment score. All module weights are normalised, so total does not need to equal 1. Higher weight = more influence on ranking." />
+                    </Label>
                     <Input type="number" step="0.05" {...register(`assessmentModules.${i}.weight`)} />
                   </div>
                 </div>
@@ -270,9 +277,10 @@ export default function CreateJob() {
 
               <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1.5">
+                  <Label className="flex items-center gap-1.5 flex-wrap">
                     Assessment pass mark
                     <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">auto-reject below</span>
+                    <InfoTip content="Candidates who score below this on the combined assessment modules are automatically moved to rejected and receive an explanation. You can override any rejection manually." />
                   </Label>
                   <div className="flex items-center gap-2">
                     <Input
@@ -288,9 +296,10 @@ export default function CreateJob() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1.5">
+                  <Label className="flex items-center gap-1.5 flex-wrap">
                     Fairness gate threshold
                     <span className="rounded-full bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700">bias control</span>
+                    <InfoTip content="The minimum disparate impact ratio (0–100%) allowed before the gate flags a decision. A ratio below this means one demographic group is being selected at significantly lower rates than another. 80% is the legal 4/5ths rule standard." />
                   </Label>
                   <div className="flex items-center gap-2">
                     <Input
@@ -306,9 +315,10 @@ export default function CreateJob() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label className="flex items-center gap-1.5">
+                  <Label className="flex items-center gap-1.5 flex-wrap">
                     Interview pass mark
                     <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">post-interview</span>
+                    <InfoTip content="After the structured interview is scored on a rubric, candidates below this threshold are flagged for review rather than automatically advanced to final decision. You retain full override control." />
                   </Label>
                   <div className="flex items-center gap-2">
                     <Input

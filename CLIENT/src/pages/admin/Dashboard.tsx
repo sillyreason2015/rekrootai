@@ -1,6 +1,7 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Users, Briefcase, FileText, Building2, Sparkles, TrendingUp, AlertTriangle } from 'lucide-react'
+import InfoTip from '../../components/shared/InfoTip'
 import { Link } from 'react-router-dom'
 import { adminService } from '../../services/admin.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
@@ -16,6 +17,8 @@ export default function AdminDashboard() {
     queryFn: adminService.getDashboard,
     retry: 0,
   })
+  const { data: audits } = useQuery({ queryKey: ['admin-bias-audits-lite'], queryFn: adminService.getBiasAudits })
+  const { data: qInsights } = useQuery({ queryKey: ['admin-question-insights'], queryFn: adminService.getQuestionInsights })
 
   if (isLoading) return <LoadingSpinner />
 
@@ -56,9 +59,9 @@ export default function AdminDashboard() {
   })
 
   const stats = [
-    { label: data?.scope === 'platform' ? 'Total Users' : 'Team Members', value: Number(data?.totalUsers ?? 0), icon: Users },
-    { label: data?.scope === 'platform' ? 'Total Jobs' : 'Company Jobs', value: Number(data?.totalJobs ?? 0), icon: Briefcase },
-    { label: data?.scope === 'platform' ? 'Total Applications' : 'Company Applications', value: Number(data?.totalApplications ?? 0), icon: FileText },
+    { label: data?.scope === 'platform' ? 'Total Users' : 'Team Members', value: Number(data?.totalUsers ?? 0), icon: Users, tip: 'All active user accounts in this company, including recruiters, admins, and candidates.' },
+    { label: data?.scope === 'platform' ? 'Total Jobs' : 'Company Jobs', value: Number(data?.totalJobs ?? 0), icon: Briefcase, tip: 'All jobs posted by this company, including drafts, published, and closed roles.' },
+    { label: data?.scope === 'platform' ? 'Total Applications' : 'Company Applications', value: Number(data?.totalApplications ?? 0), icon: FileText, tip: 'Total candidate applications across all jobs. Includes every pipeline stage from Applied through to Decision.' },
   ]
 
   return (
@@ -69,15 +72,18 @@ export default function AdminDashboard() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        {stats.map(({ label, value, icon: Icon }) => (
+        {stats.map(({ label, value, icon: Icon, tip }) => (
           <Card key={label}>
             <CardContent className="flex items-center gap-4 p-5">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
                 <Icon className="h-5 w-5 text-primary" />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-2xl font-bold">{Number.isFinite(value) ? value.toLocaleString() : '0'}</p>
-                <p className="text-xs text-muted-foreground">{label}</p>
+                <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                  {label}
+                  <InfoTip content={tip} />
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -125,6 +131,16 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
       )}
+      <Card>
+        <CardHeader><CardTitle>Fairness & Question Quality</CardTitle></CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <p>Recent bias audits: {Array.isArray(audits) ? audits.length : 0}</p>
+          {Array.isArray(qInsights?.insights) && qInsights.insights.slice(0, 2).map((i: any) => (
+            <p key={i.metric} className="text-muted-foreground">{i.metric}: {i.value} - {i.hint}</p>
+          ))}
+          <Link to="/admin/bias-audit" className="text-primary hover:underline">Open Bias Audit</Link>
+        </CardContent>
+      </Card>
 
       {recentActivity.length > 0 && (
         <Card>

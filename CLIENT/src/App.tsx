@@ -58,6 +58,7 @@ import NotFound from './pages/NotFound'
 import Landing from './pages/Landing'
 import PublicJobBoard from './pages/PublicJobBoard'
 import PublicJobDetail from './pages/PublicJobDetail'
+import Help from './pages/Help'
 
 export default function App() {
   return (
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/jobs" element={<PublicJobBoard />} />
           <Route path="/jobs/:id" element={<PublicJobDetail />} />
           <Route path="/" element={<Landing />} />
+          <Route path="/help" element={<Help />} />
           <Route path="/redirect" element={<AuthRedirect />} />
 
           {/* Onboarding — requires login but not completed onboarding */}
@@ -125,6 +127,7 @@ export default function App() {
               <Route path="/admin/jobs/create" element={<CreateJob />} />
               <Route path="/admin/ai-validation" element={<AIValidation />} />
               <Route path="/admin/livekit-test" element={<LiveKitTest />} />
+              <Route path="/admin/bias-audit" element={<BiasAudit />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Route>

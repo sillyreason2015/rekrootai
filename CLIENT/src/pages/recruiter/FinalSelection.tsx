@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { CheckCircle2, XCircle, Clock, Loader2, Video, FileText, MessageSquare } from 'lucide-react'
+import InfoTip from '../../components/shared/InfoTip'
 import { applicationService } from '../../services/application.service'
 import { jobService } from '../../services/job.service'
 import api from '../../lib/axios'
@@ -155,8 +156,11 @@ export default function FinalSelection() {
                           {app.stage}
                         </span>
                         {(app.scores?.final ?? 0) > 0 && (
-                          <span className={cn('rounded-full border px-2.5 py-0.5 text-xs font-bold', scoreBg(app.scores?.final ?? 0))}>
-                            AI Score: {(app.scores?.final ?? 0).toFixed(0)}%
+                          <span className="inline-flex items-center gap-1">
+                            <span className={cn('rounded-full border px-2.5 py-0.5 text-xs font-bold', scoreBg(app.scores?.final ?? 0))}>
+                              AI Score: {(app.scores?.final ?? 0).toFixed(0)}%
+                            </span>
+                            <InfoTip content="Weighted composite of CV match, assessment modules, and interview rubric score. This is advisory — your decision overrides it." />
                           </span>
                         )}
                         {app.explanationComputedAt && (
@@ -218,32 +222,48 @@ export default function FinalSelection() {
                   )}
 
                   {/* Decision actions */}
-                  {!decided && app.stage === 'decision' && (
-                    <>
-                      <textarea rows={2}
-                        className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                        placeholder="Decision notes (optional — included in candidate explanation and audit log)…"
-                        value={notes[app._id] ?? ''}
-                        onChange={(e) => setNotes((p) => ({ ...p, [app._id]: e.target.value }))}
-                      />
-                      <div className="flex flex-wrap gap-2">
-                        <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                          onClick={() => decideMutation.mutate({ id: app._id, decision: 'hire' })}
-                          disabled={decideMutation.isPending}>
-                          {decideMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-                          <CheckCircle2 className="h-4 w-4" /> Hire
-                        </Button>
-                        <Button size="sm" variant="outline" className="text-amber-600 border-amber-200"
-                          onClick={() => decideMutation.mutate({ id: app._id, decision: 'hold' })} disabled={decideMutation.isPending}>
-                          <Clock className="h-4 w-4" /> Hold
-                        </Button>
-                        <Button size="sm" variant="outline" className="text-destructive border-destructive/20"
-                          onClick={() => decideMutation.mutate({ id: app._id, decision: 'reject' })} disabled={decideMutation.isPending}>
-                          <XCircle className="h-4 w-4" /> Reject
-                        </Button>
-                      </div>
-                    </>
-                  )}
+                  {!decided && app.stage === 'decision' && (() => {
+                    const hasNote = (notes[app._id] ?? '').trim().length >= 10
+                    return (
+                      <>
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-foreground/70">
+                            Decision rationale <span className="text-destructive">*</span>
+                            <span className="ml-1 text-[10px] text-muted-foreground">(min. 10 chars — recorded in audit log and shared with candidate)</span>
+                          </label>
+                          <textarea rows={2}
+                            className={cn('w-full rounded-md border bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring', !hasNote && (notes[app._id] ?? '').length > 0 ? 'border-destructive/50' : 'border-input')}
+                            placeholder="e.g. Strong technical skills but communication needs improvement…"
+                            value={notes[app._id] ?? ''}
+                            onChange={(e) => setNotes((p) => ({ ...p, [app._id]: e.target.value }))}
+                          />
+                          {!hasNote && (notes[app._id] ?? '').length > 0 && (
+                            <p className="text-[11px] text-destructive">Please provide at least 10 characters before making a decision.</p>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => decideMutation.mutate({ id: app._id, decision: 'hire' })}
+                            disabled={decideMutation.isPending || !hasNote}
+                            title={!hasNote ? 'Add a rationale before deciding' : ''}>
+                            {decideMutation.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                            <CheckCircle2 className="h-4 w-4" /> Hire
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-amber-600 border-amber-200"
+                            onClick={() => decideMutation.mutate({ id: app._id, decision: 'hold' })}
+                            disabled={decideMutation.isPending || !hasNote}>
+                            <Clock className="h-4 w-4" /> Hold
+                          </Button>
+                          <Button size="sm" variant="outline" className="text-destructive border-destructive/20"
+                            onClick={() => decideMutation.mutate({ id: app._id, decision: 'reject' })}
+                            disabled={decideMutation.isPending || !hasNote}>
+                            <XCircle className="h-4 w-4" /> Reject
+                          </Button>
+                          <InfoTip content="Hire: sends an offer and notifies the candidate. Hold: keeps them in the pipeline for comparison. Reject: closes their application with the rationale you wrote above — this is shared with the candidate and logged immutably." />
+                        </div>
+                      </>
+                    )
+                  })()}
 
                   {/* Recruiter feedback note (human-in-loop) */}
                   {decided && (

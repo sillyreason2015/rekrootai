@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom'
-import { Bell, ChevronDown, LogOut, Settings, User, CheckCheck, X } from 'lucide-react'
+import { Bell, ChevronDown, LogOut, Settings, User, CheckCheck, X, Moon, Sun, HelpCircle } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
 import * as Popover from '@radix-ui/react-popover'
 import { useAuth } from '../../contexts/AuthContext'
@@ -7,6 +7,7 @@ import { initials, cn } from '../../lib/utils'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { notificationService, type Notification } from '../../services/notification.service'
 import { formatDistanceToNow } from 'date-fns'
+import { useTheme } from '../../contexts/ThemeContext'
 
 function useNotifications() {
   return useQuery({
@@ -50,6 +51,7 @@ export default function Navbar() {
     mutationFn: (id: string) => notificationService.dismiss(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   })
+  const { mode, resolved, setMode, toggleResolved } = useTheme()
 
   const handleNotifClick = (n: Notification) => {
     if (!n.read) markRead.mutate([n._id])
@@ -69,6 +71,22 @@ export default function Navbar() {
 
         {/* Right */}
         <div className="flex items-center gap-2">
+          <button
+            aria-label="Toggle theme"
+            onClick={toggleResolved}
+            className="rounded-full p-2 hover:bg-accent"
+            title={`Theme: ${mode} (${resolved})`}
+          >
+            {resolved === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+          <button
+            aria-label="Use system theme"
+            onClick={() => setMode(mode === 'system' ? (resolved === 'dark' ? 'dark' : 'light') : 'system')}
+            className={cn('rounded-full px-2 py-1 text-xs', mode === 'system' ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-accent')}
+            title="Follow device theme"
+          >
+            Auto
+          </button>
           {/* Notification Bell */}
           <Popover.Root>
             <Popover.Trigger asChild>
@@ -185,6 +203,14 @@ export default function Navbar() {
                     className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
                   >
                     <User className="h-4 w-4" /> Profile
+                  </Link>
+                </DropdownMenu.Item>
+                <DropdownMenu.Item asChild>
+                  <Link
+                    to="/help"
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
+                  >
+                    <HelpCircle className="h-4 w-4" /> Help & Docs
                   </Link>
                 </DropdownMenu.Item>
                 <DropdownMenu.Separator className="my-1 h-px bg-border" />

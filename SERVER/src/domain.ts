@@ -72,7 +72,7 @@ export interface Company {
 }
 
 export interface AssessmentModuleConfig {
-  type: 'aptitude' | 'technical' | 'situational' | 'personality'
+  type: 'aptitude' | 'technical' | 'situational' | 'personality' | 'values'
   timeLimit: number
   weight: number
 }

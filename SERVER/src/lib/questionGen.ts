@@ -5,7 +5,7 @@
 
 type QType = 'mcq' | 'open'
 type Difficulty = 'easy' | 'medium' | 'hard'
-type ModuleType = 'aptitude' | 'technical' | 'situational' | 'personality'
+type ModuleType = 'aptitude' | 'technical' | 'situational' | 'personality' | 'values'
 
 interface GenQuestion {
   text: string
@@ -101,11 +101,34 @@ const PERSONALITY: Record<Difficulty, GenQuestion[]> = {
   ],
 }
 
+const VALUES: Record<Difficulty, GenQuestion[]> = {
+  easy: [
+    { text: 'Our team is asked to deliver a project faster than you believe is safe or thorough. What do you do?', type: 'mcq', options: ['Agree and deliver on the shortened timeline', 'Raise the risk clearly, propose a realistic alternative, and let leadership decide', 'Refuse outright', 'Say nothing and do your best'], correctIndex: 1, points: 2, category: 'values', difficulty: 'easy', tags: ['integrity', 'communication'] },
+    { text: 'A colleague takes sole credit for work the team did together. How do you respond?', type: 'mcq', options: ['Say nothing to avoid conflict', 'Address it privately with the colleague first', 'Escalate to management immediately', 'Post in a group channel to correct the record publicly'], correctIndex: 1, points: 2, category: 'values', difficulty: 'easy', tags: ['fairness', 'integrity'] },
+    { text: 'How important is it that your personal values align with your employer\'s stated mission?', type: 'mcq', options: ['Not important — work is work', 'Somewhat important but not a dealbreaker', 'Very important — misalignment affects motivation and decision-making', 'Only matters for leadership roles'], correctIndex: 2, points: 1, category: 'values', difficulty: 'easy', tags: ['culture-fit', 'motivation'] },
+    { text: 'Describe what integrity in the workplace means to you and give an example of a time you demonstrated it.', type: 'open', points: 3, category: 'values', difficulty: 'easy', tags: ['integrity', 'self-awareness'] },
+  ],
+  medium: [
+    { text: 'You are asked to present data in a way that technically is accurate but you believe is misleading to stakeholders. What do you do?', type: 'open', points: 4, category: 'values', difficulty: 'medium', tags: ['integrity', 'ethics', 'communication'] },
+    { text: 'Our company values transparency. Describe how you have actively practised transparency in a previous role, including a situation where it was uncomfortable.', type: 'open', points: 4, category: 'values', difficulty: 'medium', tags: ['transparency', 'accountability'] },
+    { text: 'Which statement best reflects your view on accountability when a team fails to hit a goal?', type: 'mcq', options: ['The team lead is responsible', 'Each person is responsible only for their own part', 'Accountability is shared — the team owns outcomes collectively', 'Accountability depends on who made the original decision'], correctIndex: 2, points: 3, category: 'values', difficulty: 'medium', tags: ['accountability', 'teamwork'] },
+    { text: 'How do you balance moving fast with maintaining quality and ethical standards?', type: 'open', points: 3, category: 'values', difficulty: 'medium', tags: ['quality', 'judgement', 'pace'] },
+    { text: 'You disagree with a company policy but it is not unethical. How do you handle it?', type: 'mcq', options: ['Ignore it and do things your own way', 'Comply while raising your concern through proper channels', 'Refuse to follow it', 'Only follow it when being observed'], correctIndex: 1, points: 3, category: 'values', difficulty: 'medium', tags: ['compliance', 'integrity', 'communication'] },
+  ],
+  hard: [
+    { text: 'You discover a practice within your team that is legal but inconsistent with the company\'s stated values around inclusion and fairness. No one else has raised it. What do you do and why?', type: 'open', points: 5, category: 'values', difficulty: 'hard', tags: ['inclusion', 'courage', 'leadership'] },
+    { text: 'Describe a time when living by your values cost you something professionally — a relationship, an opportunity, or recognition. What did that experience teach you?', type: 'open', points: 5, category: 'values', difficulty: 'hard', tags: ['integrity', 'resilience', 'self-awareness'] },
+    { text: 'A high-performing team member consistently achieves results but their approach undermines the team\'s psychological safety. How do you address this in a way that reflects the company\'s values?', type: 'open', points: 5, category: 'values', difficulty: 'hard', tags: ['leadership', 'inclusion', 'performance'] },
+    { text: 'How would you describe the relationship between company culture and individual values? What happens when they conflict, and how have you navigated that?', type: 'open', points: 4, category: 'values', difficulty: 'hard', tags: ['culture', 'self-awareness', 'leadership'] },
+  ],
+}
+
 const BANKS: Record<ModuleType, Record<Difficulty, GenQuestion[]>> = {
   aptitude: APTITUDE,
   technical: TECHNICAL,
   situational: SITUATIONAL,
   personality: PERSONALITY,
+  values: VALUES,
 }
 
 export function generateQuestions(

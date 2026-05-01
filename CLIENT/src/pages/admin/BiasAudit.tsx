@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, CheckCircle2, Loader2, Play } from 'lucide-react'
+import InfoTip from '../../components/shared/InfoTip'
 import { adminService } from '../../services/admin.service'
 import { jobService } from '../../services/job.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
@@ -43,9 +44,12 @@ export default function BiasAudit() {
       {/* Run audit */}
       <Card className="border-primary/20 bg-primary/5">
         <CardContent className="flex items-center justify-between gap-4 p-5">
-          <div>
-            <p className="font-medium">Run New Bias Audit</p>
-            <p className="text-sm text-muted-foreground">Analyses disparate impact across gender, ethnicity, and age.</p>
+          <div className="flex items-start gap-2">
+            <div>
+              <p className="font-medium">Run New Bias Audit</p>
+              <p className="text-sm text-muted-foreground">Analyses disparate impact across gender, ethnicity, and age.</p>
+            </div>
+            <InfoTip size="md" content="Disparate impact measures whether one demographic group is selected at a significantly lower rate than another. The 4/5ths rule flags any ratio below 0.80 (80%). A bias audit computes this ratio per protected attribute across all applications for the selected job." />
           </div>
           <div className="flex items-center gap-3">
             <select

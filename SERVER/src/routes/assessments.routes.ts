@@ -8,6 +8,8 @@ import { CandidateModel } from '../models/Candidate.model.js'
 import { requireAuth } from '../lib/auth.js'
 import { HttpError, nowIso } from '../lib/http.js'
 import { notify } from '../lib/notify.js'
+import { UserModel } from '../models/User.model.js'
+import { sendEmail } from '../lib/email.js'
 
 export const assessmentsRouter = Router()
 
@@ -44,6 +46,11 @@ assessmentsRouter.get('/:applicationId', requireAuth, async (req, res, next) => 
 // POST /assessments/:assessmentId/start
 assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, next) => {
   try {
+    const current = await AssessmentModel.findById(String(req.params.assessmentId)).lean()
+    if (!current) throw new HttpError(404, 'Assessment not found')
+    const app0 = await getApplicationById(String(current.application))
+    if (!app0) throw new HttpError(404, 'Application not found')
+    if (String(app0.stage) !== 'assessment') throw new HttpError(400, 'Assessment is not available for this application stage')
     const assessment = await AssessmentModel.findByIdAndUpdate(
       String(req.params.assessmentId),
       { status: 'in_progress', startedAt: nowIso() },
@@ -63,20 +70,32 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleType/submit', requireAuth,
   try {
     const assessment = await AssessmentModel.findById(String(req.params.assessmentId))
     if (!assessment) throw new HttpError(404, 'Assessment not found')
+    const app0 = await getApplicationById(String(assessment.application))
+    if (!app0) throw new HttpError(404, 'Application not found')
+    if (String(app0.stage) !== 'assessment') throw new HttpError(400, 'Cannot submit module outside assessment stage')
 
     const module = assessment.modules.find((m) => m.type === req.params.moduleType)
     if (!module) throw new HttpError(404, `Module '${req.params.moduleType}' not found`)
 
-    const score = Math.min(100, Math.round(70 + Math.random() * 20))
+    const submittedAnswers = Array.isArray((req.body as { answers?: unknown[] }).answers)
+      ? ((req.body as { answers?: unknown[] }).answers as unknown[])
+      : []
+    const answeredCount = submittedAnswers.filter((a) => {
+      if (a == null) return false
+      if (typeof a === 'string') return a.trim().length > 0
+      return true
+    }).length
+    const totalCount = Math.max(submittedAnswers.length, module.questions.length, 1)
+    const completionRatio = answeredCount / totalCount
+    const score = answeredCount === 0 ? 0 : Math.round(Math.min(100, completionRatio * 100))
+
     module.score = score
-    module.timeSpent = Math.round(10 + Math.random() * 20)
+    module.timeSpent = Math.max(0, Math.round(Number((req.body as { timeSpent?: number }).timeSpent ?? 0)))
     module.completedAt = nowIso()
-    if ((req.body as { answers?: unknown[] }).answers) {
-      module.answers = (req.body as { answers: unknown[] }).answers as never
-    }
+    module.answers = submittedAnswers as never
 
     await assessment.save()
-    res.json({ ok: true, score })
+    res.json({ ok: true, score, answeredCount, totalCount })
   } catch (err) {
     next(err)
   }
@@ -88,7 +107,7 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
     const assessment = await AssessmentModel.findById(String(req.params.assessmentId))
     if (!assessment) throw new HttpError(404, 'Assessment not found')
 
-    const completedModules = assessment.modules.filter((m) => m.score != null)
+    const completedModules = assessment.modules.filter((m) => m.score != null && m.type !== 'values')
     const avgScore = completedModules.length
       ? Math.round(completedModules.reduce((sum, m) => sum + (m.score ?? 0), 0) / completedModules.length)
       : 0
@@ -171,6 +190,14 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
             body: `Your score of ${avgScore}% did not meet the ${threshold}% threshold for this role. View your personalised AI explanation for detailed feedback.`,
             link: `/candidate/explanation/${String(application._id)}`,
           })
+          const candidateUser = await UserModel.findById(String(cand.user)).lean()
+          if (candidateUser?.email) {
+            await sendEmail({
+              to: candidateUser.email,
+              subject: 'Assessment outcome for your application',
+              text: `Your assessment score was ${avgScore}% and did not meet the ${threshold}% threshold for this role. Open your dashboard explanation for details.`,
+            })
+          }
         }
       }
     }

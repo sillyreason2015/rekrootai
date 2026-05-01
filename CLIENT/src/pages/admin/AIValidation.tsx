@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Shield, Brain, BarChart3, CheckCircle2, XCircle, Loader2, RefreshCw, Info } from 'lucide-react'
+import InfoTip from '../../components/shared/InfoTip'
 import api from '../../lib/axios'
 import { jobService } from '../../services/job.service'
 import { applicationService } from '../../services/application.service'
@@ -139,14 +140,20 @@ export default function AIValidation() {
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3 text-center">
-                  <p className="text-xs text-muted-foreground">Bias Correction δ</p>
+                  <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                    Bias Correction δ
+                    <InfoTip content="Delta (δ) is the score penalty applied to correct for detected demographic bias. A value of 0 means no correction was needed. A positive δ means the system reduced the candidate's score to account for an over-representation advantage." />
+                  </p>
                   <p className={cn('mt-1 font-bold text-lg', result.gate.delta > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
                     {result.gate.delta > 0 ? `−${result.gate.delta.toFixed(2)}` : '0.00'}
                   </p>
                 </div>
                 {result.gate.disparateImpact !== undefined && (
                   <div className="rounded-lg border bg-muted/30 p-3 text-center">
-                    <p className="text-xs text-muted-foreground">Disparate Impact</p>
+                    <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                      Disparate Impact
+                      <InfoTip content="The ratio of selection rates between the least-selected and most-selected demographic group. A value ≥ 0.80 passes the 4/5ths rule (legal standard). Below 0.80 indicates potential unlawful adverse impact and triggers a recruiter review." />
+                    </p>
                     <p className={cn('mt-1 font-bold text-lg', result.gate.disparateImpact >= 0.8 ? 'text-emerald-600' : 'text-amber-600')}>
                       {result.gate.disparateImpact.toFixed(2)}
                     </p>

@@ -1,250 +1,225 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Shield, Zap, BarChart3, Users, Brain, FileCheck, ChevronRight } from 'lucide-react'
+import { ArrowRight, Shield, Brain, BarChart3, Users, Sparkles, ChevronRight, Workflow, Moon, Sun } from 'lucide-react'
+import { useTheme } from '../contexts/ThemeContext'
 
-const pipelineSteps = [
-  { stage: 'CV Screen',     score: 82, color: 'text-emerald-400', bar: 82 },
-  { stage: 'Assessment',    score: 74, color: 'text-blue-400',    bar: 74 },
-  { stage: 'Fairness Gate', score: '✓ Pass', color: 'text-purple-400', bar: 100 },
-  { stage: 'Interview',     score: 88, color: 'text-emerald-400', bar: 88 },
-  { stage: 'Final Score',   score: '83.2%', color: 'text-white font-bold', bar: 83 },
+const rails = [
+  { label: 'CV Match', value: '82%', width: '82%' },
+  { label: 'Assessment', value: '74%', width: '74%' },
+  { label: 'Fairness', value: 'Pass', width: '100%' },
+  { label: 'Interview', value: '88%', width: '88%' },
 ]
 
-const features = [
-  {
-    icon: Brain,
-    title: 'AI-Scored Assessments',
-    desc: 'Aptitude, technical, situational, and personality modules — scored by XGBoost, weighted by role requirements.',
-  },
-  {
-    icon: Shield,
-    title: 'Fairness Gate',
-    desc: 'Every candidate passes through a bias-detection layer before interview decisions are made. Powered by Fairlearn.',
-  },
-  {
-    icon: BarChart3,
-    title: 'SHAP Explainability',
-    desc: 'Every score comes with a feature-importance breakdown. Candidates see exactly why they were evaluated the way they were.',
-  },
-  {
-    icon: Users,
-    title: 'Human in the Loop',
-    desc: 'Recruiters review AI scores, override decisions, add personal notes, and approve every offer before it is sent.',
-  },
-  {
-    icon: FileCheck,
-    title: 'Audit Trail',
-    desc: 'Every action — shortlist, rejection, assessment send — is logged with actor, timestamp, and decision rationale.',
-  },
-  {
-    icon: Zap,
-    title: 'Structured Interviews',
-    desc: 'AI-proctored video interviews with rubric scoring. Recruiters join live or review recordings with auto-generated notes.',
-  },
+const highlights = [
+  { icon: Brain, title: 'Explainable scoring', text: 'XGBoost scoring with stage-by-stage rationale visible to both recruiter and candidate.' },
+  { icon: Shield, title: 'Fairness by design', text: 'Protected attributes stay out of ranking, while the fairness gate checks downstream outcomes.' },
+  { icon: Users, title: 'Human control', text: 'Assist, veto, and override modes keep recruiters accountable without hiding AI judgement.' },
+  { icon: BarChart3, title: 'Full auditability', text: 'Every shortlist, rejection, interview score, and final decision is logged and reviewable.' },
 ]
 
-const steps = [
-  { n: '01', title: 'Post a role', desc: 'Define requirements, salary band, and assessment modules. The system builds the evaluation pipeline automatically.' },
-  { n: '02', title: 'Candidates apply', desc: 'Applicants complete structured assessments — aptitude, technical, and situational — timed and proctored.' },
-  { n: '03', title: 'AI evaluates', desc: 'XGBoost scores each candidate. The fairness gate checks for demographic bias before surfacing results.' },
-  { n: '04', title: 'Recruiter decides', desc: 'You see ranked candidates with explainable AI scores. Override, shortlist, or reject — every action is logged.' },
+const strips = [
+  'Public job board',
+  'Structured assessments',
+  'Live interviews',
+  'Candidate explanations',
+  'Company governance',
+  'Right-to-erasure ready',
 ]
 
 export default function Landing() {
+  const { resolved, mode, setMode, toggleResolved } = useTheme()
+  const isDark = resolved === 'dark'
+  const rotatingRoles = [
+    'Senior Platform Engineer',
+    'Graduate Product Designer',
+    'Customer Success Lead',
+    'Finance Operations Analyst',
+    'DevOps Engineer',
+    'Sales Development Representative',
+  ]
+  const [roleIndex, setRoleIndex] = useState(0)
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setRoleIndex((prev) => (prev + 1) % rotatingRoles.length)
+    }, 2200)
+    return () => window.clearInterval(id)
+  }, [rotatingRoles.length])
+
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white">
-      {/* Nav */}
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0a0a0a]/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-2">
-            <span className="font-serif text-xl font-bold text-white">RekrootAI</span>
-            <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-white/60">Beta</span>
-          </div>
-          <nav className="hidden items-center gap-6 text-sm text-white/60 md:flex">
-            <Link to="/jobs" className="hover:text-white transition-colors">Browse Jobs</Link>
-            <a href="#features" className="hover:text-white transition-colors">Features</a>
-            <a href="#how" className="hover:text-white transition-colors">How it works</a>
-          </nav>
-          <div className="flex items-center gap-2">
-            <Link to="/login" className="rounded-md px-3 py-1.5 text-sm text-white/70 hover:text-white transition-colors">Sign in</Link>
-            <Link to="/register" className="rounded-md bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-white/90 transition-colors">
-              Get started
-            </Link>
-          </div>
-        </div>
-      </header>
+    <div className={`min-h-screen overflow-x-hidden ${isDark ? 'bg-[#120d0a] text-white' : 'bg-[#f7efe8] text-[#2d1a14]'}`}>
+      <div className={`relative isolate overflow-hidden border-b ${isDark ? 'border-white/10' : 'border-[#d7c0af]'}`}>
+        <div className="landing-orb left-[-8rem] top-[-5rem] h-64 w-64 bg-[#ff9b54]" />
+        <div className="landing-orb right-[-4rem] top-24 h-72 w-72 bg-[#6f8cff]" />
+        <div className="landing-orb bottom-[-6rem] left-1/3 h-80 w-80 bg-[#d97757]" />
+        <div className="hero-grid absolute inset-0 opacity-40" />
+        <div className={`absolute inset-0 ${isDark ? 'bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.2),transparent_38%),linear-gradient(180deg,#120d0a_0%,#120d0a_54%,#f7efe8_54%,#f7efe8_100%)]' : 'bg-[radial-gradient(circle_at_top,rgba(139,58,30,0.08),transparent_42%),linear-gradient(180deg,#f7efe8_0%,#f7efe8_60%,#eedfd1_100%)]'}`} />
 
-      {/* Hero */}
-      <section className="relative overflow-hidden border-b border-white/10">
-        {/* Background grid */}
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#ffffff08_1px,transparent_1px),linear-gradient(to_bottom,#ffffff08_1px,transparent_1px)] bg-[size:64px_64px]" />
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,#ffffff18,transparent)]" />
-
-        <div className="relative mx-auto grid max-w-6xl gap-16 px-6 py-24 lg:grid-cols-2 lg:py-32 lg:items-center">
-          <div className="space-y-7">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-xs text-white/70">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-              Fair hiring infrastructure — dissertation project
+        <header className="relative z-10">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+            <div className="flex items-center gap-3">
+              <span className="font-serif text-2xl font-semibold">RekrootAI</span>
+              <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.24em] ${isDark ? 'border border-white/15 bg-white/10 text-white/65' : 'border border-[#d7c0af] bg-white text-[#8b3a1e]'}`}>beta</span>
             </div>
-            <h1 className="font-serif text-5xl font-semibold leading-tight tracking-tight lg:text-6xl">
-              Hiring decisions<br />
-              <span className="text-white/40">that explain themselves.</span>
-            </h1>
-            <p className="max-w-md text-lg text-white/60 leading-relaxed">
-              RekrootAI combines structured assessments, XGBoost scoring, demographic fairness gates, and SHAP explainability — so every hiring decision is auditable by design.
-            </p>
+            <nav className={`hidden items-center gap-6 text-sm md:flex ${isDark ? 'text-white/70' : 'text-[#6b4b3d]'}`}>
+              <a href="#platform" className={`transition-colors ${isDark ? 'hover:text-white' : 'hover:text-[#2d1a14]'}`}>Platform</a>
+              <a href="#flow" className={`transition-colors ${isDark ? 'hover:text-white' : 'hover:text-[#2d1a14]'}`}>Flow</a>
+              <Link to="/jobs" className={`transition-colors ${isDark ? 'hover:text-white' : 'hover:text-[#2d1a14]'}`}>Jobs</Link>
+            </nav>
+            <div className="flex items-center gap-2">
+              <button onClick={toggleResolved} className={`rounded-full p-2 ${isDark ? 'border border-white/20 bg-white/10 text-white/85 hover:bg-white/20' : 'border border-[#d7c0af] bg-white text-[#8b3a1e] hover:bg-[#f8eee5]'}`}>
+                {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+              <button
+                onClick={() => setMode(mode === 'system' ? (isDark ? 'dark' : 'light') : 'system')}
+                className={`rounded-full px-3 py-1 text-xs ${isDark ? (mode === 'system' ? 'bg-white/20 text-white' : 'bg-white/10 text-white/75') : (mode === 'system' ? 'bg-[#f2dfcf] text-[#8b3a1e]' : 'bg-white text-[#8b3a1e]')}`}
+              >
+                Auto
+              </button>
+              <Link to="/login" className={`rounded-full px-4 py-2 text-sm transition-colors ${isDark ? 'text-white/75 hover:bg-white/10 hover:text-white' : 'text-[#6b4b3d] hover:bg-white hover:text-[#2d1a14]'}`}>Sign in</Link>
+              <Link to="/register" className="pulse-border rounded-full bg-[#f4e4d4] px-4 py-2 text-sm font-medium text-[#37180d] transition-transform hover:scale-[1.02]">Get started</Link>
+            </div>
+          </div>
+        </header>
+
+        <section className="relative z-10 mx-auto grid max-w-7xl gap-14 px-6 pb-20 pt-14 lg:grid-cols-[1.15fr_0.85fr] lg:items-center lg:pb-28">
+          <div className={`space-y-8 fade-rise rounded-3xl p-5 backdrop-blur-[2px] md:p-7 ${isDark ? 'bg-[#120d0a]/90' : 'bg-white/75'}`}>
+            <div className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-xs uppercase tracking-[0.18em] ${isDark ? 'border border-white/15 bg-white/10 text-white/70' : 'border border-[#d7c0af] bg-white text-[#7b5343]'}`}>
+              <Workflow className="h-3.5 w-3.5" />
+              Explainable hiring operating system
+            </div>
+            <div className="space-y-5">
+              <h1 className={`max-w-3xl font-serif text-5xl leading-[0.94] text-balance md:text-6xl lg:text-7xl ${isDark ? 'font-bold text-white' : 'font-semibold text-[#2d1a14]'} hero-float-in`}>
+                Recruit with an AI pipeline that shows its work.
+              </h1>
+              <p className={`max-w-2xl text-lg leading-8 md:text-xl ${isDark ? 'text-white/90' : 'text-[#5f463c]'} hero-float-in`} style={{ animationDelay: '0.12s' }}>
+                Public hiring pages, structured assessments, fairness checks, live interviews, and candidate-facing explanations all in one system that feels decisive instead of mysterious.
+              </p>
+            </div>
             <div className="flex flex-wrap gap-3">
-              <Link
-                to="/register"
-                className="inline-flex items-center gap-2 rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-black hover:bg-white/90 transition-colors"
-              >
-                Start hiring <ArrowRight className="h-4 w-4" />
+              <Link to="/jobs" className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-medium text-[#2f160d] transition-transform hover:scale-[1.02]">
+                Explore open roles <ArrowRight className="h-4 w-4" />
               </Link>
-              <Link
-                to="/jobs"
-                className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-5 py-2.5 text-sm text-white/70 hover:text-white hover:border-white/40 transition-colors"
-              >
-                Browse open roles
+              <Link to="/register" className={`inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-medium transition-colors ${isDark ? 'border border-white/15 bg-white/10 text-white/80 hover:bg-white/15 hover:text-white' : 'border-2 border-[#8b3a1e] bg-[#f8eee5] text-[#8b3a1e] hover:bg-white'}`}>
+                Create recruiter workspace
               </Link>
             </div>
-            <div className="flex items-center gap-6 text-xs text-white/40">
-              <span className="flex items-center gap-1.5"><span className="h-1 w-1 rounded-full bg-white/40" />SHAP-backed scores</span>
-              <span className="flex items-center gap-1.5"><span className="h-1 w-1 rounded-full bg-white/40" />Fairlearn bias gate</span>
-              <span className="flex items-center gap-1.5"><span className="h-1 w-1 rounded-full bg-white/40" />Full audit log</span>
-            </div>
-          </div>
-
-          {/* Pipeline visualisation */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 font-mono text-sm backdrop-blur-sm">
-            <div className="mb-4 flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-red-500/60" />
-              <div className="h-3 w-3 rounded-full bg-amber-500/60" />
-              <div className="h-3 w-3 rounded-full bg-emerald-500/60" />
-              <span className="ml-2 text-xs text-white/30">rekroot · evaluation pipeline</span>
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-white/30 text-xs">{'// Candidate: Sarah Chen  |  Role: Senior Engineer'}</p>
-              <div className="h-px bg-white/10" />
-              {pipelineSteps.map((step, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <span className="w-28 shrink-0 text-white/40 text-xs">{step.stage}</span>
-                  <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-primary/60 to-primary transition-all"
-                      style={{ width: `${step.bar}%` }}
-                    />
-                  </div>
-                  <span className={`text-xs w-16 text-right ${step.color}`}>{step.score}{typeof step.score === 'number' ? '%' : ''}</span>
-                </div>
+            <div className={`flex flex-wrap gap-2 text-xs ${isDark ? 'text-white/65' : 'text-[#7a5a4b]'}`}>
+              {strips.map((item) => (
+                <span key={item} className={`rounded-full px-3 py-1.5 ${isDark ? 'border border-white/10 bg-white/5' : 'border border-[#dcc7b9] bg-white/80'}`}>
+                  {item}
+                </span>
               ))}
-              <div className="h-px bg-white/10" />
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-white/30">decision</span>
-                <span className="rounded-full bg-emerald-500/20 px-3 py-0.5 text-emerald-400">SHORTLIST ✓</span>
-              </div>
-              <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 px-3 py-2.5 text-xs text-purple-300">
-                <span className="text-purple-400 font-semibold">AI Summary: </span>
-                Strong technical and assessment performance. Resume alignment above 80th percentile. No fairness flags detected.
-              </div>
             </div>
           </div>
-        </div>
-      </section>
 
-      {/* Stats strip */}
-      <section className="border-b border-white/10 bg-white/[0.02]">
-        <div className="mx-auto grid max-w-6xl grid-cols-2 divide-x divide-white/10 px-6 py-8 md:grid-cols-4">
-          {[
-            { value: '4',        label: 'Assessment module types' },
-            { value: 'SHAP',     label: 'Explainability engine' },
-            { value: '3-mode',   label: 'AI oversight: Veto / Assist / Override' },
-            { value: '100%',     label: 'Decisions auditable' },
-          ].map(({ value, label }) => (
-            <div key={label} className="px-6 py-2 text-center first:pl-0 last:pr-0">
-              <p className="font-serif text-2xl font-bold text-white">{value}</p>
-              <p className="mt-1 text-xs text-white/40">{label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Features */}
-      <section id="features" className="border-b border-white/10 py-24">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="mb-14 max-w-xl">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-white/40">Features</p>
-            <h2 className="font-serif text-3xl font-semibold">Everything the hiring pipeline needs.</h2>
-            <p className="mt-3 text-white/50">From first application to final offer — every step is scored, audited, and explainable.</p>
-          </div>
-          <div className="grid gap-px border border-white/10 rounded-2xl overflow-hidden md:grid-cols-2 lg:grid-cols-3">
-            {features.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="group bg-[#0a0a0a] p-6 hover:bg-white/[0.03] transition-colors">
-                <div className="mb-4 inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5">
-                  <Icon className="h-4 w-4 text-white/70" />
+          <div className="relative fade-rise" style={{ animationDelay: '0.15s' }}>
+            <div className={`glass-panel drift-card rounded-[28px] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)] ${isDark ? 'border border-white/12' : 'border border-[#d7c0af] bg-white/90'}`}>
+              <div className="mb-5 flex items-center justify-between">
+                <div>
+                  <p className={`text-xs uppercase tracking-[0.2em] ${isDark ? 'text-white/45' : 'text-[#8b6a5b]'}`}>Live candidate view</p>
+                  <p className={`mt-1 font-serif text-2xl ${isDark ? 'text-white' : 'text-[#2d1a14]'}`}>{rotatingRoles[roleIndex]}</p>
                 </div>
-                <h3 className="mb-2 font-medium text-white">{title}</h3>
-                <p className="text-sm text-white/50 leading-relaxed">{desc}</p>
+                <span className={`rounded-full px-3 py-1 text-xs ${isDark ? 'bg-emerald-400/15 text-emerald-300' : 'bg-emerald-100 text-emerald-700'}`}>Shortlist recommended</span>
+              </div>
+              <div className={`space-y-4 rounded-[22px] p-5 ${isDark ? 'border border-white/10 bg-[#160f0b]/80' : 'border border-[#dcc7b9] bg-[#fffaf5]'}`}>
+                {rails.map((rail) => (
+                  <div key={rail.label} className="space-y-1.5">
+                    <div className={`flex items-center justify-between text-xs ${isDark ? 'text-white/60' : 'text-[#6b4b3d]'}`}>
+                      <span>{rail.label}</span>
+                      <span>{rail.value}</span>
+                    </div>
+                    <div className={`h-2 overflow-hidden rounded-full ${isDark ? 'bg-white/10' : 'bg-[#ead8ca]'}`}>
+                      <div
+                        className="h-full rounded-full bg-[linear-gradient(90deg,#f6e0c9_0%,#d26a3d_45%,#8b3a1e_100%)]"
+                        style={{ width: rail.width }}
+                      />
+                    </div>
+                  </div>
+                ))}
+                <div className={`rounded-2xl p-4 ${isDark ? 'border border-[#f5d7c3]/15 bg-[#f5d7c3]/8' : 'border border-[#e4cdbc] bg-[#f8eee5]'}`}>
+                  <div className={`mb-2 flex items-center gap-2 text-sm ${isDark ? 'text-[#f7d1b7]' : 'text-[#8b3a1e]'}`}>
+                    <Sparkles className="h-4 w-4" />
+                    AI summary
+                  </div>
+                  <p className={`text-sm leading-6 ${isDark ? 'text-white/78' : 'text-[#5a3f34]'}`}>
+                    Strong resume alignment, solid technical signal, and no fairness penalty. Interview next because the assessment already clears the threshold comfortably.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section id="platform" className={`${isDark ? 'bg-[#1a110d] text-[#f5e8dd]' : 'bg-[#f7efe8] text-[#2d1a14]'} py-20`}>
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="mb-10 flex items-end justify-between gap-6">
+            <div className="max-w-2xl">
+              <p className="text-xs uppercase tracking-[0.18em] text-[#8b3a1e]/70">Platform</p>
+              <h2 className="mt-3 font-serif text-4xl font-semibold leading-tight">Designed to feel like one continuous hiring system.</h2>
+            </div>
+            <Link to="/jobs" className="hidden items-center gap-2 text-sm text-[#8b3a1e] md:inline-flex">
+              Browse public roles <ChevronRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {highlights.map(({ icon: Icon, title, text }, index) => (
+              <div
+                key={title}
+                className="fade-rise rounded-[24px] border border-[#d7c0af] bg-white p-6 shadow-[0_18px_50px_rgba(86,42,24,0.08)]"
+                style={{ animationDelay: `${0.08 * index}s` }}
+              >
+                <div className="mb-5 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#f5e2d3] text-[#8b3a1e]">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <h3 className="font-serif text-2xl font-semibold text-[#2d1a14]">{title}</h3>
+                <p className="mt-3 text-sm leading-7 text-[#6d554b]">{text}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* How it works */}
-      <section id="how" className="border-b border-white/10 py-24">
-        <div className="mx-auto max-w-6xl px-6">
-          <div className="mb-14 max-w-xl">
-            <p className="mb-3 text-xs font-semibold uppercase tracking-widest text-white/40">How it works</p>
-            <h2 className="font-serif text-3xl font-semibold">From posting to offer in four steps.</h2>
-          </div>
-          <div className="relative grid gap-8 md:grid-cols-4">
-            {steps.map(({ n, title, desc }, i) => (
-              <div key={n} className="relative">
-                {i < steps.length - 1 && (
-                  <div className="absolute right-0 top-4 hidden h-px w-full translate-x-1/2 bg-white/10 md:block" style={{ width: 'calc(100% - 2rem)' }} />
-                )}
-                <div className="mb-4 inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/5 font-mono text-xs text-white/50">
-                  {n}
-                </div>
-                <h3 className="mb-2 font-medium text-white">{title}</h3>
-                <p className="text-sm text-white/50 leading-relaxed">{desc}</p>
+      <section id="flow" className={`${isDark ? 'bg-[#221610] text-[#f5e8dd]' : 'bg-[#f1e4d8] text-[#2d1a14]'} py-20`}>
+        <div className="mx-auto max-w-7xl px-6">
+          <div className="grid gap-6 lg:grid-cols-3">
+            <div className="rounded-[28px] bg-[#2a1610] p-8 text-white">
+              <p className="text-xs uppercase tracking-[0.18em] text-white/55">Flow</p>
+              <h3 className="mt-4 font-serif text-3xl font-semibold">Public entry, governed core.</h3>
+              <p className="mt-4 text-sm leading-7 text-white/70">
+                Candidates discover roles publicly, but once they apply the system keeps every stage traceable: screening, assessment, fairness, interview, decision.
+              </p>
+            </div>
+            <div className="rounded-[28px] border border-[#d7c0af] bg-white p-8 lg:col-span-2">
+              <div className="grid gap-6 md:grid-cols-4">
+                {[
+                  ['01', 'Discover role', 'Public board with structured job pages and sign-up gate on apply.'],
+                  ['02', 'Complete evaluation', 'Candidates move only when each stage has actually been completed.'],
+                  ['03', 'Review with AI', 'Recruiters see recommendations, fairness state, and explanations inline.'],
+                  ['04', 'Audit every action', 'Decisions, notes, messages, and outcomes stay visible after the fact.'],
+                ].map(([num, title, text]) => (
+                  <div key={num} className="space-y-3">
+                    <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f4e0d1] text-sm font-medium text-[#8b3a1e]">{num}</div>
+                    <h4 className="font-serif text-xl font-semibold text-[#2d1a14]">{title}</h4>
+                    <p className="text-sm leading-6 text-[#6d554b]">{text}</p>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="py-24">
-        <div className="mx-auto max-w-2xl px-6 text-center">
-          <h2 className="font-serif text-4xl font-semibold">Start hiring fairly, today.</h2>
-          <p className="mx-auto mt-4 max-w-md text-white/50">
-            Create your account, post a role, and let the AI pipeline handle the heavy lifting — with you in control of every decision.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Link
-              to="/register"
-              className="inline-flex items-center gap-2 rounded-lg bg-white px-6 py-3 font-semibold text-black hover:bg-white/90 transition-colors"
-            >
-              Create account <ChevronRight className="h-4 w-4" />
-            </Link>
-            <Link
-              to="/jobs"
-              className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-6 py-3 text-white/70 hover:text-white hover:border-white/40 transition-colors"
-            >
-              Explore open roles
-            </Link>
+      <footer className={`${isDark ? 'bg-[#130d09] text-[#d8c4b6] border-t border-white/10' : 'bg-[#ead8ca] text-[#5f463c] border-t border-[#d7c0af]'} py-10`}>
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 text-sm">
+          <p>RekrootAI - Explainable hiring for every company.</p>
+          <div className="flex items-center gap-4">
+            <Link to="/jobs" className="hover:underline">Jobs</Link>
+            <Link to="/help" className="hover:underline">Help & Docs</Link>
+            <Link to="/login" className="hover:underline">Sign in</Link>
+            <Link to="/register" className="hover:underline">Create workspace</Link>
           </div>
-        </div>
-      </section>
-
-      {/* Footer */}
-      <footer className="border-t border-white/10 py-8">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6">
-          <span className="font-serif text-lg font-bold text-white/60">RekrootAI</span>
-          <p className="text-xs text-white/30">
-            Final Year Dissertation Project · Fair Hiring with Explainable AI
-          </p>
         </div>
       </footer>
     </div>

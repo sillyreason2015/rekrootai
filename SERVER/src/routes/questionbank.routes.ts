@@ -4,7 +4,67 @@ import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { QuestionBankModel } from '../models/QuestionBank.model.js'
 import { UserModel } from '../models/User.model.js'
+import { JobModel } from '../models/Job.model.js'
 import { generateQuestions, extractQuestionsFromText } from '../lib/questionGen.js'
+import { env } from '../config/env.js'
+import { GoogleGenerativeAI } from '@google/generative-ai'
+
+async function generateWithGemini(
+  jobContext: { title: string; description: string; skills: string[]; requirements: string[] },
+  moduleType: string,
+  difficulty: string,
+  count: number,
+): Promise<Array<{ text: string; type: 'mcq' | 'open'; options?: string[]; correctIndex?: number; points: number; category: string; difficulty: string; tags: string[] }>> {
+  const moduleDescriptions: Record<string, string> = {
+    aptitude: 'numerical reasoning, logical reasoning, and verbal reasoning relevant to this role',
+    technical: 'technical knowledge and skills directly required for this role',
+    situational: 'workplace scenarios and judgement calls a person in this role would face',
+    personality: 'working style, traits, and self-awareness relevant to this role',
+    values: 'alignment with company culture, ethics, and the values implied by this role',
+  }
+
+  const prompt = `You are an expert assessment designer. Generate exactly ${count} assessment questions for the following job role.
+
+Job Title: ${jobContext.title}
+Key Skills: ${jobContext.skills.slice(0, 10).join(', ')}
+Requirements: ${jobContext.requirements.slice(0, 5).join('; ')}
+Job Description (summary): ${jobContext.description.slice(0, 600)}
+
+Module type: ${moduleType} — focus on ${moduleDescriptions[moduleType] ?? moduleType}
+Difficulty: ${difficulty}
+
+Rules:
+- For mcq questions include exactly 4 options and set correctIndex (0-3) to the best answer
+- For open questions omit options and correctIndex
+- points: easy=1, medium=2, hard=3 (open hard=4)
+- tags: 2-4 relevant lowercase tags
+- category: use the moduleType value
+- Mix mcq and open types (at least 1 open per 4 questions unless count<=2)
+- Make questions SPECIFIC to the job — reference actual skills, tools, or scenarios from the job context
+
+Respond with ONLY a valid JSON array. No markdown, no explanation. Example format:
+[{"text":"...","type":"mcq","options":["A","B","C","D"],"correctIndex":1,"points":2,"category":"${moduleType}","difficulty":"${difficulty}","tags":["tag1","tag2"]}]`
+
+  const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY!)
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const result = await model.generateContent(prompt)
+  const raw = result.response.text()
+
+  const jsonMatch = raw.match(/\[[\s\S]*\]/)
+  if (!jsonMatch) throw new Error('Gemini returned no valid JSON array')
+
+  const parsed = JSON.parse(jsonMatch[0]) as Array<Record<string, unknown>>
+  return parsed.map((q) => ({
+    text: String(q.text ?? ''),
+    type: (q.type === 'mcq' ? 'mcq' : 'open') as 'mcq' | 'open',
+    options: Array.isArray(q.options) ? (q.options as string[]) : undefined,
+    correctIndex: typeof q.correctIndex === 'number' ? q.correctIndex : undefined,
+    points: typeof q.points === 'number' ? q.points : 2,
+    category: String(q.category ?? moduleType),
+    difficulty: String(q.difficulty ?? difficulty),
+    tags: Array.isArray(q.tags) ? (q.tags as string[]) : [moduleType],
+  }))
+}
 
 export const questionBankRouter = Router()
 
@@ -57,32 +117,79 @@ questionBankRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'sup
   }
 })
 
-// POST /question-bank/generate — AI template generation
+type CachedResult = { questions: Array<{ text: string; type: 'mcq' | 'open'; options?: string[]; correctIndex?: number; points: number; category: string; difficulty: string; tags: string[] }>; expiresAt: number }
+const geminiCache = new Map<string, CachedResult>()
+const userCooldown = new Map<string, number>()
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000  // 24 hours
+const COOLDOWN_MS = 30_000                  // 30 seconds per user
+
+// POST /question-bank/generate — AI generation (Gemini if jobId provided, else templates)
 questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const me = await UserModel.findById(req.user!._id).lean()
-    const { moduleType, difficulty, count, category } = req.body as {
+    const { moduleType, difficulty, count, category, jobId } = req.body as {
       moduleType?: string
       difficulty?: string
       count?: number
       category?: string
+      jobId?: string
     }
     if (!moduleType) throw new HttpError(400, 'moduleType is required')
 
-    const validType = ['aptitude', 'technical', 'situational', 'personality'].includes(moduleType as string)
-    if (!validType) throw new HttpError(400, 'moduleType must be one of: aptitude, technical, situational, personality')
+    const validType = ['aptitude', 'technical', 'situational', 'personality', 'values'].includes(moduleType as string)
+    if (!validType) throw new HttpError(400, 'moduleType must be one of: aptitude, technical, situational, personality, values')
 
     const diff = (['easy', 'medium', 'hard'].includes(difficulty as string) ? difficulty : 'medium') as 'easy' | 'medium' | 'hard'
-    const n = Math.min(Math.max(1, Number(count ?? 5)), 20)
+    const n = Math.min(Math.max(1, Number(count ?? 5)), 50)
 
-    const generated = generateQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality', diff, n, category)
+    let generated: Array<{ text: string; type: 'mcq' | 'open'; options?: string[]; correctIndex?: number; points: number; category: string; difficulty: string; tags: string[] }>
+
+    let source = 'templates'
+    if (jobId && env.GEMINI_API_KEY) {
+      const job = await JobModel.findById(jobId).lean()
+      if (!job) throw new HttpError(404, 'Job not found')
+
+      // Check per-user cooldown
+      const userId = String(req.user!._id)
+      const lastCall = userCooldown.get(userId) ?? 0
+      const cooldownRemaining = Math.ceil((lastCall + COOLDOWN_MS - Date.now()) / 1000)
+      if (cooldownRemaining > 0) {
+        throw new HttpError(429, `Please wait ${cooldownRemaining}s before generating again.`)
+      }
+
+      // Check cache for this job+module+difficulty combo
+      const cacheKey = `${jobId}:${moduleType}:${diff}`
+      const cached = geminiCache.get(cacheKey)
+      if (cached && cached.expiresAt > Date.now()) {
+        generated = cached.questions.slice(0, n)
+        source = 'gemini-cached'
+      } else {
+        userCooldown.set(userId, Date.now())
+        try {
+          generated = await generateWithGemini(
+            { title: job.title, description: job.description, skills: job.skills, requirements: job.requirements },
+            moduleType, diff, n,
+          )
+          geminiCache.set(cacheKey, { questions: generated, expiresAt: Date.now() + CACHE_TTL_MS })
+          source = 'gemini'
+        } catch (geminiErr) {
+          const msg = geminiErr instanceof Error ? geminiErr.message : 'Unknown error'
+          generated = generateQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values', diff, n, category)
+          source = (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate'))
+            ? 'templates-rate-limited'
+            : 'templates'
+        }
+      }
+    } else {
+      generated = generateQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values', diff, n, category)
+    }
+
     if (!generated.length) throw new HttpError(400, 'No questions available for this combination')
 
-    // Save to bank
     const docs = await QuestionBankModel.insertMany(
       generated.map((q) => ({ ...q, companyName: me?.companyName, createdBy: req.user!._id })),
     )
-    res.status(201).json({ added: docs.length, questions: docs.map((d) => ({ ...d.toJSON(), _id: String(d._id) })) })
+    res.status(201).json({ added: docs.length, questions: docs.map((d) => ({ ...d.toJSON(), _id: String(d._id) })), source })
   } catch (err) {
     next(err)
   }

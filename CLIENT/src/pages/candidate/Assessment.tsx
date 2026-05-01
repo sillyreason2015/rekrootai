@@ -155,6 +155,13 @@ export default function Assessment() {
                   <div>
                     <p className="font-medium capitalize">{mod.type}</p>
                     <p className="text-xs text-muted-foreground">{mod.questions.length} questions</p>
+                    <p className="text-xs text-muted-foreground/70 mt-0.5">
+                      {mod.type === 'aptitude' && 'Numerical and logical reasoning'}
+                      {mod.type === 'technical' && 'Role-specific technical knowledge'}
+                      {mod.type === 'situational' && 'Workplace scenario judgement'}
+                      {mod.type === 'personality' && 'Working style and traits'}
+                      {mod.type === 'values' && 'Alignment with company culture and ethics — unscored, for recruiter review'}
+                    </p>
                   </div>
                 </CardContent>
               </Card>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle, Calendar, Video, ArrowRight } from 'lucide-react'
+import InfoTip from '../../components/shared/InfoTip'
 import { applicationService } from '../../services/application.service'
 import { jobService } from '../../services/job.service'
 import api from '../../lib/axios'
@@ -94,7 +95,12 @@ export default function Shortlist() {
           <h1 className="font-serif text-2xl font-semibold">Shortlist Review</h1>
           <p className="text-sm text-muted-foreground">AI-ranked candidates with SHAP explanations.</p>
         </div>
-        <div className="flex rounded-xl border bg-card p-1">
+        <div className="flex items-center gap-2">
+          <InfoTip
+            size="md"
+            content="Choose how much autonomy the AI has. Assist: you approve each candidate. Veto: AI shortlists automatically, you remove any. Override: full manual control, AI scores are advisory only."
+          />
+          <div className="flex rounded-xl border bg-card p-1">
           {(['Assist', 'Veto', 'Override'] as Mode[]).map((m) => (
             <button key={m} onClick={() => {
               setMode(m)
@@ -108,6 +114,7 @@ export default function Shortlist() {
               {m}
             </button>
           ))}
+          </div>
         </div>
       </div>
 
@@ -166,8 +173,11 @@ export default function Shortlist() {
 
                       {/* Score */}
                         {(app.scores?.final ?? 0) > 0 && (
-                          <div className={cn('rounded-full border px-3 py-1 text-sm font-bold shrink-0', scoreBg(app.scores?.final ?? 0))}>
-                            {(app.scores?.final ?? 0).toFixed(0)}%
+                          <div className="flex items-center gap-1 shrink-0">
+                            <div className={cn('rounded-full border px-3 py-1 text-sm font-bold', scoreBg(app.scores?.final ?? 0))}>
+                              {(app.scores?.final ?? 0).toFixed(0)}%
+                            </div>
+                            <InfoTip content="Weighted composite of CV match, assessment score, and interview performance. Threshold to reach interview stage is 60% by default." />
                           </div>
                         )}
                         <Button
@@ -199,10 +209,13 @@ export default function Shortlist() {
 
                         {/* Step 3: Run Fairness Gate (assessment) */}
                         {app.stage === 'assessment' && mode !== 'Override' && (
-                          <Button size="sm" variant="outline" className="text-purple-600 border-purple-200 hover:bg-purple-50"
-                            onClick={() => fairnessMutation.mutate(app._id)} disabled={fairnessMutation.isPending}>
-                            <Shield className="h-3.5 w-3.5" /> Run Fairness
-                          </Button>
+                          <div className="flex items-center gap-1">
+                            <Button size="sm" variant="outline" className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                              onClick={() => fairnessMutation.mutate(app._id)} disabled={fairnessMutation.isPending}>
+                              <Shield className="h-3.5 w-3.5" /> Run Fairness
+                            </Button>
+                            <InfoTip content="Checks for demographic parity across protected groups before confirming a shortlist decision. Flags any statistically significant disparity for recruiter review." />
+                          </div>
                         )}
 
                         {/* Step 4: Schedule Interview (interview stage, no interview yet) */}
@@ -241,6 +254,15 @@ export default function Shortlist() {
                       </button>
                     </div>
 
+                    <div className="border-t px-4 py-3">
+                      <AiSuggestion
+                        stage={app.stage}
+                        scores={app.scores}
+                        fairnessComputedAt={extApp.fairnessComputedAt}
+                        decision={(app as any).decision}
+                      />
+                    </div>
+
                     {/* Schedule Interview inline panel */}
                     {isScheduling && (
                       <div className="border-t bg-blue-50/50 px-4 py-3 space-y-3">
@@ -271,14 +293,7 @@ export default function Shortlist() {
                     {/* SHAP details expansion */}
                     {isExpand && (
                       <div className="border-t px-4 pb-4 pt-3 space-y-3">
-                        {mode === 'Assist' && (
-                          <AiSuggestion
-                            stage={app.stage}
-                            scores={app.scores}
-                            fairnessComputedAt={extApp.fairnessComputedAt}
-                            decision={(app as any).decision}
-                          />
-                        )}
+                        {mode === 'Assist' && null}
                         <AiBadge label="SHAP Score Breakdown" size="md" />
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                           {[

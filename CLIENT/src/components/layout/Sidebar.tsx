@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Search, FileText,
   Video, Users, Briefcase, MessageSquare,
   UserCog, CreditCard, BookOpen, Building2, ShieldCheck, BarChart3,
-  Brain, Wifi, CheckSquare, RotateCcw, PlusCircle,
+  Brain, Wifi, CheckSquare, RotateCcw, PlusCircle, HelpCircle,
 } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
@@ -13,6 +13,7 @@ const candidateNav = [
   { to: '/candidate/dashboard', label: 'Dashboard', icon: LayoutDashboard, tour: 'candidate-dashboard' },
   { to: '/candidate/jobs', label: 'Job Board', icon: Search, tour: 'candidate-jobs' },
   { to: '/candidate/applications', label: 'Applications', icon: FileText, tour: 'candidate-applications' },
+  { to: '/help', label: 'Help & Docs', icon: HelpCircle },
 ]
 
 const recruiterNav = [
@@ -25,6 +26,7 @@ const recruiterNav = [
   { to: '/recruiter/correspondence', label: 'Correspondence', icon: MessageSquare, tour: 'recruiter-correspondence' },
   { to: '/recruiter/audit-log', label: 'Audit Log', icon: FileText },
   { to: '/settings', label: 'Settings', icon: UserCog },
+  { to: '/help', label: 'Help & Docs', icon: HelpCircle },
 ]
 
 const adminNav = [
@@ -33,10 +35,12 @@ const adminNav = [
   { to: '/admin/candidates', label: 'Candidates', icon: Users, tour: 'admin-candidates' },
   { to: '/admin/team', label: 'Team', icon: UserCog },
   { to: '/admin/audit-log', label: 'Audit Log', icon: FileText },
+  { to: '/admin/bias-audit', label: 'Bias Audit', icon: BarChart3 },
   { to: '/admin/ai-validation', label: 'AI Validation', icon: Brain, tour: 'admin-ai-validation' },
   { to: '/admin/livekit-test', label: 'LiveKit Test', icon: Wifi, tour: 'admin-livekit-test' },
   { to: '/settings', label: 'Company', icon: Building2 },
   { to: '/admin/billing', label: 'Billing', icon: CreditCard },
+  { to: '/help', label: 'Help & Docs', icon: HelpCircle },
 ]
 
 const superAdminNav = [
