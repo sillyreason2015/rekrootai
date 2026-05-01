@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { TourProvider } from './contexts/TourContext'
 
 // Layout
 import Layout from './components/layout/Layout'
@@ -47,6 +48,8 @@ import SuperDashboard from './pages/admin/SuperDashboard'
 import SuperUsers from './pages/admin/SuperUsers'
 import SuperCompanies from './pages/admin/SuperCompanies'
 import SuperSettings from './pages/admin/SuperSettings'
+import AIValidation from './pages/admin/AIValidation'
+import LiveKitTest from './pages/admin/LiveKitTest'
 
 // Shared
 import Settings from './pages/Settings'
@@ -59,6 +62,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <TourProvider>
         <Routes>
           {/* Public routes */}
           <Route path="/login" element={<Login />} />
@@ -117,6 +121,8 @@ export default function App() {
               <Route path="/admin/team" element={<TeamManagement />} />
               <Route path="/admin/billing" element={<Billing />} />
               <Route path="/admin/jobs/create" element={<CreateJob />} />
+              <Route path="/admin/ai-validation" element={<AIValidation />} />
+              <Route path="/admin/livekit-test" element={<LiveKitTest />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Route>
@@ -137,6 +143,7 @@ export default function App() {
           {/* 404 */}
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </TourProvider>
       </AuthProvider>
     </BrowserRouter>
   )

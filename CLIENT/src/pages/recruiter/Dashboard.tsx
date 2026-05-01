@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Briefcase, Users, Video, TrendingUp, ChevronRight } from 'lucide-react'
+import { Briefcase, Users, Video, TrendingUp, ChevronRight, Sparkles } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { jobService } from '../../services/job.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
+import AiBadge from '../../components/shared/AiBadge'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { formatRelative } from '../../lib/utils'
 import type { Job } from '../../types'
@@ -23,6 +24,9 @@ export default function RecruiterDashboard() {
     { label: 'Shortlist Reviews', value: '-', icon: Users, href: '/recruiter/shortlist' },
     { label: 'Interviews Today', value: '-', icon: Video, href: '/recruiter/interviews' },
   ]
+  const draftCount = jobs?.data.filter((j: Job) => j.status === 'draft').length ?? 0
+  const closedCount = jobs?.data.filter((j: Job) => j.status === 'closed').length ?? 0
+
   return (
     <div className="space-y-8">
       <div>
@@ -34,6 +38,56 @@ export default function RecruiterDashboard() {
           <Link key={label} to={href}><Card><CardContent className="flex items-center gap-4 p-5"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div><div><p className="text-2xl font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card></Link>
         ))}
       </div>
+      {/* AI Suggestions */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center gap-2">
+            <CardTitle>AI Suggestions</CardTitle>
+            <AiBadge size="sm" />
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {draftCount > 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg border bg-muted/20 px-3 py-2.5">
+              <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600">Unpublished jobs</p>
+                <p className="text-xs text-muted-foreground mt-0.5">You have {draftCount} draft job(s). Publish them so candidates can apply.</p>
+              </div>
+            </div>
+          )}
+          {published === 0 && draftCount === 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg border bg-muted/20 px-3 py-2.5">
+              <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">No active jobs</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Create a job in My Jobs and set up your Question Bank before publishing.</p>
+              </div>
+            </div>
+          )}
+          {published > 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg border bg-muted/20 px-3 py-2.5">
+              <TrendingUp className="h-4 w-4 shrink-0 mt-0.5 text-emerald-600" />
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-600">Pipeline active</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {published} active role(s) accepting applications. Go to <Link to="/recruiter/shortlist" className="text-primary hover:underline">Shortlist</Link> to advance candidates through the pipeline.
+                </p>
+              </div>
+            </div>
+          )}
+          {closedCount > 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg border bg-muted/20 px-3 py-2.5">
+              <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-blue-600" />
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">Closed roles</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{closedCount} closed role(s). Verify all candidates have received a decision and feedback note.</p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle>My Jobs</CardTitle>

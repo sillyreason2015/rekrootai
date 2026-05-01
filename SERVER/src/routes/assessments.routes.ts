@@ -2,10 +2,33 @@ import { Router } from 'express'
 import { getAssessmentByApplicationId, getApplicationById, logAction } from '../data/store.js'
 import { AssessmentModel } from '../models/Assessment.model.js'
 import { ApplicationModel } from '../models/Application.model.js'
+import { AiOutputModel } from '../models/AiOutput.model.js'
+import { JobModel } from '../models/Job.model.js'
+import { CandidateModel } from '../models/Candidate.model.js'
 import { requireAuth } from '../lib/auth.js'
 import { HttpError, nowIso } from '../lib/http.js'
+import { notify } from '../lib/notify.js'
 
 export const assessmentsRouter = Router()
+
+// Default pass threshold (if not set on job)
+const DEFAULT_THRESHOLD = 60
+
+function assessmentNarrative(score: number, threshold: number, passed: boolean): string {
+  if (!passed) {
+    return `Your assessment score of ${score}% was below the required threshold of ${threshold}% for this role. `
+      + `The AI pipeline evaluated your responses across all modules and determined the score did not meet the minimum standard set by the recruiter. `
+      + `This is not a reflection of your broader potential — different roles have different requirements, and we encourage you to apply to roles better matched to your current experience level. `
+      + `Focus areas for improvement typically include the technical or situational modules where the largest gaps from the threshold appeared.`
+  }
+  if (score >= 85) return `Excellent result — your assessment score of ${score}% is significantly above the required threshold of ${threshold}%. `
+    + `The AI evaluation found strong performance across all modules, indicating solid technical knowledge and situational judgement. `
+    + `Your application progresses to the AI fairness review, after which the recruiter will schedule an interview.`
+  if (score >= threshold) return `Your assessment score of ${score}% meets the required threshold of ${threshold}% for this role. `
+    + `The AI evaluation found adequate performance across the tested competency areas. `
+    + `Your application will now be reviewed by the AI fairness gate before progressing to the interview stage.`
+  return `Score: ${score}%`
+}
 
 // GET /assessments/:applicationId
 assessmentsRouter.get('/:applicationId', requireAuth, async (req, res, next) => {
@@ -75,15 +98,84 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
     assessment.score = avgScore
     await assessment.save()
 
-    // Update application scores
+    // Get job threshold for pass/fail decision
+    const jobDoc = await JobModel.findById(assessment.job).lean()
+    const threshold = Number(jobDoc?.thresholds?.assessment ?? DEFAULT_THRESHOLD)
+    const passed = avgScore >= threshold
+
+    // Update application
     const application = await ApplicationModel.findByIdAndUpdate(
       assessment.application,
-      { status: 'assessment_sent', stage: 'assessment', 'scores.assessment': avgScore },
+      {
+        'scores.assessment': avgScore,
+        // If failed → auto-reject; if passed → stay in assessment awaiting fairness gate
+        stage: passed ? 'assessment' : 'rejected',
+        status: passed ? 'assessment_sent' : 'rejected',
+        ...(passed ? {} : { decision: 'reject', decisionAt: nowIso(), decisionBy: 'ai' }),
+      },
       { new: true },
     ).lean()
 
-    await logAction({ actor: 'ai', action: 'assessment-complete', candidateId: application?.candidate, jobId: assessment.job, mode: 'assist' })
-    res.json({ ...assessment.toJSON(), _id: String(assessment._id) })
+    await logAction({
+      actor: 'ai',
+      action: 'assessment-complete',
+      candidateId: application?.candidate,
+      jobId: assessment.job,
+      mode: 'assist',
+      payload: { avgScore, threshold, passed },
+    })
+
+    // Store AI explanation output for this stage
+    if (application) {
+      await AiOutputModel.create({
+        application: String(application._id),
+        type: 'explanation',
+        input: { avgScore, threshold, passed, stage: 'assessment' },
+        output: {
+          explanation: assessmentNarrative(avgScore, threshold, passed),
+          stage: 'assessment',
+          topFeatures: [
+            { name: 'assessment_score', value: +(avgScore / 100).toFixed(2) },
+            { name: 'threshold_delta', value: +((avgScore - threshold) / 100).toFixed(2) },
+          ],
+        },
+        modelVersion: 'assessment-auto-v1',
+      })
+    }
+
+    // Notify recruiter
+    if (jobDoc?.createdBy && application) {
+      notify(String(jobDoc.createdBy), {
+        type: 'assessment_completed',
+        title: passed ? 'Assessment passed' : 'Candidate failed assessment',
+        body: `Candidate scored ${avgScore}% (threshold: ${threshold}%) for "${jobDoc.title}". ${passed ? 'Review in shortlist.' : 'Auto-rejected by AI.'}`,
+        link: `/recruiter/shortlist?job=${String(jobDoc._id)}`,
+      })
+    }
+
+    // Notify candidate immediately — with explanation link
+    if (application) {
+      const cand = await CandidateModel.findById(application.candidate).lean()
+      if (cand?.user) {
+        if (passed) {
+          notify(String(cand.user), {
+            type: 'assessment_result',
+            title: `Assessment passed — score ${avgScore}% ✓`,
+            body: `You scored ${avgScore}% (threshold: ${threshold}%). Your application progresses to the fairness review and interview stage. See your detailed breakdown.`,
+            link: `/candidate/explanation/${String(application._id)}`,
+          })
+        } else {
+          notify(String(cand.user), {
+            type: 'assessment_failed',
+            title: `Assessment result: ${avgScore}% — below threshold`,
+            body: `Your score of ${avgScore}% did not meet the ${threshold}% threshold for this role. View your personalised AI explanation for detailed feedback.`,
+            link: `/candidate/explanation/${String(application._id)}`,
+          })
+        }
+      }
+    }
+
+    res.json({ ...assessment.toJSON(), _id: String(assessment._id), passed, avgScore, threshold })
   } catch (err) {
     next(err)
   }

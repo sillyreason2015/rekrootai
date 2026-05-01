@@ -1,12 +1,24 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Save, MessageSquare } from 'lucide-react'
+import {
+  Room,
+  RoomEvent,
+  Track,
+  ConnectionState,
+  createLocalTracks,
+  type LocalVideoTrack,
+  type LocalAudioTrack,
+  type RemoteTrack,
+  type RemoteParticipant,
+} from 'livekit-client'
 import { interviewService } from '../../services/interview.service'
 import { Button } from '../../components/ui/button'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { cn } from '../../lib/utils'
+import api from '../../lib/axios'
 
 const DEFAULT_CRITERIA = [
   'Communication',
@@ -22,17 +34,34 @@ interface RubricEntry {
   notes: string
 }
 
+interface TranscriptLine {
+  speaker: string
+  text: string
+  ts: string
+}
+
 export default function RecruiterInterviewRoom() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [micOn, setMicOn] = useState(true)
   const [camOn, setCamOn] = useState(true)
   const [elapsed, setElapsed] = useState(0)
+  const [connState, setConnState] = useState<'connecting' | 'connected' | 'error'>('connecting')
+  const [errorMsg, setErrorMsg] = useState('')
   const [rubric, setRubric] = useState<RubricEntry[]>(
     DEFAULT_CRITERIA.map((c) => ({ criterion: c, score: 0, notes: '' })),
   )
-  const [transcript] = useState<Array<{ speaker: string; text: string }>>([])
+  const [transcript, setTranscript] = useState<TranscriptLine[]>([])
   const transcriptRef = useRef<HTMLDivElement>(null)
+
+  const localVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteVideoRef = useRef<HTMLVideoElement>(null)
+
+  const roomRef = useRef<Room | null>(null)
+  const localVideoTrackRef = useRef<LocalVideoTrack | null>(null)
+  const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null)
 
   const { data: interview, isLoading } = useQuery({
     queryKey: ['interview', id],
@@ -46,7 +75,7 @@ export default function RecruiterInterviewRoom() {
 
   const completeMutation = useMutation({
     mutationFn: () => interviewService.complete(id!),
-    onSuccess: () => navigate('/recruiter/shortlist'),
+    onSuccess: () => navigate('/recruiter/final-selection'),
   })
 
   useEffect(() => {
@@ -58,6 +87,131 @@ export default function RecruiterInterviewRoom() {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' })
   }, [transcript])
 
+  const addTranscriptLine = useCallback((speaker: string, text: string) => {
+    if (!text.trim()) return
+    setTranscript((prev) => [...prev, { speaker, text, ts: new Date().toISOString() }])
+  }, [])
+
+  const startSpeechRecognition = useCallback(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognition) return
+
+    const recognition = new SpeechRecognition()
+    recognition.continuous = true
+    recognition.interimResults = false
+    recognition.lang = 'en-US'
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          addTranscriptLine('You', event.results[i][0].transcript)
+        }
+      }
+    }
+
+    recognition.onerror = () => {
+      setTimeout(() => { try { recognition.start() } catch {} }, 1000)
+    }
+
+    recognition.onend = () => {
+      if (micOn) { try { recognition.start() } catch {} }
+    }
+
+    try { recognition.start() } catch {}
+    recognitionRef.current = recognition
+  }, [addTranscriptLine, micOn])
+
+  useEffect(() => {
+    if (!id) return
+    let room: Room
+
+    const connect = async () => {
+      try {
+        const { data } = await api.get(`/interviews/${id}/token`)
+        const { token, wsUrl } = data as { token: string; wsUrl: string }
+
+        if (!wsUrl) throw new Error('LiveKit host not configured on server')
+
+        room = new Room({
+          adaptiveStream: true,
+          dynacast: true,
+          videoCaptureDefaults: { resolution: { width: 1280, height: 720, frameRate: 30 } },
+        })
+        roomRef.current = room
+
+        room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: any, participant: RemoteParticipant) => {
+          if (track.kind === Track.Kind.Video && remoteVideoRef.current) {
+            track.attach(remoteVideoRef.current)
+          }
+          if (track.kind === Track.Kind.Audio) {
+            track.attach()
+          }
+          addTranscriptLine('System', `${participant.name ?? 'Candidate'} joined`)
+        })
+
+        room.on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+          track.detach()
+        })
+
+        room.on(RoomEvent.ConnectionStateChanged, (state: ConnectionState) => {
+          if (state === ConnectionState.Connected) setConnState('connected')
+        })
+
+        room.on(RoomEvent.Disconnected, () => navigate('/recruiter/final-selection'))
+
+        await room.connect(wsUrl, token)
+
+        const tracks = await createLocalTracks({ audio: true, video: true })
+        for (const track of tracks) {
+          await room.localParticipant.publishTrack(track)
+          if (track.kind === Track.Kind.Video) {
+            localVideoTrackRef.current = track as LocalVideoTrack
+            if (localVideoRef.current) (track as LocalVideoTrack).attach(localVideoRef.current)
+          }
+          if (track.kind === Track.Kind.Audio) {
+            localAudioTrackRef.current = track as LocalAudioTrack
+          }
+        }
+
+        setConnState('connected')
+        startSpeechRecognition()
+      } catch (err: any) {
+        console.error('[RecruiterInterviewRoom] connect error:', err)
+        setErrorMsg(err?.message ?? 'Failed to connect')
+        setConnState('error')
+      }
+    }
+
+    connect()
+    return () => {
+      recognitionRef.current?.stop()
+      room?.disconnect()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+
+  const toggleMic = () => {
+    const track = localAudioTrackRef.current
+    if (!track) return
+    if (micOn) { track.mute(); recognitionRef.current?.stop() }
+    else { track.unmute(); startSpeechRecognition() }
+    setMicOn((v) => !v)
+  }
+
+  const toggleCam = () => {
+    const track = localVideoTrackRef.current
+    if (!track) return
+    if (camOn) track.mute(); else track.unmute()
+    setCamOn((v) => !v)
+  }
+
+  const hangUp = () => {
+    recognitionRef.current?.stop()
+    roomRef.current?.disconnect()
+    navigate('/recruiter/final-selection')
+  }
+
   if (isLoading) return <LoadingSpinner />
   if (!interview) return <p>Interview not found.</p>
 
@@ -67,30 +221,56 @@ export default function RecruiterInterviewRoom() {
 
   return (
     <div className="flex h-[calc(100vh-56px)] gap-3 overflow-hidden p-4">
-      {/* Left — video + controls */}
+      {/* Left: video + controls */}
       <div className="flex flex-1 flex-col gap-3 min-w-0">
         <div className="flex items-center justify-between">
           <h1 className="font-serif text-lg font-semibold">
             Interview — {typeof interview.job === 'object' ? interview.job.title : 'Interview'}
           </h1>
-          <div className="flex items-center gap-2 rounded-full bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-destructive" />
-            LIVE · {fmt(elapsed)}
+          <div className="flex items-center gap-3">
+            {connState === 'connecting' && (
+              <span className="text-xs text-muted-foreground animate-pulse">Connecting…</span>
+            )}
+            {connState === 'error' && (
+              <span className="text-xs text-destructive">{errorMsg}</span>
+            )}
+            <div className="flex items-center gap-2 rounded-full bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive">
+              <span className={cn('h-2 w-2 rounded-full bg-destructive', connState === 'connected' && 'animate-pulse')} />
+              LIVE · {fmt(elapsed)}
+            </div>
           </div>
         </div>
 
-        {/* Main video */}
+        {/* Remote video — candidate */}
         <div className="relative flex-1 overflow-hidden rounded-2xl bg-gray-900">
-          <div className="absolute inset-0 flex items-center justify-center text-white/20">
-            <Video className="h-20 w-20" />
-          </div>
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="h-full w-full object-cover"
+          />
+          {connState !== 'connected' && (
+            <div className="absolute inset-0 flex items-center justify-center text-white/20">
+              <Video className="h-20 w-20" />
+            </div>
+          )}
           <div className="absolute bottom-3 left-3 rounded-full bg-black/60 px-3 py-1 text-xs text-white">
             Candidate
           </div>
+          {/* Self PIP */}
           <div className="absolute right-3 top-3 h-28 w-44 overflow-hidden rounded-lg bg-gray-800">
-            <div className="absolute inset-0 flex items-center justify-center text-white/30">
-              <Video className="h-6 w-6" />
-            </div>
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className={cn('h-full w-full object-cover', !camOn && 'hidden')}
+            />
+            {!camOn && (
+              <div className="absolute inset-0 flex items-center justify-center text-white/30">
+                <VideoOff className="h-6 w-6" />
+              </div>
+            )}
             <div className="absolute bottom-1 right-1 text-[10px] text-white/70">You</div>
           </div>
         </div>
@@ -98,13 +278,13 @@ export default function RecruiterInterviewRoom() {
         {/* Controls */}
         <div className="flex items-center justify-center gap-3">
           <button
-            onClick={() => setMicOn((v) => !v)}
+            onClick={toggleMic}
             className={cn('flex h-12 w-12 items-center justify-center rounded-full transition-colors', micOn ? 'bg-muted' : 'bg-destructive text-white')}
           >
             {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
           </button>
           <button
-            onClick={() => setCamOn((v) => !v)}
+            onClick={toggleCam}
             className={cn('flex h-12 w-12 items-center justify-center rounded-full transition-colors', camOn ? 'bg-muted' : 'bg-destructive text-white')}
           >
             {camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
@@ -113,7 +293,7 @@ export default function RecruiterInterviewRoom() {
             <Save className="h-4 w-4" /> Save Rubric
           </Button>
           <button
-            onClick={() => completeMutation.mutate()}
+            onClick={hangUp}
             className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive text-white"
           >
             <PhoneOff className="h-5 w-5" />
@@ -121,7 +301,7 @@ export default function RecruiterInterviewRoom() {
         </div>
       </div>
 
-      {/* Right — rubric + transcript */}
+      {/* Right: rubric + transcript */}
       <div className="flex w-80 shrink-0 flex-col gap-3 overflow-hidden">
         {/* Rubric */}
         <Card className="flex flex-col overflow-hidden" style={{ maxHeight: '55%' }}>
@@ -156,6 +336,9 @@ export default function RecruiterInterviewRoom() {
                 />
               </div>
             ))}
+            <Button size="sm" variant="outline" className="w-full mt-2" onClick={() => completeMutation.mutate()}>
+              End Interview & Score
+            </Button>
           </CardContent>
         </Card>
 
@@ -163,17 +346,19 @@ export default function RecruiterInterviewRoom() {
         <Card className="flex flex-1 flex-col overflow-hidden">
           <div className="flex items-center gap-2 border-b px-4 py-3">
             <MessageSquare className="h-4 w-4" />
-            <span className="text-sm font-medium">Transcript</span>
+            <span className="text-sm font-medium">Live Transcript</span>
             <span className="ml-auto text-[10px] text-emerald-600 flex items-center gap-1">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> Live AI
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" /> AI
             </span>
           </div>
           <div ref={transcriptRef} className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin">
             {transcript.length === 0 ? (
-              <p className="text-center text-xs text-muted-foreground">Transcript will appear here...</p>
+              <p className="text-center text-xs text-muted-foreground">Transcript will appear here as you speak…</p>
             ) : transcript.map((line, i) => (
-              <div key={i} className="text-sm">
-                <span className="font-medium text-primary text-xs">{line.speaker}</span>
+              <div key={i} className={cn('text-sm', line.speaker === 'You' ? 'text-right' : '')}>
+                <span className={cn('font-medium text-xs', line.speaker === 'System' ? 'text-muted-foreground italic' : 'text-primary')}>
+                  {line.speaker}
+                </span>
                 <p className="text-muted-foreground">{line.text}</p>
               </div>
             ))}

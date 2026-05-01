@@ -11,6 +11,53 @@ import { sendEmail } from '../lib/email.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { UserModel } from '../models/User.model.js'
 import { AssessmentModel } from '../models/Assessment.model.js'
+import { notify } from '../lib/notify.js'
+
+function buildNarrative(s: {
+  resumeScore: number; assessmentScore: number; penaltyApplied: number
+  interviewScore: number; finalScore: number; decision?: string; stage?: string
+}): string {
+  const parts: string[] = []
+  const { resumeScore, assessmentScore, penaltyApplied, interviewScore, finalScore, decision, stage } = s
+
+  // Overall verdict
+  if (finalScore >= 80) parts.push(`Your application scored strongly overall at ${finalScore.toFixed(1)}%, placing you in the top tier of candidates reviewed for this role.`)
+  else if (finalScore >= 60) parts.push(`Your application achieved a score of ${finalScore.toFixed(1)}%, indicating solid performance across the evaluation pipeline.`)
+  else if (finalScore >= 40) parts.push(`Your application was evaluated and received a score of ${finalScore.toFixed(1)}%, reflecting a mixed performance across assessment stages.`)
+  else if (finalScore > 0) parts.push(`Your application received a score of ${finalScore.toFixed(1)}% following the full evaluation pipeline.`)
+  else parts.push(`Your application is currently in the ${stage ?? 'review'} stage. A full score breakdown will be available once all evaluation stages are completed.`)
+
+  // Resume
+  if (resumeScore > 0) {
+    if (resumeScore >= 75) parts.push(`Your CV demonstrated strong alignment with the job requirements, achieving a resume match score of ${resumeScore.toFixed(1)}%.`)
+    else if (resumeScore >= 50) parts.push(`Your CV showed reasonable relevance to the role with a resume score of ${resumeScore.toFixed(1)}%. Strengthening keyword alignment to the job description in future applications could improve this.`)
+    else parts.push(`Your CV scored ${resumeScore.toFixed(1)}% for relevance — this typically indicates limited alignment between your documented experience and the specific requirements of this role.`)
+  }
+
+  // Assessment
+  if (assessmentScore > 0) {
+    if (assessmentScore >= 80) parts.push(`You performed excellently in the structured assessment, scoring ${assessmentScore.toFixed(1)}% — a result that indicates strong technical and cognitive capability.`)
+    else if (assessmentScore >= 60) parts.push(`Your assessment score of ${assessmentScore.toFixed(1)}% reflects competent performance, though further preparation in core technical areas could strengthen future results.`)
+    else parts.push(`The assessment stage returned a score of ${assessmentScore.toFixed(1)}%. Focused practice in the competency areas assessed would be recommended before reapplying.`)
+  }
+
+  // Interview
+  if (interviewScore > 0) {
+    if (interviewScore >= 75) parts.push(`The structured interview evaluation returned a score of ${interviewScore.toFixed(1)}%, reflecting strong communication and role-fit responses.`)
+    else if (interviewScore >= 50) parts.push(`Your interview score of ${interviewScore.toFixed(1)}% indicates adequate performance. Providing more specific, evidence-based responses using the STAR framework may improve this in future interviews.`)
+    else parts.push(`The interview component scored ${interviewScore.toFixed(1)}%, suggesting responses may have lacked sufficient detail or role-specific evidence.`)
+  }
+
+  // Fairness penalty
+  if (penaltyApplied > 0) parts.push(`The AI fairness gate detected a minor scoring adjustment of ${penaltyApplied.toFixed(1)}% to ensure equitable evaluation across all candidate groups. This is applied systematically and does not reflect negatively on any individual candidate.`)
+
+  // Decision
+  if (decision === 'hire') parts.push('The recruiter has reviewed this evaluation and made a positive hiring decision. Congratulations.')
+  else if (decision === 'reject') parts.push('After reviewing the full evaluation, the recruiter has determined that another candidate was a stronger fit for this particular role. This is not a reflection on your broader potential.')
+  else if (decision === 'hold') parts.push('The recruiter has placed this application on hold while reviewing the full candidate pool. No final decision has been made.')
+
+  return parts.join(' ')
+}
 
 export const applicationsRouter = Router()
 
@@ -41,6 +88,15 @@ applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin'), asy
     await ensureAssessment(String(application._id), String(job._id))
 
     await logAction({ actor: 'user', action: 'application-create', candidateId: String(candidate._id), jobId: String(job._id), mode: 'assist' })
+    // Notify recruiter of new application
+    if (job.createdBy) {
+      notify(String(job.createdBy), {
+        type: 'application_received',
+        title: 'New application received',
+        body: `A candidate has applied to "${job.title}".`,
+        link: `/recruiter/shortlist?job=${String(job._id)}`,
+      })
+    }
     res.status(201).json({ ...application.toJSON(), _id: String(application._id) })
   } catch (err) {
     next(err)
@@ -118,6 +174,28 @@ applicationsRouter.get('/job/:jobId', requireAuth, requireRole('recruiter', 'adm
 
     const applications = await ApplicationModel.find(filter).sort({ createdAt: -1 }).lean()
     const appIds = applications.map((a) => String(a._id))
+
+    // Populate candidate → user for name display
+    const candidateIds = [...new Set(applications.map((a) => a.candidate))]
+    const candidates = await CandidateModel.find({ _id: { $in: candidateIds } }).lean()
+    const userIds = candidates.map((c) => String(c.user)).filter(Boolean)
+    const users = await UserModel.find({ _id: { $in: userIds } }, { password: 0 }).lean()
+    const userMap = Object.fromEntries(users.map((u) => [String(u._id), u]))
+    const candidateMap = Object.fromEntries(candidates.map((c) => [
+      String(c._id),
+      {
+        _id: String(c._id),
+        user: userMap[String(c.user)]
+          ? {
+              _id: String(userMap[String(c.user)]._id),
+              firstName: (userMap[String(c.user)] as { firstName: string }).firstName,
+              lastName: (userMap[String(c.user)] as { lastName: string }).lastName,
+              email: (userMap[String(c.user)] as { email: string }).email,
+            }
+          : c.user,
+      },
+    ]))
+
     const assessments = await AssessmentModel.find({ application: { $in: appIds } }).lean()
     const assessmentMap = Object.fromEntries(
       assessments.map((as) => [String(as.application), { expiresAt: as.expiresAt, status: as.status }]),
@@ -135,15 +213,25 @@ applicationsRouter.get('/job/:jobId', requireAuth, requireRole('recruiter', 'adm
       acc[key] = current
       return acc
     }, {})
+
+    // Attach interview IDs
+    const { InterviewModel } = await import('../models/Interview.model.js')
+    const interviews = await InterviewModel.find({ application: { $in: appIds } }).lean()
+    const interviewMap = Object.fromEntries(interviews.map((i) => [String(i.application), { _id: String(i._id), status: i.status, scheduledAt: i.scheduledAt }]))
+
     res.json(
       paginate(
         applications.map((a) => ({
           ...a,
           _id: String(a._id),
+          candidate: candidateMap[String(a.candidate)] ?? a.candidate,
           assessmentExpiresAt: assessmentMap[String(a._id)]?.expiresAt,
           assessmentStatus: assessmentMap[String(a._id)]?.status,
           fairnessComputedAt: aiMap[String(a._id)]?.fairnessAt,
           explanationComputedAt: aiMap[String(a._id)]?.explanationAt,
+          interviewId: interviewMap[String(a._id)]?._id,
+          interviewStatus: interviewMap[String(a._id)]?.status,
+          interviewScheduledAt: interviewMap[String(a._id)]?.scheduledAt,
         })),
         page,
         limit,
@@ -164,6 +252,16 @@ applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 
     ).lean()
     if (!application) throw new HttpError(404, 'Application not found')
     await logAction({ actor: 'user', action: 'application-shortlist', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
+    // Notify candidate
+    const cand = await CandidateModel.findById(application.candidate).lean()
+    if (cand?.user) {
+      notify(String(cand.user), {
+        type: 'shortlisted',
+        title: 'You\'ve been shortlisted! 🎉',
+        body: 'Great news — you\'ve been shortlisted for a role. Check your applications for details.',
+        link: '/candidate/applications',
+      })
+    }
     res.json({ ...application, _id: String(application._id) })
   } catch (err) {
     next(err)
@@ -194,7 +292,16 @@ applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recrui
       mode: 'assist',
       payload: { durationMinutes: minutes, expiresAt },
     })
-
+    // Notify candidate
+    const candForAssessment = await CandidateModel.findById(application.candidate).lean()
+    if (candForAssessment?.user) {
+      notify(String(candForAssessment.user), {
+        type: 'assessment_sent',
+        title: 'Assessment ready for you',
+        body: 'A recruiter has sent you an assessment. Complete it before it expires.',
+        link: '/candidate/applications',
+      })
+    }
     res.json({ ok: true, assessmentId: String(assessment._id), expiresAt })
   } catch (err) {
     next(err)
@@ -207,12 +314,110 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
     const { reason } = req.body as { reason?: string }
     const application = await ApplicationModel.findByIdAndUpdate(
       String(req.params.id),
-      { status: 'rejected', stage: 'rejected', recruiterNotes: reason },
+      { status: 'rejected', stage: 'rejected', recruiterNotes: reason, decision: 'reject', decisionAt: nowIso(), decisionBy: req.user!._id },
       { new: true },
     ).lean()
     if (!application) throw new HttpError(404, 'Application not found')
+
+    // Store AI explanation so candidate can see it immediately
+    const s = application.scores
+    await AiOutputModel.create({
+      application: String(application._id),
+      type: 'explanation',
+      input: { stage: application.stage, scores: s },
+      output: {
+        explanation: buildNarrative({
+          resumeScore: s.resume ?? 0,
+          assessmentScore: s.assessment ?? 0,
+          penaltyApplied: s.penalty ?? 0,
+          interviewScore: s.interview ?? 0,
+          finalScore: s.final ?? 0,
+          decision: 'reject',
+          stage: application.stage,
+          rejectionReason: reason,
+        }),
+        stage: application.stage,
+      },
+      modelVersion: 'rejection-auto-v1',
+    })
+
+    // Notify candidate immediately with explanation link
+    const cand = await CandidateModel.findById(application.candidate).lean()
+    if (cand?.user) {
+      notify(String(cand.user), {
+        type: 'application_rejected',
+        title: 'Application outcome — see your AI explanation',
+        body: reason
+          ? `The recruiter noted: "${reason.slice(0, 80)}". View your full AI explanation for a detailed breakdown.`
+          : 'A decision has been made on your application. View your personalised AI explanation to understand how you were evaluated.',
+        link: `/candidate/explanation/${String(application._id)}`,
+      })
+    }
+
     await logAction({ actor: 'user', action: 'application-reject', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
     res.json({ ...application, _id: String(application._id) })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /applications/ai-decide — Veto mode: AI auto-shortlists/rejects applied candidates for a job
+applicationsRouter.post('/ai-decide', requireAuth, requireRole('recruiter', 'admin'), async (req, res, next) => {
+  try {
+    const { jobId, shortlistThreshold = 65, rejectThreshold = 40 } = req.body as {
+      jobId?: string; shortlistThreshold?: number; rejectThreshold?: number
+    }
+    if (!jobId) throw new HttpError(400, 'jobId required')
+
+    const appliedApps = await ApplicationModel.find({ job: jobId, stage: 'applied' }).lean()
+    const results: { id: string; action: 'shortlisted' | 'rejected' | 'review'; score: number }[] = []
+
+    for (const app of appliedApps) {
+      const resumeScore = app.scores.resume ?? 0
+      if (resumeScore >= shortlistThreshold) {
+        await ApplicationModel.findByIdAndUpdate(String(app._id), { stage: 'screening', status: 'shortlisted' })
+        // Notify candidate
+        const cand = await CandidateModel.findById(app.candidate).lean()
+        if (cand?.user) {
+          notify(String(cand.user), {
+            type: 'shortlisted',
+            title: 'AI has shortlisted your application 🎉',
+            body: `Your CV scored ${resumeScore}% (above the ${shortlistThreshold}% threshold). The AI has progressed your application automatically.`,
+            link: '/candidate/applications',
+          })
+        }
+        results.push({ id: String(app._id), action: 'shortlisted', score: resumeScore })
+      } else if (resumeScore > 0 && resumeScore < rejectThreshold) {
+        await ApplicationModel.findByIdAndUpdate(String(app._id), {
+          stage: 'rejected', status: 'rejected', decision: 'reject', decisionAt: nowIso(), decisionBy: 'ai',
+        })
+        await AiOutputModel.create({
+          application: String(app._id),
+          type: 'explanation',
+          input: { stage: 'applied', scores: app.scores },
+          output: {
+            explanation: buildNarrative({ resumeScore, assessmentScore: 0, penaltyApplied: 0, interviewScore: 0, finalScore: resumeScore, decision: 'reject', stage: 'applied' }),
+            stage: 'applied',
+          },
+          modelVersion: 'veto-auto-v1',
+        })
+        const cand = await CandidateModel.findById(app.candidate).lean()
+        if (cand?.user) {
+          notify(String(cand.user), {
+            type: 'application_rejected',
+            title: 'Application not progressed — AI explanation available',
+            body: `Your CV scored ${resumeScore}% against this role's requirements. View your detailed AI explanation to understand the evaluation.`,
+            link: `/candidate/explanation/${String(app._id)}`,
+          })
+        }
+        results.push({ id: String(app._id), action: 'rejected', score: resumeScore })
+      } else {
+        results.push({ id: String(app._id), action: 'review', score: resumeScore })
+      }
+    }
+
+    await logAction({ actor: 'ai', action: 'veto-ai-decide', jobId, mode: 'veto', payload: { results } })
+    res.json({ ok: true, processed: results.length, results })
   } catch (err) {
     next(err)
   }
@@ -236,6 +441,19 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
     ).lean()
     if (!application) throw new HttpError(404, 'Application not found')
     await logAction({ actor: 'user', action: 'application-decision', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
+    // Notify candidate with link to AI explanation
+    const candForDecision = await CandidateModel.findById(application.candidate).lean()
+    if (candForDecision?.user) {
+      const isHire = decision === 'hire'
+      notify(String(candForDecision.user), {
+        type: 'decision_made',
+        title: isHire ? 'Congratulations — offer extended! 🎉' : 'Application decision made',
+        body: isHire
+          ? 'A recruiter has extended an offer. View your AI-generated decision explanation.'
+          : 'A recruiter has made a decision on your application. See your personalised AI explanation.',
+        link: `/candidate/explanation/${String(application._id)}`,
+      })
+    }
     res.json({ ...application, _id: String(application._id) })
   } catch (err) {
     next(err)
@@ -253,17 +471,34 @@ applicationsRouter.get('/:id/explanation', requireAuth, async (req, res, next) =
     const shapValues = (ai?.output as { topFeatures?: Array<{ name: string; value: number }> } | undefined)?.topFeatures
       ?.reduce<Record<string, number>>((acc, item) => ({ ...acc, [item.name]: item.value }), {})
 
+    const resumeScore = toPercent(s.resume ?? 0)
+    const assessmentScore = toPercent(s.assessment ?? 0)
+    const penaltyApplied = toPercent(s.penalty ?? 0)
+    const interviewScore = toPercent(s.interview ?? 0)
+    const finalScore = toPercent(s.final ?? 0)
+
+    // Build a real, data-driven narrative explanation
+    const aiExplanation = (ai?.output as { explanation?: string } | undefined)?.explanation
+    const narrative = aiExplanation && !aiExplanation.toLowerCase().includes('pending')
+      ? aiExplanation
+      : buildNarrative({ resumeScore, assessmentScore, penaltyApplied, interviewScore, finalScore, decision: application.decision as string | undefined, stage: application.stage })
+
+    // Include recruiter note if present
+    const recruiterNote = (application as { recruiterNote?: string }).recruiterNote
+
     res.json({
       scores: {
-        resumeScore: toPercent(s.resume ?? 0),
-        assessmentScore: toPercent(s.assessment ?? 0),
-        penaltyApplied: toPercent(s.penalty ?? 0),
-        interviewScore: toPercent(s.interview ?? 0),
-        finalScore: toPercent(s.final ?? 0),
+        resumeScore,
+        assessmentScore,
+        penaltyApplied,
+        interviewScore,
+        finalScore,
         weights: { w1: 0.3, w2: 0.3, w3: 0.1, w4: 0.3 },
-        explanation: (ai?.output as { explanation?: string } | undefined)?.explanation
-          ?? 'Explanation pending. Run fairness/explainer pipeline to generate SHAP-backed rationale.',
+        explanation: narrative,
         shapValues: shapValues ?? {},
+        recruiterNote: recruiterNote ?? null,
+        stage: application.stage,
+        decision: application.decision,
       },
     })
   } catch (err) {
@@ -332,6 +567,21 @@ applicationsRouter.post('/:id/fairness-gate', requireAuth, requireRole('recruite
   } catch (err) {
     next(err)
   }
+})
+
+// POST /applications/:id/recruiter-note — human-in-the-loop feedback visible to candidate
+applicationsRouter.post('/:id/recruiter-note', requireAuth, requireRole('recruiter', 'admin'), async (req, res, next) => {
+  try {
+    const { note } = req.body as { note?: string }
+    if (!note?.trim()) throw new HttpError(400, 'note is required')
+    const application = await ApplicationModel.findByIdAndUpdate(
+      String(req.params.id),
+      { recruiterNote: note.trim() },
+      { new: true },
+    ).lean()
+    if (!application) throw new HttpError(404, 'Application not found')
+    res.json({ ok: true })
+  } catch (err) { next(err) }
 })
 
 // POST /applications/:id/correspondence/send

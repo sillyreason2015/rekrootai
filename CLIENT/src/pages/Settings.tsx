@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2 } from 'lucide-react'
+import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/axios'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
@@ -101,6 +101,32 @@ export default function Settings() {
     },
   })
 
+  // Team management (recruiter only)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteError, setInviteError] = useState('')
+  const [inviteSent, setInviteSent] = useState(false)
+
+  const { data: teamData } = useQuery<{ members: Array<{ _id: string; firstName: string; lastName: string; email: string; role: string }> }>({
+    queryKey: ['company-team'],
+    queryFn: () => api.get('/companies/team').then((r) => r.data),
+    enabled: canManageCompany,
+  })
+
+  const sendInvite = useMutation({
+    mutationFn: (email: string) => api.post('/companies/invite', { email }),
+    onSuccess: () => {
+      setInviteEmail('')
+      setInviteError('')
+      setInviteSent(true)
+      qc.invalidateQueries({ queryKey: ['company-team'] })
+      setTimeout(() => setInviteSent(false), 4000)
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setInviteError(msg ?? 'Failed to send invite. Please try again.')
+    },
+  })
+
   const saveProfile = async (data: ProfileForm) => {
     await api.patch('/auth/me', data)
     await refreshUser()
@@ -160,6 +186,9 @@ export default function Settings() {
           <TabsTrigger value="profile" className="gap-1.5"><User className="h-4 w-4" /> Profile</TabsTrigger>
           {canManageCompany && (
             <TabsTrigger value="company" className="gap-1.5"><Building2 className="h-4 w-4" /> Company</TabsTrigger>
+          )}
+          {canManageCompany && (
+            <TabsTrigger value="team" className="gap-1.5"><Users className="h-4 w-4" /> Team</TabsTrigger>
           )}
           <TabsTrigger value="security" className="gap-1.5"><Lock className="h-4 w-4" /> Security</TabsTrigger>
           <TabsTrigger value="notifications" className="gap-1.5"><Bell className="h-4 w-4" /> Notifications</TabsTrigger>
@@ -279,6 +308,76 @@ export default function Settings() {
                     <Save className="h-4 w-4" /> Save Company
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
+
+        {/* Team (recruiter only) */}
+        {canManageCompany && (
+          <TabsContent value="team">
+            <Card>
+              <CardHeader><CardTitle>Team Members</CardTitle></CardHeader>
+              <CardContent className="space-y-6">
+                {/* Invite form */}
+                <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
+                  <p className="text-sm font-medium">Invite a colleague</p>
+                  <p className="text-xs text-muted-foreground">They'll receive an email with a link to join your workspace as a recruiter.</p>
+                  {inviteSent && (
+                    <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      <CheckCircle2 className="h-4 w-4" /> Invite sent successfully!
+                    </div>
+                  )}
+                  {inviteError && (
+                    <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                      {inviteError}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="colleague@company.com"
+                      className="h-9 flex-1 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && inviteEmail) sendInvite.mutate(inviteEmail)
+                      }}
+                    />
+                    <Button
+                      onClick={() => { if (inviteEmail) sendInvite.mutate(inviteEmail) }}
+                      disabled={!inviteEmail || sendInvite.isPending}
+                    >
+                      {sendInvite.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      Send Invite
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Members list */}
+                <div>
+                  <p className="mb-3 text-sm font-medium">Current team ({teamData?.members.length ?? 0})</p>
+                  {!teamData?.members.length ? (
+                    <p className="text-sm text-muted-foreground">No team members found.</p>
+                  ) : (
+                    <div className="divide-y rounded-xl border">
+                      {teamData.members.map((m) => (
+                        <div key={m._id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                            {m.firstName[0]}{m.lastName[0]}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">{m.firstName} {m.lastName}</p>
+                            <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                          </div>
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs capitalize text-muted-foreground">
+                            {m.role}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
