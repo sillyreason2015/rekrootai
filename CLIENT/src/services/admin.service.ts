@@ -4,6 +4,7 @@ import type { BiasAudit } from '../types'
 export const adminService = {
   getDashboard: () =>
     api.get<{
+      scope?: 'platform' | 'company'
       totalUsers: number
       totalJobs: number
       totalApplications: number

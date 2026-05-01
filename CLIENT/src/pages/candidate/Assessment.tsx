@@ -39,7 +39,9 @@ export default function Assessment() {
         setActiveModule(nextIdx)
         setAnswers({})
       } else {
-        navigate(`/candidate/applications`)
+        void assessmentService.complete(assessment!._id).finally(() => {
+          navigate('/candidate/applications')
+        })
       }
     },
   })

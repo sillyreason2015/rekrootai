@@ -62,12 +62,19 @@ export default function Applications() {
                       Applied {formatRelative(app.createdAt)}
                     </p>
                     {app.stage === 'assessment' && (
-                      <Link
-                        to={`/candidate/assessment/${app._id}`}
-                        className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/20"
-                      >
-                        Complete Assessment <ExternalLink className="h-3 w-3" />
-                      </Link>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Link
+                          to={`/candidate/assessment/${app._id}`}
+                          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/20"
+                        >
+                          Complete Assessment <ExternalLink className="h-3 w-3" />
+                        </Link>
+                        {app.assessmentExpiresAt && (
+                          <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
+                            Due {new Date(app.assessmentExpiresAt).toLocaleString()}
+                          </span>
+                        )}
+                      </div>
                     )}
                     {app.stage === 'interview' && app.interviewId && (
                       <Link
@@ -92,6 +99,11 @@ export default function Applications() {
                     {app.stage === 'decision' && (
                       <div className="text-right">
                         <p className="text-xs font-medium text-emerald-700">Decision available</p>
+                        {app.explanationComputedAt && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Explained {formatRelative(app.explanationComputedAt)}
+                          </p>
+                        )}
                         <Link
                           to={`/candidate/explanation/${app._id}`}
                           className="text-xs text-primary hover:underline"

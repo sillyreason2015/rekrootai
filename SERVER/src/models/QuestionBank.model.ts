@@ -11,6 +11,8 @@ export interface QuestionBankItem {
   category: string
   difficulty: 'easy' | 'medium' | 'hard'
   tags: string[]
+  companyName?: string
+  createdBy?: string
   createdAt: string
 }
 
@@ -24,6 +26,8 @@ const questionBankSchema = new Schema<Omit<QuestionBankItem, '_id' | 'createdAt'
     category: { type: String, default: 'general' },
     difficulty: { type: String, enum: ['easy', 'medium', 'hard'], default: 'medium' },
     tags: { type: [String], default: [] },
+    companyName: { type: String },
+    createdBy: { type: String },
   },
   baseSchemaOptions,
 )

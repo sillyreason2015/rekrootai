@@ -18,6 +18,7 @@ export default function Correspondence() {
   const [selectedJob, setSelectedJob] = useState('')
   const [selectedApp, setSelectedApp] = useState('')
   const [message, setMessage] = useState('')
+  const [subject, setSubject] = useState('Update on your application')
   const [sent, setSent] = useState<string[]>([])
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
@@ -28,7 +29,7 @@ export default function Correspondence() {
   })
 
   const sendMutation = useMutation({
-    mutationFn: () => applicationService.sendCorrespondence(selectedApp, message),
+    mutationFn: () => applicationService.sendCorrespondence(selectedApp, { subject, message }),
     onSuccess: () => {
       setSent((p) => [...p, selectedApp])
       setMessage('')
@@ -85,7 +86,10 @@ export default function Correspondence() {
           {Object.entries(TEMPLATES).map(([key, text]) => (
             <button
               key={key}
-              onClick={() => setMessage(text)}
+              onClick={() => {
+                setSubject(`Application Update: ${key[0].toUpperCase()}${key.slice(1)}`)
+                setMessage(text)
+              }}
               className="rounded-full border bg-card px-3 py-1 text-xs hover:border-primary/40 hover:bg-accent capitalize transition-colors"
             >
               {key}
@@ -101,6 +105,13 @@ export default function Correspondence() {
           Message will be sent via email and shown in candidate portal
         </div>
         <textarea
+        <input
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="Email subject"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+        />
+        <textarea
           rows={6}
           className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
           placeholder="Type your message..."
@@ -111,7 +122,7 @@ export default function Correspondence() {
           <p className="text-xs text-muted-foreground">{message.length} characters</p>
           <Button
             onClick={() => sendMutation.mutate()}
-            disabled={!selectedApp || !message || sendMutation.isPending || sent.includes(selectedApp)}
+            disabled={!selectedApp || !subject || !message || sendMutation.isPending || sent.includes(selectedApp)}
           >
             {sendMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             <Send className="h-4 w-4" /> Send Message

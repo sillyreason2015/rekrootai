@@ -19,6 +19,7 @@ export const candidateService = {
       applications: number
       assessmentsPending: number
       interviewsScheduled: number
+      nextAction?: { type: 'assessment' | 'interview'; label: string; href: string; dueAt?: string; jobTitle?: string } | null
       recentApplications: unknown[]
     }>('/candidates/me/dashboard').then((r) => r.data),
 }

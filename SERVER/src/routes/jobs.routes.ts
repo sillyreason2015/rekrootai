@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { JobModel } from '../models/Job.model.js'
 import { QuestionBankModel } from '../models/QuestionBank.model.js'
+import { UserModel } from '../models/User.model.js'
 import { getJobById, logAction } from '../data/store.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError, paginate } from '../lib/http.js'
@@ -90,7 +91,13 @@ jobsRouter.post('/:id/publish', requireAuth, requireRole('admin', 'super_admin')
   try {
     const minQuestions = 3
     const categories = ['aptitude', 'technical', 'situational', 'personality']
-    const counts = await Promise.all(categories.map((c) => QuestionBankModel.countDocuments({ category: c })))
+    const me = await UserModel.findById(req.user!._id).lean()
+    const baseFilter: Record<string, unknown> = req.user?.role === 'super_admin'
+      ? {}
+      : { companyName: me?.companyName ?? '__none__' }
+    const counts = await Promise.all(
+      categories.map((c) => QuestionBankModel.countDocuments({ ...baseFilter, category: c })),
+    )
     const missing = categories.filter((_c, i) => counts[i] < minQuestions)
     if (missing.length) throw new HttpError(400, `Question bank incomplete. Need at least ${minQuestions} questions in: ${missing.join(', ')}`)
     const job = await JobModel.findByIdAndUpdate(String(req.params.id), { status: 'published' }, { new: true }).lean()

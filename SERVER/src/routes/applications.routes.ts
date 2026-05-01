@@ -10,6 +10,7 @@ import { runFairnessGate, runShapExplain } from '../lib/ml.js'
 import { sendEmail } from '../lib/email.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { UserModel } from '../models/User.model.js'
+import { AssessmentModel } from '../models/Assessment.model.js'
 
 export const applicationsRouter = Router()
 
@@ -62,11 +63,32 @@ applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin'), 
     const appIds = applications.map((a) => String(a._id))
     const interviews = await InterviewModel.find({ application: { $in: appIds } }).lean()
     const interviewMap = Object.fromEntries(interviews.map((i) => [String(i.application), String(i._id)]))
+    const assessments = await AssessmentModel.find({ application: { $in: appIds } }).lean()
+    const assessmentMap = Object.fromEntries(
+      assessments.map((as) => [String(as.application), { expiresAt: as.expiresAt, status: as.status }]),
+    )
+    const aiOutputs = await AiOutputModel.find({
+      application: { $in: appIds },
+      type: { $in: ['bias_audit', 'explanation'] },
+    }).sort({ createdAt: -1 }).lean()
+    const aiMap = aiOutputs.reduce<Record<string, { fairnessAt?: string; explanationAt?: string }>>((acc, item) => {
+      const key = String(item.application)
+      const current = acc[key] ?? {}
+      const createdAt = String((item as { createdAt?: string }).createdAt ?? '')
+      if (item.type === 'bias_audit' && !current.fairnessAt) current.fairnessAt = createdAt
+      if (item.type === 'explanation' && !current.explanationAt) current.explanationAt = createdAt
+      acc[key] = current
+      return acc
+    }, {})
     res.json(applications.map((a) => ({
       ...a,
       _id: String(a._id),
       job: jobMap[a.job] ?? a.job,
       interviewId: interviewMap[String(a._id)],
+      assessmentExpiresAt: assessmentMap[String(a._id)]?.expiresAt,
+      assessmentStatus: assessmentMap[String(a._id)]?.status,
+      fairnessComputedAt: aiMap[String(a._id)]?.fairnessAt,
+      explanationComputedAt: aiMap[String(a._id)]?.explanationAt,
     })))
   } catch (err) {
     next(err)
@@ -95,7 +117,38 @@ applicationsRouter.get('/job/:jobId', requireAuth, requireRole('recruiter', 'adm
     if (stage) filter.stage = stage
 
     const applications = await ApplicationModel.find(filter).sort({ createdAt: -1 }).lean()
-    res.json(paginate(applications.map((a) => ({ ...a, _id: String(a._id) })), page, limit))
+    const appIds = applications.map((a) => String(a._id))
+    const assessments = await AssessmentModel.find({ application: { $in: appIds } }).lean()
+    const assessmentMap = Object.fromEntries(
+      assessments.map((as) => [String(as.application), { expiresAt: as.expiresAt, status: as.status }]),
+    )
+    const aiOutputs = await AiOutputModel.find({
+      application: { $in: appIds },
+      type: { $in: ['bias_audit', 'explanation'] },
+    }).sort({ createdAt: -1 }).lean()
+    const aiMap = aiOutputs.reduce<Record<string, { fairnessAt?: string; explanationAt?: string }>>((acc, item) => {
+      const key = String(item.application)
+      const current = acc[key] ?? {}
+      const createdAt = String((item as { createdAt?: string }).createdAt ?? '')
+      if (item.type === 'bias_audit' && !current.fairnessAt) current.fairnessAt = createdAt
+      if (item.type === 'explanation' && !current.explanationAt) current.explanationAt = createdAt
+      acc[key] = current
+      return acc
+    }, {})
+    res.json(
+      paginate(
+        applications.map((a) => ({
+          ...a,
+          _id: String(a._id),
+          assessmentExpiresAt: assessmentMap[String(a._id)]?.expiresAt,
+          assessmentStatus: assessmentMap[String(a._id)]?.status,
+          fairnessComputedAt: aiMap[String(a._id)]?.fairnessAt,
+          explanationComputedAt: aiMap[String(a._id)]?.explanationAt,
+        })),
+        page,
+        limit,
+      ),
+    )
   } catch (err) {
     next(err)
   }
@@ -112,6 +165,37 @@ applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 
     if (!application) throw new HttpError(404, 'Application not found')
     await logAction({ actor: 'user', action: 'application-shortlist', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
     res.json({ ...application, _id: String(application._id) })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /applications/:id/send-assessment
+applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recruiter', 'admin'), async (req, res, next) => {
+  try {
+    const { durationMinutes } = req.body as { durationMinutes?: number }
+    const application = await getApplicationById(String(req.params.id))
+    if (!application) throw new HttpError(404, 'Application not found')
+
+    const assessment = await ensureAssessment(String(application._id), String(application.job))
+    const minutes = Math.max(5, Math.min(7 * 24 * 60, Number(durationMinutes ?? 60)))
+    const expiresAt = new Date(Date.now() + minutes * 60_000).toISOString()
+
+    await Promise.all([
+      ApplicationModel.findByIdAndUpdate(String(application._id), { status: 'assessment_sent', stage: 'assessment' }),
+      AssessmentModel.findByIdAndUpdate(String(assessment._id), { status: 'pending', expiresAt }),
+    ])
+
+    await logAction({
+      actor: 'user',
+      action: 'assessment-send',
+      candidateId: application.candidate,
+      jobId: application.job,
+      mode: 'assist',
+      payload: { durationMinutes: minutes, expiresAt },
+    })
+
+    res.json({ ok: true, assessmentId: String(assessment._id), expiresAt })
   } catch (err) {
     next(err)
   }

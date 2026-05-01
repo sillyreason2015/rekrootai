@@ -39,6 +39,15 @@ export default function Shortlist() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['applications', selectedJob] }),
   })
 
+  const sendAssessmentMutation = useMutation({
+    mutationFn: (id: string) => applicationService.sendAssessment(id, 60),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['applications', selectedJob] }),
+  })
+  const fairnessMutation = useMutation({
+    mutationFn: (id: string) => applicationService.runFairnessGate(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['applications', selectedJob] }),
+  })
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -133,6 +142,22 @@ export default function Shortlist() {
                         <Button
                           size="sm"
                           variant="outline"
+                          onClick={() => sendAssessmentMutation.mutate(app._id)}
+                          disabled={app.stage === 'assessment'}
+                        >
+                          Send Assessment
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => fairnessMutation.mutate(app._id)}
+                          disabled={app.stage !== 'assessment' && app.stage !== 'interview' && app.stage !== 'decision'}
+                        >
+                          Run Fairness
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
                           onClick={() => rejectMutation.mutate(app._id)}
                           className="text-destructive border-destructive/20 hover:bg-destructive/5"
                         >
@@ -173,6 +198,12 @@ export default function Shortlist() {
                             </p>
                           </div>
                         )}
+                        <div className="text-[11px] text-muted-foreground">
+                          {app.fairnessComputedAt ? `Fairness: ${new Date(app.fairnessComputedAt).toLocaleString()}` : 'Fairness: pending'}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {app.explanationComputedAt ? `SHAP: ${new Date(app.explanationComputedAt).toLocaleString()}` : 'SHAP: pending'}
+                        </div>
                       </div>
                     )}
                   </CardContent>

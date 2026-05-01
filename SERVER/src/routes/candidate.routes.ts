@@ -98,10 +98,11 @@ candidateRouter.get('/me/dashboard', async (req, res, next) => {
     const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
     const candidateId = String(candidate._id)
-    const [applications, interviews] = await Promise.all([
-      ApplicationModel.find({ candidate: candidateId }).lean(),
-      InterviewModel.find({ candidate: candidateId }).lean(),
+    const [applicationsRaw, interviews] = await Promise.all([
+      ApplicationModel.find({ candidate: candidateId }).sort({ createdAt: -1 }).lean(),
+      InterviewModel.find({ candidate: candidateId }).sort({ scheduledAt: 1 }).lean(),
     ])
+    const applications = applicationsRaw
     const assessmentsPending = applications.filter((a) => a.stage === 'assessment').length
     // Populate job titles for recent applications
     const recent = applications.slice(0, 5)
@@ -109,10 +110,56 @@ candidateRouter.get('/me/dashboard', async (req, res, next) => {
     const { JobModel } = await import('../models/Job.model.js')
     const jobs = await JobModel.find({ _id: { $in: jobIds } }).lean()
     const jobMap = Object.fromEntries(jobs.map((j) => [String(j._id), { ...j, _id: String(j._id) }]))
+    const appIds = applications.map((a) => String(a._id))
+    const assessments = await AssessmentModel.find({ application: { $in: appIds } }).lean()
+    const assessmentMap = Object.fromEntries(assessments.map((a) => [String(a.application), a]))
+    const interviewMap = Object.fromEntries(interviews.map((i) => [String(i.application), i]))
+
+    const stagePriority: Record<string, number> = {
+      assessment: 1,
+      interview: 2,
+      decision: 3,
+      screening: 4,
+      applied: 5,
+      offered: 6,
+      rejected: 7,
+    }
+    const orderedApps = [...applications].sort(
+      (a, b) => (stagePriority[a.stage] ?? 99) - (stagePriority[b.stage] ?? 99),
+    )
+
+    let nextAction: Record<string, unknown> | null = null
+    for (const app of orderedApps) {
+      const appId = String(app._id)
+      if (app.stage === 'assessment') {
+        const as = assessmentMap[appId]
+        nextAction = {
+          type: 'assessment',
+          label: 'Complete Assessment',
+          href: `/candidate/assessment/${appId}`,
+          dueAt: as?.expiresAt,
+          jobTitle: (jobMap[app.job] as { title?: string } | undefined)?.title ?? 'Job',
+        }
+        break
+      }
+      if (app.stage === 'interview') {
+        const iv = interviewMap[appId]
+        nextAction = {
+          type: 'interview',
+          label: 'Join Interview',
+          href: iv ? `/candidate/interview/${String(iv._id)}` : '/candidate/applications',
+          dueAt: iv?.scheduledAt,
+          jobTitle: (jobMap[app.job] as { title?: string } | undefined)?.title ?? 'Job',
+        }
+        break
+      }
+    }
+
     res.json({
       applications: applications.length,
       assessmentsPending,
       interviewsScheduled: interviews.length,
+      nextAction,
       recentApplications: recent.map((a) => ({ ...a, _id: String(a._id), job: jobMap[a.job] ?? a.job })),
     })
   } catch (err) {

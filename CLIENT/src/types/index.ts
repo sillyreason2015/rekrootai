@@ -112,6 +112,10 @@ export interface Application {
   decisionAt?: string
   createdAt: string
   interviewId?: string
+  assessmentExpiresAt?: string
+  assessmentStatus?: 'pending' | 'in_progress' | 'completed' | 'expired'
+  fairnessComputedAt?: string
+  explanationComputedAt?: string
 }
 
 export type ApplicationStatus =

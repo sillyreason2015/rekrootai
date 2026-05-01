@@ -24,9 +24,9 @@ export default function AdminDashboard() {
   const recentActivity: Activity[] = Array.isArray(data?.recentActivity) ? (data?.recentActivity as Activity[]) : []
 
   const stats = [
-    { label: 'Total Users', value: Number(data?.totalUsers ?? 0), icon: Users },
-    { label: 'Jobs Posted', value: Number(data?.totalJobs ?? 0), icon: Briefcase },
-    { label: 'Applications', value: Number(data?.totalApplications ?? 0), icon: FileText },
+    { label: data?.scope === 'platform' ? 'Total Users' : 'Team Members', value: Number(data?.totalUsers ?? 0), icon: Users },
+    { label: data?.scope === 'platform' ? 'Total Jobs' : 'Company Jobs', value: Number(data?.totalJobs ?? 0), icon: Briefcase },
+    { label: data?.scope === 'platform' ? 'Total Applications' : 'Company Applications', value: Number(data?.totalApplications ?? 0), icon: FileText },
   ]
 
   return (

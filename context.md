@@ -1,6 +1,6 @@
 # Integra-Hire (AIRS) Context
 
-Last updated: 2026-05-01 (Codex continuation)  
+Last updated: 2026-05-01 (Codex continuation, pipeline pass)  
 Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 
 ## Live state (defense mode)
@@ -71,6 +71,8 @@ Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
   - `taxId` (optional)
 - Candidate applications now show explicit decision/rejection notifications with explanation links.
 - Recruiter dashboard includes a notifications panel for defense clarity.
+- Profile headshot rendering fixed to use `avatarPreviewUrl` consistently in Settings and Navbar fallback flow.
+- Role settings routes are now explicitly reachable for candidate, recruiter, admin, and super_admin through `/settings`.
 
 ## Infra/devops added
 
@@ -92,12 +94,43 @@ Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 
 ## Remaining high-priority gaps
 
-1. Full E2E flow execution with all services live (login -> apply -> fairness -> correspondence -> interview).
+1. Full E2E flow execution with all services live (login -> apply -> assessment send -> fairness -> correspondence -> interview).
 2. Stable runnable backend test runner in this environment (replace current failing invocation).
 3. Add ESLint config for CLIENT to make `npm run lint` pass.
 4. Expand integration and E2E coverage beyond smoke tests.
 5. Post-defense secret rotation (AWS/SMTP/LiveKit/Redis credentials were shared in session).
 6. Replace recruiter notifications placeholder card with live notification feed from server events.
+
+## Latest backend delta (this pass)
+
+- Added recruiter/admin action: `POST /applications/:id/send-assessment`
+  - Forces stage to `assessment`
+  - Sets `assessment.status='pending'`
+  - Sets timed `expiresAt` (default 60m, bounded)
+  - Writes audit action `assessment-send`
+- Frontend shortlist now has `Send Assessment` button calling this endpoint.
+- `/applications/mine` now enriches each application with:
+  - `assessmentExpiresAt`
+  - `assessmentStatus`
+  - `fairnessComputedAt`
+  - `explanationComputedAt`
+- Candidate Applications page now shows assessment due time and explanation generation timing.
+- `/applications/job/:jobId` now also returns:
+  - `assessmentExpiresAt`
+  - `assessmentStatus`
+  - `fairnessComputedAt`
+  - `explanationComputedAt`
+- Recruiter shortlist now supports one-click `Run Fairness` per candidate and displays fairness/SHAP completion timestamps.
+- Candidate assessment flow now calls `POST /assessments/:assessmentId/complete` after final module submit (previously only navigated away), ensuring stage progression persists.
+- `GET /admin/dashboard` now returns `scope: 'company' | 'platform'` and the admin dashboard labels are scope-aware (`Team Members`, `Company Jobs`, `Company Applications` for company admin).
+- Candidate dashboard now includes computed `nextAction` (assessment/interview) with target route and due timestamp for timeline clarity during demo.
+- Recruiter correspondence flow now sends both `subject` and `message` payloads to `/applications/:id/correspondence/send` (template buttons now prefill both).
+- Candidate dashboard `nextAction` now uses stage-priority ordering (assessment > interview > decision...) so the most urgent actionable step is always shown first.
+- Recruiter shortlist `Run Fairness` is now disabled for early stages (`applied`, `screening`) to prevent out-of-sequence execution during demo.
+- Candidate dashboard feed is now sorted deterministically (`applications.createdAt desc`, `interviews.scheduledAt asc`) to avoid inconsistent next-action behavior.
+- Recruiter shortlist fairness trigger is now constrained to later stages only (`assessment|interview|decision`).
+- Question bank backend is now Mongo-backed (no in-memory loss on restart), with company scoping for recruiter/admin and global access for super_admin.
+- Publish-time minimum question validation now scopes by company (super_admin remains global), preventing cross-company leakage in publish checks.
 
 ## Quick run commands
 
@@ -116,3 +149,8 @@ Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 ### Client
 - `cd CLIENT`
 - `npm run dev`
+
+## Defense runbook
+
+- Added: `C:\Users\Nathan\Documents\Claude\Projects\AIRS\DEFENSE_RUNBOOK.md`
+- Contains: timed end-to-end demo path for super admin, company admin, recruiter, and candidate flows including fairness/SHAP and correspondence proof points.

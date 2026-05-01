@@ -54,6 +54,24 @@ export default function CandidateDashboard() {
       </div>
 
       {/* Recent applications */}
+      {data?.nextAction && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardContent className="flex items-center justify-between gap-4 p-5">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Next Action</p>
+              <p className="text-sm font-medium">{data.nextAction.label} — {data.nextAction.jobTitle}</p>
+              {data.nextAction.dueAt && (
+                <p className="text-xs text-amber-800">Due {new Date(data.nextAction.dueAt).toLocaleString()}</p>
+              )}
+            </div>
+            <Link to={data.nextAction.href} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+              Continue
+            </Link>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent applications */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle>Recent Applications</CardTitle>

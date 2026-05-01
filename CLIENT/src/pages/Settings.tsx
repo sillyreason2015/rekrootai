@@ -61,7 +61,7 @@ export default function Settings() {
   const [companySaved, setCompanySaved] = useState(false)
   const [avatarUploading, setAvatarUploading] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState('')
-  const avatarSrc = useMemo(() => avatarPreview || user?.avatarUrl || '', [avatarPreview, user?.avatarUrl])
+  const avatarSrc = useMemo(() => avatarPreview || user?.avatarPreviewUrl || '', [avatarPreview, user?.avatarPreviewUrl])
 
   const profileForm = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),

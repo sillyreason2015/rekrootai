@@ -53,6 +53,7 @@ adminRouter.get('/dashboard', async (req, res, next) => {
     }
 
     res.json({
+      scope: isSuper ? 'platform' : 'company',
       totalUsers,
       totalJobs,
       totalApplications,
