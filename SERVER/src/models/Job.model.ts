@@ -16,6 +16,40 @@ const jobSchema = new Schema<Omit<Job, 'createdAt'>>(
     company: { type: String, ref: 'Company', required: true },
     title: { type: String, required: true },
     department: String,
+    level: { type: String, enum: ['graduate', 'entry', 'mid', 'senior', 'lead', 'executive'], default: 'mid' },
+    departments: { type: [String], default: [] },
+    hiringPlan: {
+      cohortName: String,
+      seats: Number,
+      windowStart: String,
+      windowEnd: String,
+    },
+    positionsCount: { type: Number, default: 1 },
+    departmentHiring: {
+      type: [
+        new Schema(
+          {
+            department: { type: String, required: true },
+            seats: { type: Number, required: true, min: 1 },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
+    requiresQuestionnaire: { type: Boolean, default: false },
+    applicationQuestions: {
+      type: [
+        new Schema(
+          {
+            question: { type: String, required: true },
+            required: { type: Boolean, default: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     location: String,
     type: { type: String, enum: ['full-time', 'part-time', 'contract', 'internship'] },
     remote: { type: String, enum: ['on-site', 'hybrid', 'remote'] },

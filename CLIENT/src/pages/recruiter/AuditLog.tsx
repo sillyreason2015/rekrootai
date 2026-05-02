@@ -24,10 +24,10 @@ export default function RecruiterAuditLog() {
         <>
           <Card><CardContent className="p-0">
             <table className="w-full text-sm">
-              <thead><tr className="border-b bg-muted/30 text-xs text-muted-foreground"><th className="px-4 py-3 text-left">Action</th><th className="px-4 py-3 text-left">Date</th></tr></thead>
+              <thead><tr className="border-b bg-muted/30 text-xs text-muted-foreground"><th className="px-4 py-3 text-left">Action</th><th className="px-4 py-3 text-left">Date</th><th className="px-4 py-3 text-left">Details</th></tr></thead>
               <tbody className="divide-y">
                 {entries.map((e) => (
-                  <tr key={e._id}><td className="px-4 py-3"><Badge variant="secondary">{e.action}</Badge></td><td className="px-4 py-3">{formatDate((e.timestamp ?? e.createdAt ?? new Date().toISOString()))}</td></tr>
+                  <tr key={e._id}><td className="px-4 py-3"><Badge variant="secondary">{e.action}</Badge></td><td className="px-4 py-3">{formatDate((e.timestamp ?? e.createdAt ?? new Date().toISOString()))}</td><td className="px-4 py-3"><details><summary className="cursor-pointer text-xs text-primary">View</summary><pre className="mt-2 whitespace-pre-wrap rounded bg-muted p-2 text-[11px]">{JSON.stringify(e, null, 2)}</pre></details></td></tr>
                 ))}
               </tbody>
             </table>

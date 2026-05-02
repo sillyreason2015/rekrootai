@@ -38,18 +38,17 @@ const adminNav = [
   { to: '/admin/bias-audit', label: 'Bias Audit', icon: BarChart3 },
   { to: '/admin/ai-validation', label: 'AI Validation', icon: Brain, tour: 'admin-ai-validation' },
   { to: '/admin/livekit-test', label: 'LiveKit Test', icon: Wifi, tour: 'admin-livekit-test' },
-  { to: '/settings', label: 'Company', icon: Building2 },
+  { to: '/admin/company-settings', label: 'Company', icon: Building2 },
   { to: '/admin/billing', label: 'Billing', icon: CreditCard },
   { to: '/help', label: 'Help & Docs', icon: HelpCircle },
 ]
 
 const superAdminNav = [
-  { to: '/internal/super-admin/dashboard', label: 'Platform', icon: LayoutDashboard },
-  { to: '/internal/super-admin/users', label: 'Users', icon: Users },
-  { to: '/internal/super-admin/companies', label: 'Companies', icon: Building2 },
-  { to: '/internal/super-admin/audit-log', label: 'Audit Log', icon: FileText },
-  { to: '/internal/super-admin/bias-audit', label: 'Bias Audit', icon: BarChart3 },
-  { to: '/internal/super-admin/settings', label: 'Settings', icon: ShieldCheck },
+  { to: '/internal/super-admin/dashboard', label: 'Platform', icon: LayoutDashboard, tour: 'super-platform' },
+  { to: '/internal/super-admin/users', label: 'Users', icon: Users, tour: 'super-users' },
+  { to: '/internal/super-admin/companies', label: 'Companies', icon: Building2, tour: 'super-companies' },
+  { to: '/internal/super-admin/audit-log', label: 'Audit Log', icon: FileText, tour: 'super-audit' },
+  { to: '/internal/super-admin/settings', label: 'Settings', icon: ShieldCheck, tour: 'super-settings' },
 ]
 
 export default function Sidebar() {

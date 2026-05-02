@@ -19,6 +19,7 @@ export default function JobDetail() {
   const location = useLocation()
   const publicMode = location.pathname.startsWith('/jobs')
   const [applyError, setApplyError] = useState('')
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({})
   const { user } = useAuth()
 
   const { data: job, isLoading: jobLoading } = useQuery({
@@ -38,7 +39,15 @@ export default function JobDetail() {
   )
 
   const applyMutation = useMutation({
-    mutationFn: () => applicationService.apply(id!),
+    mutationFn: async () => {
+      if (!job) throw new Error('Job not loaded')
+      return applicationService.apply(
+        id!,
+        (job.applicationQuestions ?? [])
+          .map((q) => ({ question: q.question, answer: (questionAnswers[q.question] ?? '').trim() }))
+          .filter((a) => a.answer.length > 0),
+      )
+    },
     onSuccess: () => {
       setApplyError('')
     },
@@ -60,6 +69,10 @@ export default function JobDetail() {
 
   const company = typeof job.company === 'object' ? job.company : null
   const applied = alreadyApplied || applyMutation.isSuccess
+  const requiresQuestionnaire = Boolean(job.requiresQuestionnaire && (job.applicationQuestions?.length ?? 0) > 0)
+  const missingRequired = requiresQuestionnaire
+    ? (job.applicationQuestions ?? []).some((q) => q.required && !(questionAnswers[q.question] ?? '').trim())
+    : false
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -152,6 +165,28 @@ export default function JobDetail() {
             </div>
           )}
 
+          {requiresQuestionnaire && (
+            <div className="mt-6 rounded-lg border bg-accent/40 p-4">
+              <h2 className="font-serif text-lg font-semibold">Application Questions</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Answer these questions to submit your application.</p>
+              <div className="mt-3 space-y-3">
+                {(job.applicationQuestions ?? []).map((q, idx) => (
+                  <div key={`${q.question}-${idx}`} className="space-y-1.5">
+                    <label className="text-sm font-medium">
+                      {q.question} {q.required ? <span className="text-destructive">*</span> : null}
+                    </label>
+                    <textarea
+                      rows={3}
+                      className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      value={questionAnswers[q.question] ?? ''}
+                      onChange={(e) => setQuestionAnswers((prev) => ({ ...prev, [q.question]: e.target.value }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="mt-8 space-y-3">
             {applyError && (
               <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -174,7 +209,7 @@ export default function JobDetail() {
                   }
                   applyMutation.mutate()
                 }}
-                disabled={applyMutation.isPending}
+                disabled={applyMutation.isPending || missingRequired}
                 className="px-10"
               >
                 {applyMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}

@@ -69,6 +69,7 @@ export default function AuditLog() {
                     <th className="px-4 py-3 text-left">User</th>
                     <th className="px-4 py-3 text-left">Resource</th>
                     <th className="px-4 py-3 text-left">Date</th>
+                    <th className="px-4 py-3 text-left">Details</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -88,6 +89,14 @@ export default function AuditLog() {
                         <p className="text-xs text-muted-foreground font-mono">{entry.resourceId?.slice(-8)}</p>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{entry.createdAt ? formatDate(entry.createdAt) : '-'}</td>
+                      <td className="px-4 py-3">
+                        <details>
+                          <summary className="cursor-pointer text-xs text-primary">View</summary>
+                          <pre className="mt-2 whitespace-pre-wrap rounded bg-muted p-2 text-[11px]">
+                            {JSON.stringify(entry.metadata ?? {}, null, 2)}
+                          </pre>
+                        </details>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -21,8 +21,8 @@ export interface ExplanationResponse {
 }
 
 export const applicationService = {
-  apply: (jobId: string) =>
-    api.post<Application>('/applications', { jobId }).then((r) => r.data),
+  apply: (jobId: string, applicationAnswers?: Array<{ question: string; answer: string }>) =>
+    api.post<Application>('/applications', { jobId, applicationAnswers }).then((r) => r.data),
   myApplications: () =>
     api.get<Application[]>('/applications/mine').then((r) => r.data),
   get: (id: string) => api.get<Application>(`/applications/${id}`).then((r) => r.data),

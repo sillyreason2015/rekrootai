@@ -41,7 +41,7 @@ const sections: Section[] = [
       },
       {
         q: 'What threshold must a candidate pass to reach interview stage?',
-        a: 'The default shortlist threshold is 60% composite. Recruiters can raise or lower this per role. Candidates below the threshold are marked for manual review rather than automatically rejected — a human always makes the final call.',
+        a: 'Progression criteria are configured per role by company admins and recruiters. Candidate-facing screens do not disclose raw threshold values unless the company explicitly enables threshold visibility in policy settings.',
       },
     ],
   },
@@ -295,3 +295,4 @@ export default function Help() {
     </div>
   )
 }
+

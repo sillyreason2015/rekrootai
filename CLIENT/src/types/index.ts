@@ -67,6 +67,11 @@ export interface Job {
   company: string | Company
   title: string
   department: string
+  level?: 'graduate' | 'entry' | 'mid' | 'senior' | 'lead' | 'executive'
+  positionsCount?: number
+  departmentHiring?: Array<{ department: string; seats: number }>
+  requiresQuestionnaire?: boolean
+  applicationQuestions?: Array<{ question: string; required: boolean }>
   location: string
   type: 'full-time' | 'part-time' | 'contract' | 'internship'
   remote: 'on-site' | 'hybrid' | 'remote'
@@ -87,7 +92,7 @@ export interface Job {
 }
 
 export interface AssessmentModuleConfig {
-  type: 'aptitude' | 'technical' | 'situational' | 'personality'
+  type: 'aptitude' | 'technical' | 'situational' | 'personality' | 'values'
   timeLimit: number
   weight: number
 }

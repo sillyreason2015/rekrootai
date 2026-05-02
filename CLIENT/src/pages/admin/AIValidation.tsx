@@ -31,7 +31,7 @@ export default function AIValidation() {
   const [result, setResult] = useState<FairnessResult | null>(null)
   const [error, setError] = useState('')
 
-  const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
+  const { data: jobs } = useQuery({ queryKey: ['ai-validation-jobs'], queryFn: () => jobService.list({ limit: 200 }) })
   const { data: appsData } = useQuery({
     queryKey: ['apps-for-validation', selectedJob],
     queryFn: () => applicationService.listForJob(selectedJob),
@@ -107,6 +107,11 @@ export default function AIValidation() {
           </select>
         </div>
       </div>
+      {!!selectedJob && !appsData?.data?.length && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          No candidate applications found for this job yet.
+        </div>
+      )}
 
       <Button onClick={() => runMutation.mutate()} disabled={!selectedApp || runMutation.isPending}
         className="gap-2">

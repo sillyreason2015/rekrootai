@@ -82,6 +82,18 @@ export interface Job {
   company: string | Company
   title: string
   department: string
+  level?: 'graduate' | 'entry' | 'mid' | 'senior' | 'lead' | 'executive'
+  departments?: string[]
+  hiringPlan?: {
+    cohortName?: string
+    seats?: number
+    windowStart?: string
+    windowEnd?: string
+  }
+  positionsCount?: number
+  departmentHiring?: Array<{ department: string; seats: number }>
+  requiresQuestionnaire?: boolean
+  applicationQuestions?: Array<{ question: string; required: boolean }>
   location: string
   type: 'full-time' | 'part-time' | 'contract' | 'internship'
   remote: 'on-site' | 'hybrid' | 'remote'
@@ -134,6 +146,7 @@ export interface Application {
   decisionBy?: string
   decisionAt?: string
   createdAt: string
+  applicationAnswers?: Array<{ question: string; answer: string }>
 }
 
 export interface Question {

@@ -16,6 +16,8 @@ const STEPS = ['Job Details', 'Requirements', 'Assessment', 'Review & Post']
 const schema = z.object({
   title: z.string().min(3),
   department: z.string().min(2),
+  level: z.enum(['graduate', 'entry', 'mid', 'senior', 'lead', 'executive']).default('mid'),
+  positionsCount: z.coerce.number().min(1).default(1),
   location: z.string().min(2),
   type: z.enum(['full-time', 'part-time', 'contract', 'internship']),
   remote: z.enum(['on-site', 'hybrid', 'remote']),
@@ -26,6 +28,9 @@ const schema = z.object({
   requirements: z.array(z.object({ value: z.string() })).default([]),
   responsibilities: z.array(z.object({ value: z.string() })).default([]),
   skills: z.array(z.object({ value: z.string() })).default([]),
+  departmentHiring: z.array(z.object({ department: z.string().min(2), seats: z.coerce.number().min(1) })).default([]),
+  requiresQuestionnaire: z.boolean().default(true),
+  applicationQuestions: z.array(z.object({ question: z.string().min(6), required: z.boolean().default(true) })).default([]),
   assessmentModules: z.array(z.object({
     type: z.enum(['aptitude', 'technical', 'situational', 'personality', 'values']),
     timeLimit: z.coerce.number().min(5).max(120),
@@ -50,10 +55,18 @@ export default function CreateJob() {
     defaultValues: {
       type: 'full-time',
       remote: 'hybrid',
+      level: 'mid',
+      positionsCount: 1,
       salaryCurrency: '₦',
       requirements: [{ value: '' }],
       responsibilities: [{ value: '' }],
       skills: [{ value: '' }],
+      departmentHiring: [{ department: '', seats: 1 }],
+      requiresQuestionnaire: true,
+      applicationQuestions: [
+        { question: 'Why are you interested in this role?', required: true },
+        { question: 'Describe one recent project relevant to this job.', required: true },
+      ],
       assessmentModules: [{ type: 'aptitude', timeLimit: 20, weight: 0.25 }],
       thresholds: { assessment: 60, fairness: 50, interview: 60 },
     },
@@ -63,6 +76,8 @@ export default function CreateJob() {
   const { fields: respFields, append: addResp, remove: rmResp } = useFieldArray({ control: form.control, name: 'responsibilities' })
   const { fields: skillFields, append: addSkill, remove: rmSkill } = useFieldArray({ control: form.control, name: 'skills' })
   const { fields: modFields, append: addMod, remove: rmMod } = useFieldArray({ control: form.control, name: 'assessmentModules' })
+  const { fields: deptFields, append: addDept, remove: rmDept } = useFieldArray({ control: form.control, name: 'departmentHiring' })
+  const { fields: qFields, append: addQ, remove: rmQ } = useFieldArray({ control: form.control, name: 'applicationQuestions' })
 
   const buildPayload = (data: FormData, status: 'draft' | 'published') => ({
     ...data,
@@ -136,9 +151,34 @@ export default function CreateJob() {
                 <Input placeholder="Engineering" {...register('department')} />
               </div>
               <div className="space-y-1.5">
+                <Label>Level</Label>
+                <select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" {...register('level')}>
+                  {['graduate', 'entry', 'mid', 'senior', 'lead', 'executive'].map((l) => <option key={l}>{l}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Open Positions</Label>
+                <Input type="number" min={1} {...register('positionsCount')} />
+              </div>
+              <div className="space-y-1.5">
                 <Label>Location</Label>
                 <Input placeholder="Lagos, Nigeria" {...register('location')} />
               </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Hiring by Department</Label>
+              {deptFields.map((f, i) => (
+                <div key={f.id} className="grid grid-cols-[1fr_120px_40px] gap-2">
+                  <Input placeholder="Department name" {...register(`departmentHiring.${i}.department`)} />
+                  <Input type="number" min={1} {...register(`departmentHiring.${i}.seats`)} />
+                  <Button type="button" variant="ghost" size="icon" onClick={() => rmDept(i)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => addDept({ department: '', seats: 1 })}>
+                <Plus className="h-4 w-4" /> Add Department Slot
+              </Button>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
@@ -222,6 +262,27 @@ export default function CreateJob() {
               </div>
               <Button type="button" variant="outline" size="sm" onClick={() => addSkill({ value: '' })}>
                 <Plus className="h-4 w-4" /> Add Skill
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Application Questions</Label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" {...register('requiresQuestionnaire')} />
+                  Require answers before apply
+                </label>
+              </div>
+              {qFields.map((f, i) => (
+                <div key={f.id} className="grid grid-cols-[1fr_120px_40px] gap-2">
+                  <Input placeholder={`Question ${i + 1}`} {...register(`applicationQuestions.${i}.question`)} />
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" {...register(`applicationQuestions.${i}.required`)} /> Required
+                  </label>
+                  <Button type="button" variant="ghost" size="icon" onClick={() => rmQ(i)}><Trash2 className="h-4 w-4" /></Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={() => addQ({ question: '', required: true })}>
+                <Plus className="h-4 w-4" /> Add Question
               </Button>
             </div>
           </>

@@ -17,6 +17,7 @@ import { CandidateModel } from '../models/Candidate.model.js'
 import { InterviewModel } from '../models/Interview.model.js'
 import { AssessmentModel } from '../models/Assessment.model.js'
 import { NotificationModel } from '../models/Notification.model.js'
+import { SystemSettingsModel } from '../models/SystemSettings.model.js'
 
 export const adminRouter = Router()
 
@@ -407,5 +408,25 @@ adminRouter.post('/super/companies/:id/verify', async (req, res, next) => {
     ).lean()
     if (!company) throw new HttpError(404, 'Company not found')
     res.json({ ...company, _id: String(company._id) })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/super/settings', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const existing = await SystemSettingsModel.findOne().lean()
+    if (!existing) {
+      const created = await SystemSettingsModel.create({})
+      return res.json({ ...created.toJSON(), _id: String(created._id) })
+    }
+    res.json({ ...existing, _id: String(existing._id) })
+  } catch (err) { next(err) }
+})
+
+adminRouter.put('/super/settings', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const settings = await SystemSettingsModel.findOneAndUpdate({}, req.body, { new: true, upsert: true }).lean()
+    res.json({ ...settings, _id: String(settings!._id) })
   } catch (err) { next(err) }
 })

@@ -2,11 +2,22 @@ import { Router } from 'express'
 import { JobModel } from '../models/Job.model.js'
 import { QuestionBankModel } from '../models/QuestionBank.model.js'
 import { UserModel } from '../models/User.model.js'
+import { CompanyModel } from '../models/Company.model.js'
 import { getJobById, logAction } from '../data/store.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError, paginate } from '../lib/http.js'
 
 export const jobsRouter = Router()
+
+async function assertCompanyVerifiedForJobActions(userId: string, role?: string) {
+  if (role === 'super_admin') return
+  const me = await UserModel.findById(userId).lean()
+  if (!me?.companyName) throw new HttpError(403, 'Company verification required before job actions')
+  const company = await CompanyModel.findOne({
+    $or: [{ name: me.companyName }, { legalName: me.companyName }],
+  }).lean()
+  if (!company?.isVerified) throw new HttpError(403, 'Company pending super-admin verification')
+}
 
 jobsRouter.get('/', async (req, res, next) => {
   try {
@@ -53,10 +64,18 @@ jobsRouter.get('/:id', async (req, res, next) => {
 
 jobsRouter.post('/', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
   try {
+    await assertCompanyVerifiedForJobActions(req.user!._id, req.user?.role)
     const job = await JobModel.create({
       company: req.body.company ?? 'company-default',
       title: req.body.title ?? 'New Role',
       department: req.body.department ?? 'General',
+      level: req.body.level ?? 'mid',
+      departments: req.body.departments ?? [],
+      hiringPlan: req.body.hiringPlan ?? undefined,
+      positionsCount: Number(req.body.positionsCount ?? 1),
+      departmentHiring: Array.isArray(req.body.departmentHiring) ? req.body.departmentHiring : [],
+      requiresQuestionnaire: Boolean(req.body.requiresQuestionnaire ?? false),
+      applicationQuestions: Array.isArray(req.body.applicationQuestions) ? req.body.applicationQuestions : [],
       location: req.body.location ?? 'Remote',
       type: req.body.type ?? 'full-time',
       remote: req.body.remote ?? 'remote',
@@ -67,7 +86,7 @@ jobsRouter.post('/', requireAuth, requireRole('admin', 'super_admin'), async (re
       salaryCurrency: req.body.salaryCurrency ?? 'USD',
       salaryMin: req.body.salaryMin,
       salaryMax: req.body.salaryMax,
-      status: 'draft',
+      status: req.body.status === 'published' ? 'published' : 'draft',
       assessmentModules: req.body.assessmentModules ?? [],
       thresholds: req.body.thresholds ?? { screening: 0.5, assessment: 70, fairness: 0.5, interview: 70 },
       alpha: req.body.alpha ?? 0.4,
@@ -80,6 +99,7 @@ jobsRouter.post('/', requireAuth, requireRole('admin', 'super_admin'), async (re
 
 jobsRouter.patch('/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
   try {
+    await assertCompanyVerifiedForJobActions(req.user!._id, req.user?.role)
     const job = await JobModel.findByIdAndUpdate(String(req.params.id), req.body, { new: true }).lean()
     if (!job) throw new HttpError(404, 'Job not found')
     await logAction({ actor: 'user', action: 'job-update', jobId: String(job._id), mode: 'assist' })
@@ -89,6 +109,7 @@ jobsRouter.patch('/:id', requireAuth, requireRole('admin', 'super_admin'), async
 
 jobsRouter.post('/:id/publish', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
   try {
+    await assertCompanyVerifiedForJobActions(req.user!._id, req.user?.role)
     const minQuestions = 3
     const categories = ['aptitude', 'technical', 'situational', 'personality']
     const me = await UserModel.findById(req.user!._id).lean()
@@ -132,6 +153,7 @@ jobsRouter.patch('/:id/thresholds', requireAuth, requireRole('recruiter', 'admin
 
 jobsRouter.post('/:id/close', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
   try {
+    await assertCompanyVerifiedForJobActions(req.user!._id, req.user?.role)
     const job = await JobModel.findByIdAndUpdate(String(req.params.id), { status: 'closed' }, { new: true }).lean()
     if (!job) throw new HttpError(404, 'Job not found')
     res.json({ ...job, _id: String(job._id) })

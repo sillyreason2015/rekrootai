@@ -30,7 +30,8 @@ export default function InfoTip({ content, className, size = 'sm' }: InfoTipProp
             side="top"
             align="center"
             sideOffset={6}
-            className="z-50 max-w-xs rounded-lg border bg-popover px-3 py-2 text-xs leading-relaxed text-popover-foreground shadow-md"
+            collisionPadding={16}
+            className="z-[12000] max-w-sm rounded-lg border bg-popover px-3 py-2 text-xs leading-relaxed text-popover-foreground shadow-xl"
           >
             {content}
             <Tooltip.Arrow className="fill-popover" />

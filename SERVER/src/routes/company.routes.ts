@@ -15,7 +15,13 @@ companyRouter.use(requireAuth, requireRole('recruiter', 'admin'))
 // GET /companies/mine
 companyRouter.get('/mine', async (req, res, next) => {
   try {
-    const company = await CompanyModel.findOne({ createdBy: req.user!._id }).lean()
+    const me = await UserModel.findById(req.user!._id).lean()
+    const company = await CompanyModel.findOne({
+      $or: [
+        { createdBy: req.user!._id },
+        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+      ],
+    }).lean()
     if (!company) throw new HttpError(404, 'Company profile not found')
     res.json({ ...company, _id: String(company._id) })
   } catch (err) { next(err) }
@@ -24,8 +30,14 @@ companyRouter.get('/mine', async (req, res, next) => {
 // PATCH /companies/mine
 companyRouter.patch('/mine', async (req, res, next) => {
   try {
+    const me = await UserModel.findById(req.user!._id).lean()
     const company = await CompanyModel.findOneAndUpdate(
-      { createdBy: req.user!._id },
+      {
+        $or: [
+          { createdBy: req.user!._id },
+          ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+        ],
+      },
       req.body,
       { new: true, upsert: true },
     ).lean()

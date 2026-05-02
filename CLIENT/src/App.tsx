@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { TourProvider } from './contexts/TourContext'
 
@@ -123,12 +123,14 @@ export default function App() {
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
               <Route path="/admin/candidates" element={<AdminCandidates />} />
               <Route path="/admin/team" element={<TeamManagement />} />
+              <Route path="/admin/audit-log" element={<AuditLog />} />
               <Route path="/admin/billing" element={<Billing />} />
               <Route path="/admin/jobs/create" element={<CreateJob />} />
               <Route path="/admin/ai-validation" element={<AIValidation />} />
               <Route path="/admin/livekit-test" element={<LiveKitTest />} />
               <Route path="/admin/bias-audit" element={<BiasAudit />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/admin/company-settings" element={<Settings />} />
             </Route>
           </Route>
 
@@ -139,7 +141,7 @@ export default function App() {
               <Route path="/internal/super-admin/users" element={<SuperUsers />} />
               <Route path="/internal/super-admin/companies" element={<SuperCompanies />} />
               <Route path="/internal/super-admin/audit-log" element={<AuditLog />} />
-              <Route path="/internal/super-admin/bias-audit" element={<BiasAudit />} />
+              <Route path="/internal/super-admin/bias-audit" element={<Navigate to="/internal/super-admin/dashboard" replace />} />
               <Route path="/internal/super-admin/settings" element={<SuperSettings />} />
               <Route path="/settings" element={<Settings />} />
             </Route>

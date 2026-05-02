@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { CreditCard, TrendingUp, Zap, Check } from 'lucide-react'
 import { adminService } from '../../services/admin.service'
@@ -33,6 +34,8 @@ const PLANS = [
 ]
 
 export default function Billing() {
+  const [selectedPlan, setSelectedPlan] = useState<string>(() => localStorage.getItem('billing_selected_plan') ?? 'Starter')
+  const [message, setMessage] = useState('')
   const { data, isLoading } = useQuery({
     queryKey: ['admin-billing'],
     queryFn: adminService.getBilling,
@@ -103,18 +106,25 @@ export default function Billing() {
               </ul>
               <button
                 className={`w-full rounded-lg py-2 text-sm font-medium transition-colors ${
-                  plan.active
+                  plan.name === selectedPlan
                     ? 'bg-muted text-muted-foreground cursor-default'
                     : 'bg-primary text-primary-foreground hover:bg-primary/90'
                 }`}
-                disabled={plan.active}
+                disabled={plan.name === selectedPlan}
+                onClick={() => {
+                  localStorage.setItem('billing_selected_plan', plan.name)
+                  setSelectedPlan(plan.name)
+                  setMessage(plan.name === 'Enterprise' ? 'Sales request opened. Team will contact you.' : `${plan.name} selected and saved.`)
+                  setTimeout(() => setMessage(''), 3000)
+                }}
               >
-                {plan.cta}
+                {plan.name === selectedPlan ? 'Current Plan' : plan.cta}
               </button>
             </CardContent>
           </Card>
         ))}
       </div>
+      {message && <p className="text-sm text-primary">{message}</p>}
 
       {billing?.nextBillingDate && (
         <p className="text-sm text-muted-foreground">

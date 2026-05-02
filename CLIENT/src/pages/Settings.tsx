@@ -93,6 +93,8 @@ export default function Settings() {
       description: company.description ?? '',
     } : undefined,
   })
+  const companyVerified = Boolean(company?.isVerified)
+  const recruiterPendingReview = isRecruiter && !companyVerified
 
   const saveCompany = useMutation({
     mutationFn: (data: CompanyForm) => api.patch('/companies/mine', data),
@@ -187,6 +189,11 @@ export default function Settings() {
       <div>
         <h1 className="font-serif text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground">Manage your account and preferences.</p>
+        {recruiterPendingReview && (
+          <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Pending super-admin review: your company profile is awaiting verification. Until verified, recruiter company/team settings are read-only.
+          </p>
+        )}
       </div>
 
       <Tabs defaultValue={canManageCompany ? 'company' : 'profile'}>
@@ -270,48 +277,48 @@ export default function Settings() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label>Trade name <span className="text-destructive">*</span></Label>
-                      <Input {...companyForm.register('name')} />
+                      <Input {...companyForm.register('name')} disabled={recruiterPendingReview} />
                       {companyForm.formState.errors.name && <p className="text-xs text-destructive">{companyForm.formState.errors.name.message}</p>}
                     </div>
                     <div className="space-y-1.5">
                       <Label>Legal entity name</Label>
-                      <Input {...companyForm.register('legalName')} />
+                      <Input {...companyForm.register('legalName')} disabled={recruiterPendingReview} />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label>Industry</Label>
-                      <Input {...companyForm.register('industry')} />
+                      <Input {...companyForm.register('industry')} disabled={recruiterPendingReview} />
                     </div>
                     <div className="space-y-1.5">
                       <Label>Company size</Label>
-                      <Input {...companyForm.register('size')} />
+                      <Input {...companyForm.register('size')} disabled={recruiterPendingReview} />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label>HQ country</Label>
-                      <Input {...companyForm.register('hqCountry')} />
+                      <Input {...companyForm.register('hqCountry')} disabled={recruiterPendingReview} />
                     </div>
                     <div className="space-y-1.5">
                       <Label>Website</Label>
-                      <Input placeholder="https://..." {...companyForm.register('website')} />
+                      <Input placeholder="https://..." {...companyForm.register('website')} disabled={recruiterPendingReview} />
                       {companyForm.formState.errors.website && <p className="text-xs text-destructive">{companyForm.formState.errors.website.message}</p>}
                     </div>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Mission statement</Label>
-                    <textarea rows={3} className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring" {...companyForm.register('mission')} />
+                    <textarea rows={3} className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring" {...companyForm.register('mission')} disabled={recruiterPendingReview} />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Vision</Label>
-                    <Input {...companyForm.register('vision')} />
+                    <Input {...companyForm.register('vision')} disabled={recruiterPendingReview} />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Company description</Label>
-                    <textarea rows={3} className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring" {...companyForm.register('description')} />
+                    <textarea rows={3} className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring" {...companyForm.register('description')} disabled={recruiterPendingReview} />
                   </div>
-                  <Button type="submit" disabled={saveCompany.isPending}>
+                  <Button type="submit" disabled={saveCompany.isPending || recruiterPendingReview}>
                     {saveCompany.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                     <Save className="h-4 w-4" /> Save Company
                   </Button>
@@ -354,7 +361,7 @@ export default function Settings() {
                     />
                     <Button
                       onClick={() => { if (inviteEmail) sendInvite.mutate(inviteEmail) }}
-                      disabled={!inviteEmail || sendInvite.isPending}
+                      disabled={!inviteEmail || sendInvite.isPending || recruiterPendingReview}
                     >
                       {sendInvite.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       Send Invite

@@ -13,6 +13,7 @@ import { UserModel } from '../models/User.model.js'
 import { AssessmentModel } from '../models/Assessment.model.js'
 import { notify } from '../lib/notify.js'
 import { AuditLogModel } from '../models/AuditLog.model.js'
+import { InterviewModel } from '../models/Interview.model.js'
 
 function buildNarrative(s: {
   resumeScore: number; assessmentScore: number; penaltyApplied: number
@@ -82,6 +83,9 @@ function buildStageSpecificNarrative(s: {
     if (s.interviewScore > 0) return `Your interview score is ${s.interviewScore.toFixed(1)}%. Recruiter rubric and AI summary are combined before final decision.`
     return 'Interview stage is active. Interview scoring and explanation will appear after recruiter completion.'
   }
+  if (stage === 'rejected' && s.interviewScore === 0) {
+    return 'Your application was closed because the interview window elapsed without attendance. The interview score was recorded as 0 and the process ended automatically.'
+  }
   return buildNarrative(s)
 }
 
@@ -122,7 +126,10 @@ applicationsRouter.get('/:id/correspondence/thread', requireAuth, async (req, re
 // POST /applications
 applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin'), async (req, res, next) => {
   try {
-    const { jobId } = req.body as { jobId?: string }
+    const { jobId, applicationAnswers } = req.body as {
+      jobId?: string
+      applicationAnswers?: Array<{ question?: string; answer?: string }>
+    }
     const [candidate, job] = await Promise.all([
       getCandidateByUserId(req.user!._id),
       jobId ? getJobById(jobId) : null,
@@ -134,12 +141,34 @@ applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin'), asy
     const existing = await ApplicationModel.findOne({ job: String(job._id), candidate: String(candidate._id) }).lean()
     if (existing) throw new HttpError(409, 'Already applied to this job')
 
+    const requiresQuestions = Boolean((job as { requiresQuestionnaire?: boolean }).requiresQuestionnaire)
+    const expectedQuestions = Array.isArray((job as { applicationQuestions?: Array<{ question?: string; required?: boolean }> }).applicationQuestions)
+      ? ((job as { applicationQuestions?: Array<{ question?: string; required?: boolean }> }).applicationQuestions ?? [])
+      : []
+    const safeAnswers = Array.isArray(applicationAnswers)
+      ? applicationAnswers
+          .map((a) => ({
+            question: String(a.question ?? '').trim(),
+            answer: String(a.answer ?? '').trim(),
+          }))
+          .filter((a) => a.question && a.answer)
+      : []
+    if (requiresQuestions) {
+      const requiredQuestions = expectedQuestions.filter((q) => q.required !== false)
+      const answeredSet = new Set(safeAnswers.map((a) => a.question.toLowerCase()))
+      const missing = requiredQuestions.filter((q) => !answeredSet.has(String(q.question ?? '').trim().toLowerCase()))
+      if (missing.length) {
+        throw new HttpError(400, 'Please answer all required application questions before submitting.')
+      }
+    }
+
     const application = await ApplicationModel.create({
       job: String(job._id),
       candidate: String(candidate._id),
       status: 'pending',
       scores: { resume: 0, assessment: 0, penalty: 0, interview: 0, final: 0 },
       stage: 'applied',
+      applicationAnswers: safeAnswers,
     })
 
     // Auto-create assessment record
@@ -172,11 +201,29 @@ applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin'), 
     const jobIds = [...new Set(applications.map((a) => a.job))]
     const jobs = await JobModel.find({ _id: { $in: jobIds } }).lean()
     const jobMap = Object.fromEntries(jobs.map((j) => [String(j._id), { ...j, _id: String(j._id) }]))
-    // Attach interviewId for applications in interview stage
-    const { InterviewModel } = await import('../models/Interview.model.js')
+    // Enforce interview no-show as automatic fail before returning dashboard/application data
     const appIds = applications.map((a) => String(a._id))
-    const interviews = await InterviewModel.find({ application: { $in: appIds } }).lean()
-    const interviewMap = Object.fromEntries(interviews.map((i) => [String(i.application), String(i._id)]))
+    const interviews = await InterviewModel.find({ application: { $in: appIds } })
+    for (const iv of interviews) {
+      if (iv.status === 'completed' || iv.status === 'cancelled') continue
+      const start = new Date(iv.scheduledAt).getTime()
+      const end = start + Number(iv.durationMin ?? 45) * 60_000
+      if (Date.now() > end) {
+        iv.status = 'completed'
+        iv.score = 0
+        await iv.save()
+        await ApplicationModel.findByIdAndUpdate(String(iv.application), {
+          stage: 'rejected',
+          status: 'rejected',
+          decision: 'reject',
+          decisionAt: nowIso(),
+          decisionBy: 'ai',
+          'scores.interview': 0,
+        })
+      }
+    }
+    const interviewsFresh = await InterviewModel.find({ application: { $in: appIds } }).lean()
+    const interviewMap = Object.fromEntries(interviewsFresh.map((i) => [String(i.application), { id: String(i._id), status: i.status, scheduledAt: i.scheduledAt }]))
     const assessments = await AssessmentModel.find({ application: { $in: appIds } }).lean()
     const assessmentMap = Object.fromEntries(
       assessments.map((as) => [String(as.application), { expiresAt: as.expiresAt, status: as.status }]),
@@ -198,7 +245,9 @@ applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin'), 
       ...a,
       _id: String(a._id),
       job: jobMap[a.job] ?? a.job,
-      interviewId: interviewMap[String(a._id)],
+      interviewId: interviewMap[String(a._id)]?.id,
+      interviewStatus: interviewMap[String(a._id)]?.status,
+      interviewScheduledAt: interviewMap[String(a._id)]?.scheduledAt,
       assessmentExpiresAt: assessmentMap[String(a._id)]?.expiresAt,
       assessmentStatus: assessmentMap[String(a._id)]?.status,
       fairnessComputedAt: aiMap[String(a._id)]?.fairnessAt,

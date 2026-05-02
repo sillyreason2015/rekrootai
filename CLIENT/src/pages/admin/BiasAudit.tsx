@@ -22,8 +22,8 @@ export default function BiasAudit() {
   })
 
   const { data: jobs } = useQuery({
-    queryKey: ['my-jobs-admin'],
-    queryFn: () => jobService.myJobs({ limit: 50 } as Parameters<typeof jobService.myJobs>[0]),
+    queryKey: ['bias-audit-jobs'],
+    queryFn: () => jobService.list({ limit: 200 }),
   })
 
   const runMutation = useMutation({
@@ -47,7 +47,10 @@ export default function BiasAudit() {
           <div className="flex items-start gap-2">
             <div>
               <p className="font-medium">Run New Bias Audit</p>
-              <p className="text-sm text-muted-foreground">Analyses disparate impact across gender, ethnicity, and age.</p>
+              <p className="text-sm text-muted-foreground">
+                This checks whether shortlist outcomes are disproportionately lower for any protected group.
+                Ratios below 0.80 are flagged for immediate human review before proceeding.
+              </p>
             </div>
             <InfoTip size="md" content="Disparate impact measures whether one demographic group is selected at a significantly lower rate than another. The 4/5ths rule flags any ratio below 0.80 (80%). A bias audit computes this ratio per protected attribute across all applications for the selected job." />
           </div>

@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle, Calendar, Video, ArrowRight } from 'lucide-react'
+import { ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle, Calendar, Video, ArrowRight, Download, Layers, TrendingUp, TrendingDown, Minus, Bot, X } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { applicationService } from '../../services/application.service'
 import { jobService } from '../../services/job.service'
+import { recruiterService } from '../../services/recruiter.service'
 import api from '../../lib/axios'
 import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
@@ -48,10 +49,18 @@ export default function Shortlist() {
   })
   const [duration, setDuration] = useState(45)
   const [vetoSummary, setVetoSummary] = useState<{ processed: number; shortlisted: number; rejected: number; review: number } | null>(null)
+  const [assistantCandidate, setAssistantCandidate] = useState<{ id: string; name: string; scores: Application['scores']; stage: string } | null>(null)
+  const [showTriage, setShowTriage] = useState(false)
   const qc = useQueryClient()
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
   const [selectedJob, setSelectedJob] = useState(jobId)
+
+  const { data: triageData, isLoading: triageLoading } = useQuery({
+    queryKey: ['triage', selectedJob, mode],
+    queryFn: () => recruiterService.getJobTriage(selectedJob, mode.toLowerCase() as 'assist' | 'veto' | 'override'),
+    enabled: !!selectedJob && showTriage,
+  })
 
   const { data, isLoading } = useQuery({
     queryKey: ['applications', selectedJob],
@@ -128,15 +137,122 @@ export default function Shortlist() {
           Veto run complete: processed {vetoSummary.processed}, shortlisted {vetoSummary.shortlisted}, rejected {vetoSummary.rejected}, manual review {vetoSummary.review}.
         </div>
       )}
+      {assistantCandidate && (
+        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Bot className="h-4 w-4 text-primary" />
+              <p className="text-sm font-semibold">AI Hiring Companion — {assistantCandidate.name}</p>
+            </div>
+            <button onClick={() => setAssistantCandidate(null)}><X className="h-4 w-4 text-muted-foreground" /></button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            {[
+              { label: 'Resume', val: assistantCandidate.scores?.resume },
+              { label: 'Assessment', val: assistantCandidate.scores?.assessment },
+              { label: 'Interview', val: assistantCandidate.scores?.interview },
+              { label: 'Final', val: assistantCandidate.scores?.final },
+            ].map(({ label, val }) => (
+              <div key={label} className="rounded-md border bg-background px-3 py-2 text-center">
+                <p className="text-muted-foreground">{label}</p>
+                <p className="font-bold text-sm mt-0.5">{val != null && val > 0 ? `${val.toFixed(0)}%` : '—'}</p>
+              </div>
+            ))}
+          </div>
+          <div className="rounded-lg bg-background border px-3 py-3 text-sm text-muted-foreground space-y-2">
+            {assistantCandidate.scores?.final != null && assistantCandidate.scores.final >= 75 && (
+              <p className="text-emerald-600 font-medium">✓ Strong performer — recommend progressing to next stage.</p>
+            )}
+            {assistantCandidate.scores?.final != null && assistantCandidate.scores.final >= 50 && assistantCandidate.scores.final < 75 && (
+              <p className="text-amber-600 font-medium">⚠ Borderline score — review assessment and interview details before deciding.</p>
+            )}
+            {(assistantCandidate.scores?.final == null || assistantCandidate.scores.final < 50) && assistantCandidate.stage !== 'applied' && (
+              <p className="text-red-600 font-medium">✗ Below threshold — consider rejection with documented rationale.</p>
+            )}
+            {assistantCandidate.stage === 'applied' && (
+              <p>Candidate is in initial review. Shortlist to begin AI-assisted screening.</p>
+            )}
+            <p className="text-xs">
+              Current mode: <strong>{mode}</strong> — {mode === 'Assist' ? 'approve each step manually.' : mode === 'Veto' ? 'AI auto-processes, you can veto.' : 'full manual control, AI scores are advisory.'}
+            </p>
+          </div>
+        </div>
+      )}
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <label className="text-sm font-medium">Job:</label>
-        <select className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          value={selectedJob} onChange={(e) => setSelectedJob(e.target.value)}>
-          <option value="">Select a job</option>
-          {jobs?.data.map((j) => <option key={j._id} value={j._id}>{j.title}</option>)}
+        <select className="h-9 min-w-[260px] rounded-md border border-input bg-background px-3 text-sm"
+          value={selectedJob} onChange={(e) => { setSelectedJob(e.target.value); setShowTriage(false) }}>
+          <option value="">Select a job…</option>
+          {jobs?.data.map((j) => (
+            <option key={j._id} value={j._id}>
+              {j.title}{j.department ? ` — ${j.department}` : ''}{j.level ? ` (${j.level})` : ''}{j.status === 'draft' ? ' [draft]' : j.status === 'closed' ? ' [closed]' : ''}
+            </option>
+          ))}
         </select>
+        {selectedJob && (
+          <>
+            <Button size="sm" variant="outline" className="gap-1.5"
+              onClick={async () => {
+                const bundle = await recruiterService.getJobCvBundle(selectedJob)
+                bundle.cvs?.forEach((c: { name: string; url: string }) => {
+                  const a = document.createElement('a'); a.href = c.url; a.download = `${c.name}.pdf`; a.target = '_blank'; a.click()
+                })
+              }}>
+              <Download className="h-3.5 w-3.5" /> Download All CVs
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowTriage((v) => !v)}>
+              <Layers className="h-3.5 w-3.5" /> {showTriage ? 'Hide' : 'AI Triage'}
+            </Button>
+          </>
+        )}
       </div>
+
+      {/* AI Triage panel */}
+      {showTriage && selectedJob && (
+        <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
+          <div className="flex items-center gap-2">
+            <AiBadge label="AI Triage Analysis" size="md" />
+            <span className="text-xs text-muted-foreground">Grouped by resume score · {mode} mode</span>
+          </div>
+          {triageLoading ? <LoadingSpinner /> : triageData && (
+            <>
+              {triageData.adminGuidance?.length > 0 && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/30 px-4 py-3 space-y-1">
+                  <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1.5">Suggested next steps</p>
+                  {triageData.adminGuidance.map((step: string, i: number) => (
+                    <p key={i} className="text-xs text-blue-700 dark:text-blue-400">· {step}</p>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {[
+                  { key: 'strong', label: 'Strong', icon: TrendingUp, color: 'emerald' },
+                  { key: 'review', label: 'Needs Review', icon: Minus, color: 'amber' },
+                  { key: 'weak', label: 'Weak', icon: TrendingDown, color: 'red' },
+                ].map(({ key, label, icon: Icon, color }) => (
+                  <div key={key} className={`rounded-lg border border-${color}-200 dark:border-${color}-900 bg-${color}-50 dark:bg-${color}-950/20 p-3 space-y-2`}>
+                    <div className={`flex items-center gap-2 text-${color}-700 dark:text-${color}-400`}>
+                      <Icon className="h-4 w-4" />
+                      <span className="text-sm font-semibold">{label}</span>
+                      <span className="ml-auto text-xs font-normal">{triageData[key]?.length ?? 0}</span>
+                    </div>
+                    {triageData[key]?.slice(0, 5).map((c: { candidateName: string; score: number; recommendation: string }) => (
+                      <div key={c.candidateName} className="text-xs space-y-0.5">
+                        <p className="font-medium">{c.candidateName}</p>
+                        <p className={`text-${color}-600 dark:text-${color}-400`}>{c.recommendation}</p>
+                      </div>
+                    ))}
+                    {triageData[key]?.length > 5 && (
+                      <p className="text-xs text-muted-foreground">+{triageData[key].length - 5} more</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {!selectedJob ? (
         <p className="text-sm text-muted-foreground">Select a job to view applications.</p>
@@ -186,6 +302,19 @@ export default function Shortlist() {
                           onClick={() => window.open(`/candidate/explanation/${app._id}`, '_blank')}
                         >
                           Explain
+                        </Button>
+                        <Button size="sm" variant="outline" className="gap-1"
+                          onClick={async () => {
+                            try {
+                              const r = await recruiterService.getApplicationCv(app._id)
+                              if (r.url) { const a = document.createElement('a'); a.href = r.url; a.target = '_blank'; a.click() }
+                            } catch { /* no CV */ }
+                          }}>
+                          <Download className="h-3.5 w-3.5" /> CV
+                        </Button>
+                        <Button size="sm" variant="outline" className="gap-1"
+                          onClick={() => setAssistantCandidate({ id: app._id, name, scores: app.scores, stage: app.stage })}>
+                          <Bot className="h-3.5 w-3.5" /> Assist Me
                         </Button>
                         <AiBadge />
 

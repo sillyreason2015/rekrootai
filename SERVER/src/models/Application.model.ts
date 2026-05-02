@@ -28,6 +28,18 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
     decision: { type: String, enum: ['hire', 'reject', 'hold'] },
     decisionBy: String,
     decisionAt: String,
+    applicationAnswers: {
+      type: [
+        new Schema(
+          {
+            question: { type: String, required: true },
+            answer: { type: String, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
   },
   baseSchemaOptions,
 )

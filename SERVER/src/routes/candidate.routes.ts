@@ -8,6 +8,7 @@ import { InterviewModel } from '../models/Interview.model.js'
 import { AssessmentModel } from '../models/Assessment.model.js'
 import { AiOutputModel } from '../models/AiOutput.model.js'
 import { ProtectedAttributeModel } from '../models/ProtectedAttribute.model.js'
+import { JobModel } from '../models/Job.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { cvKey, presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
@@ -128,11 +129,26 @@ candidateRouter.get('/me/dashboard', async (req, res, next) => {
     const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
     const candidateId = String(candidate._id)
-    const [applicationsRaw, interviews] = await Promise.all([
+    const [, interviewsRaw] = await Promise.all([
       ApplicationModel.find({ candidate: candidateId }).sort({ createdAt: -1 }).lean(),
       InterviewModel.find({ candidate: candidateId }).sort({ scheduledAt: 1 }).lean(),
     ])
-    const applications = applicationsRaw
+    for (const iv of interviewsRaw) {
+      if (iv.status === 'completed' || iv.status === 'cancelled') continue
+      const start = new Date(iv.scheduledAt).getTime()
+      const end = start + Number(iv.durationMin ?? 45) * 60_000
+      if (Date.now() > end) {
+        await InterviewModel.findByIdAndUpdate(String(iv._id), { status: 'completed', score: 0 })
+        await ApplicationModel.findByIdAndUpdate(String(iv.application), {
+          stage: 'rejected',
+          status: 'rejected',
+          decision: 'reject',
+          decisionBy: 'ai',
+        })
+      }
+    }
+    const applications = await ApplicationModel.find({ candidate: candidateId }).sort({ createdAt: -1 }).lean()
+    const interviews = await InterviewModel.find({ candidate: candidateId }).sort({ scheduledAt: 1 }).lean()
     const assessmentsPending = applications.filter((a) => a.stage === 'assessment').length
     // Populate job titles for recent applications
     const recent = applications.slice(0, 5)
@@ -174,6 +190,7 @@ candidateRouter.get('/me/dashboard', async (req, res, next) => {
       }
       if (app.stage === 'interview') {
         const iv = interviewMap[appId]
+        if (!iv || iv.status === 'completed' || iv.status === 'cancelled') continue
         nextAction = {
           type: 'interview',
           label: 'Join Interview',
@@ -188,7 +205,7 @@ candidateRouter.get('/me/dashboard', async (req, res, next) => {
     res.json({
       applications: applications.length,
       assessmentsPending,
-      interviewsScheduled: interviews.length,
+      interviewsScheduled: interviews.filter((i) => i.status === 'scheduled' && new Date(i.scheduledAt).getTime() >= Date.now()).length,
       nextAction,
       recentApplications: recent.map((a) => ({ ...a, _id: String(a._id), job: jobMap[a.job] ?? a.job })),
     })
@@ -231,4 +248,67 @@ candidateRouter.delete('/me', async (req, res, next) => {
   } catch (err) {
     next(err)
   }
+})
+
+// GET /candidates/recommendations — AI job recommendations for the logged-in candidate
+candidateRouter.get('/recommendations', async (req, res, next) => {
+  try {
+    const candidate = await getCandidateByUserId(String(req.user!._id))
+    if (!candidate) throw new HttpError(404, 'Candidate profile not found')
+
+    const candidateSkills = (candidate.skills ?? []).map((s: string) => s.toLowerCase())
+    const appliedApps = await ApplicationModel.find({ candidate: String(candidate._id) }, { job: 1 }).lean()
+    const appliedJobIds = appliedApps.map((a) => String(a.job))
+
+    const jobs = await JobModel.find({
+      status: 'published',
+      _id: { $nin: appliedJobIds },
+    }).lean()
+
+    const scored = jobs.map((j) => {
+      const jobSkills = (j.skills ?? []).map((s: string) => s.toLowerCase())
+      const matched = candidateSkills.filter((s) => jobSkills.includes(s)).length
+      const total = Math.max(jobSkills.length, 1)
+      const matchPct = Math.round((matched / total) * 100)
+
+      // Boost for level alignment
+      const expYears = (candidate.experience ?? []).length
+      let levelBoost = 0
+      if (j.level === 'graduate' && expYears <= 1) levelBoost = 10
+      else if (j.level === 'entry' && expYears <= 3) levelBoost = 8
+      else if (j.level === 'mid' && expYears >= 2 && expYears <= 6) levelBoost = 8
+      else if (j.level === 'senior' && expYears >= 5) levelBoost = 10
+
+      const score = Math.min(100, matchPct + levelBoost)
+      const reasons: string[] = []
+      if (matched > 0) reasons.push(`${matched} skill${matched > 1 ? 's' : ''} match your profile`)
+      if (levelBoost > 0) reasons.push(`level aligns with your experience`)
+      if (j.remote === 'remote') reasons.push('fully remote role')
+      if (score < 20) reasons.push('broaden your skills to be a stronger fit')
+
+      return {
+        _id: String(j._id),
+        title: j.title,
+        department: j.department,
+        level: j.level,
+        location: j.location,
+        type: j.type,
+        remote: j.remote,
+        salaryCurrency: j.salaryCurrency,
+        salaryMin: j.salaryMin,
+        salaryMax: j.salaryMax,
+        matchScore: score,
+        matchedSkills: matched,
+        totalSkills: jobSkills.length,
+        reasons,
+      }
+    })
+
+    const recommendations = scored
+      .filter((j) => j.matchScore >= 20)
+      .sort((a, b) => b.matchScore - a.matchScore)
+      .slice(0, 10)
+
+    res.json({ recommendations, candidateSkillCount: candidateSkills.length })
+  } catch (err) { next(err) }
 })

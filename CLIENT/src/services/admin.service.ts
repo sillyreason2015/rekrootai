@@ -31,4 +31,6 @@ export const adminService = {
   verifySuperCompany: (id: string) => api.post(`/admin/super/companies/${id}/verify`).then((r) => r.data),
   getSystemReadiness: () => api.get('/admin/super/system-readiness').then((r) => r.data),
   getQuestionInsights: () => api.get('/admin/question-insights').then((r) => r.data),
+  getSuperSettings: () => api.get('/admin/super/settings').then((r) => r.data),
+  updateSuperSettings: (payload: Record<string, unknown>) => api.put('/admin/super/settings', payload).then((r) => r.data),
 }

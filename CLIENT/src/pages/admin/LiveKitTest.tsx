@@ -204,16 +204,6 @@ export default function LiveKitTest() {
         </Card>
       )}
 
-      {/* Configuration reference */}
-      <Card className="border-dashed">
-        <CardHeader><CardTitle className="text-sm font-medium text-muted-foreground">Required .env configuration</CardTitle></CardHeader>
-        <CardContent>
-          <pre className="rounded-lg bg-muted p-3 text-xs font-mono text-foreground overflow-x-auto">{`LIVEKIT_API_KEY=your_api_key
-LIVEKIT_API_SECRET=your_api_secret
-LIVEKIT_HOST=wss://your-project.livekit.cloud`}</pre>
-          <p className="mt-2 text-xs text-muted-foreground">These values come from your LiveKit Cloud project dashboard. Token TTL is set to 15 minutes per session.</p>
-        </CardContent>
-      </Card>
     </div>
   )
 }

@@ -17,6 +17,8 @@ import { notificationsRouter } from './routes/notifications.routes.js'
 import { anonymizeRouter } from './routes/anonymize.routes.js'
 import { HttpError } from './lib/http.js'
 import { env } from './config/env.js'
+import { SystemSettingsModel } from './models/SystemSettings.model.js'
+import { verifyAccessToken } from './lib/auth.js'
 
 export const app = express()
 
@@ -31,6 +33,25 @@ app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true }))
 app.use(cookieParser())
 app.use(morgan('dev'))
+
+app.use(async (req, res, next) => {
+  try {
+    const settings = await SystemSettingsModel.findOne().lean()
+    if (!settings?.maintenance) return next()
+    const auth = req.headers.authorization
+    const cookieToken = typeof req.cookies?.accessToken === 'string' ? req.cookies.accessToken : (typeof req.cookies?.token === 'string' ? req.cookies.token : '')
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : cookieToken
+    const payload = token ? verifyAccessToken(token) : null
+    if (payload?.sub) {
+      const me = await import('./models/User.model.js').then((m) => m.UserModel.findById(payload.sub).lean())
+      if (me?.role === 'super_admin') return next()
+    }
+    if (req.path.startsWith('/health') || req.path.startsWith('/auth/login')) return next()
+    return res.status(503).json({ message: settings.maintenanceMsg || 'Platform under maintenance' })
+  } catch {
+    return next()
+  }
+})
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'rekroot-server', now: new Date().toISOString() })

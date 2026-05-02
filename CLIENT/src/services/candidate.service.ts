@@ -23,4 +23,12 @@ export const candidateService = {
       recentApplications: unknown[]
     }>('/candidates/me/dashboard').then((r) => r.data),
   deleteAccount: () => api.delete('/candidates/me').then((r) => r.data),
+  getRecommendations: () => api.get<{
+    recommendations: Array<{
+      _id: string; title: string; department: string; level?: string; location: string
+      type: string; remote: string; salaryCurrency: string; salaryMin?: number; salaryMax?: number
+      matchScore: number; matchedSkills: number; totalSkills: number; reasons: string[]
+    }>
+    candidateSkillCount: number
+  }>('/candidates/recommendations').then((r) => r.data),
 }

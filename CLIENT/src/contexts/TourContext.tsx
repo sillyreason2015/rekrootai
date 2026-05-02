@@ -95,6 +95,15 @@ const ADMIN_TOUR: TourStep[] = [
   },
 ]
 
+const SUPER_ADMIN_TOUR: TourStep[] = [
+  { target: '[data-tour="super-platform"]', title: 'Platform', body: 'Global platform metrics and health across all companies.', placement: 'right' },
+  { target: '[data-tour="super-users"]', title: 'Users', body: 'Manage all users in the system.', placement: 'right' },
+  { target: '[data-tour="super-companies"]', title: 'Companies', body: 'Verify companies and review onboarding quality.', placement: 'right' },
+  { target: '[data-tour="super-audit"]', title: 'Audit Log', body: 'Platform-wide immutable audit history.', placement: 'right' },
+  { target: '[data-tour="super-bias"]', title: 'Bias Audit', body: 'Run and review fairness audits by job.', placement: 'right' },
+  { target: '[data-tour="super-settings"]', title: 'Settings', body: 'Global maintenance and policy controls.', placement: 'right' },
+]
+
 const TOUR_KEY = 'airs_tour_done'
 
 interface TourContextValue {
@@ -123,7 +132,8 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     const roleSteps =
       user.role === 'candidate' ? CANDIDATE_TOUR :
       user.role === 'recruiter' ? RECRUITER_TOUR :
-      (user.role === 'admin' || user.role === 'super_admin') ? ADMIN_TOUR : []
+      user.role === 'super_admin' ? SUPER_ADMIN_TOUR :
+      user.role === 'admin' ? ADMIN_TOUR : []
 
     if (roleSteps.length) {
       setSteps(roleSteps)

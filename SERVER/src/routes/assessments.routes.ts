@@ -180,14 +180,14 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
           notify(String(cand.user), {
             type: 'assessment_result',
             title: `Assessment passed — score ${avgScore}% ✓`,
-            body: `You scored ${avgScore}% (threshold: ${threshold}%). Your application progresses to the fairness review and interview stage. See your detailed breakdown.`,
+            body: `You scored ${avgScore}%. Your application progresses to the fairness review and interview stage. See your detailed breakdown.`,
             link: `/candidate/explanation/${String(application._id)}`,
           })
         } else {
           notify(String(cand.user), {
             type: 'assessment_failed',
             title: `Assessment result: ${avgScore}% — below threshold`,
-            body: `Your score of ${avgScore}% did not meet the ${threshold}% threshold for this role. View your personalised AI explanation for detailed feedback.`,
+            body: `Your score of ${avgScore}% did not meet progression criteria for this role. View your personalised AI explanation for detailed feedback.`,
             link: `/candidate/explanation/${String(application._id)}`,
           })
           const candidateUser = await UserModel.findById(String(cand.user)).lean()
@@ -195,7 +195,7 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
             await sendEmail({
               to: candidateUser.email,
               subject: 'Assessment outcome for your application',
-              text: `Your assessment score was ${avgScore}% and did not meet the ${threshold}% threshold for this role. Open your dashboard explanation for details.`,
+              text: `Your assessment score was ${avgScore}% and did not meet progression criteria for this role. Open your dashboard explanation for details.`,
             })
           }
         }
