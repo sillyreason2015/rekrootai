@@ -75,11 +75,12 @@ export default function Settings() {
 
   const pwForm = useForm<PasswordForm>({ resolver: zodResolver(passwordSchema) })
 
-  // Fetch company for recruiter
+  // Fetch company — returns null when none exists yet (not 404)
   const { data: company } = useQuery({
     queryKey: ['my-company'],
-    queryFn: () => api.get('/companies/mine').then((r) => r.data),
+    queryFn: () => api.get('/companies/mine').then((r) => r.data as Record<string, string> | null),
     enabled: canManageCompany,
+    retry: false,
   })
 
   const companyForm = useForm<CompanyForm>({
@@ -97,7 +98,8 @@ export default function Settings() {
     } : undefined,
   })
   const companyVerified = Boolean(company?.isVerified)
-  const recruiterPendingReview = isRecruiter && !companyVerified
+  // Admins can always edit; only pending recruiters are read-only
+  const recruiterPendingReview = isRecruiter && !isCompanyAdmin && !companyVerified
 
   const uploadLogo = async (file: File) => {
     setLogoUploading(true)
@@ -287,6 +289,11 @@ export default function Settings() {
               <CardHeader><CardTitle>Company Profile</CardTitle></CardHeader>
               <CardContent>
                 <SaveBanner show={companySaved} />
+                {!company && (
+                  <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 px-4 py-3 text-sm text-blue-700 dark:text-blue-400">
+                    No company profile yet — fill in the details below and click Save to create it.
+                  </div>
+                )}
                 {/* Logo upload */}
                 <div className="mb-5 flex items-center gap-4">
                   <div

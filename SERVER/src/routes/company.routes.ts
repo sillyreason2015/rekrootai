@@ -17,7 +17,7 @@ export const companyRouter = Router()
 
 companyRouter.use(requireAuth, requireRole('recruiter', 'admin'))
 
-// GET /companies/mine
+// GET /companies/mine — returns null (not 404) when no company exists yet
 companyRouter.get('/mine', async (req, res, next) => {
   try {
     const me = await UserModel.findById(req.user!._id).lean()
@@ -27,7 +27,7 @@ companyRouter.get('/mine', async (req, res, next) => {
         ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
       ],
     }).lean()
-    if (!company) throw new HttpError(404, 'Company profile not found')
+    if (!company) return res.json(null)
     res.json({ ...company, _id: String(company._id) })
   } catch (err) { next(err) }
 })
@@ -36,6 +36,7 @@ companyRouter.get('/mine', async (req, res, next) => {
 companyRouter.patch('/mine', async (req, res, next) => {
   try {
     const me = await UserModel.findById(req.user!._id).lean()
+    const body = req.body as Record<string, unknown>
     const company = await CompanyModel.findOneAndUpdate(
       {
         $or: [
@@ -43,7 +44,7 @@ companyRouter.patch('/mine', async (req, res, next) => {
           ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
         ],
       },
-      req.body,
+      { $set: body, $setOnInsert: { createdBy: req.user!._id } },
       { new: true, upsert: true },
     ).lean()
     res.json({ ...company, _id: String(company!._id) })
@@ -54,21 +55,31 @@ companyRouter.patch('/mine', async (req, res, next) => {
 companyRouter.get('/team', async (req, res, next) => {
   try {
     const me = await UserModel.findById(req.user!._id).lean()
-    if (!me?.companyName) throw new HttpError(404, 'No company associated with this account')
-    const members = await UserModel.find({ companyName: me.companyName }, { password: 0 }).lean()
+    // If no companyName, look up from owned company
+    let companyName = me?.companyName
+    if (!companyName) {
+      const owned = await CompanyModel.findOne({ createdBy: req.user!._id }).lean()
+      companyName = owned?.name
+    }
+    if (!companyName) return res.json({ members: [] })
+    const members = await UserModel.find({ companyName }, { password: 0 }).lean()
     res.json({ members: members.map((m) => ({ ...m, _id: String(m._id) })) })
   } catch (err) { next(err) }
 })
 
-// POST /companies/mine/logo — upload company logo
+// POST /companies/mine/logo — upload company logo (creates company doc if needed)
 companyRouter.post('/mine/logo', upload.single('logo'), async (req, res, next) => {
   try {
     if (!req.file) throw new HttpError(400, 'No file uploaded')
     const me = await UserModel.findById(req.user!._id).lean()
-    const company = await CompanyModel.findOne({
+    let company = await CompanyModel.findOne({
       $or: [{ createdBy: req.user!._id }, ...(me?.companyName ? [{ name: me.companyName }] : [])],
     }).lean()
-    if (!company) throw new HttpError(404, 'Company not found')
+    if (!company) {
+      // Create a minimal company doc so logo can be stored
+      const created = await CompanyModel.create({ name: me?.companyName ?? 'My Company', industry: 'Other', size: '1-10', createdBy: req.user!._id })
+      company = created.toObject()
+    }
     const key = logoKey(String(company._id), req.file.originalname)
     await uploadBlob(key, req.file.buffer, req.file.mimetype)
     const url = await presignedDownloadUrl(key, 86400 * 7)
