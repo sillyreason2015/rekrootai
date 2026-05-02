@@ -250,41 +250,78 @@ candidateRouter.delete('/me', async (req, res, next) => {
   }
 })
 
+// Extract skill-like tokens from raw CV text
+function extractCvKeywords(text: string): string[] {
+  if (!text) return []
+  // Remove punctuation, split into words, keep 2-30 char tokens, lowercase
+  const words = text.toLowerCase().replace(/[^a-z0-9#+.\s-]/g, ' ').split(/\s+/)
+  // Common filler words to ignore
+  const stop = new Set(['the','and','for','with','from','that','this','have','been','will','are','was','were','has','had','not','but','can','our','your','their','about','into','more','also','when','which','what','they','than','then','over','such','each','after','before','between'])
+  return [...new Set(words.filter((w) => w.length >= 2 && w.length <= 30 && !stop.has(w)))]
+}
+
 // GET /candidates/recommendations — AI job recommendations for the logged-in candidate
 candidateRouter.get('/recommendations', async (req, res, next) => {
   try {
     const candidate = await getCandidateByUserId(String(req.user!._id))
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
 
-    const candidateSkills = (candidate.skills ?? []).map((s: string) => s.toLowerCase())
+    // Build skill set: profile skills + keywords extracted from CV text
+    const profileSkills = (candidate.skills ?? []).map((s: string) => s.toLowerCase())
+    const cvText = String((candidate.cvParsed as Record<string, unknown> | undefined)?.maskedCV ?? '')
+    const cvKeywords = extractCvKeywords(cvText)
+    // Also extract titles/companies from experience for keyword boosting
+    const expKeywords = (candidate.experience ?? []).flatMap((e: { title: string; company: string; description: string }) =>
+      [e.title, e.company, e.description].join(' ').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length >= 3)
+    )
+    void new Set([...profileSkills, ...cvKeywords, ...expKeywords]) // combined token pool (reserved for future vector scoring)
+
     const appliedApps = await ApplicationModel.find({ candidate: String(candidate._id) }, { job: 1 }).lean()
     const appliedJobIds = appliedApps.map((a) => String(a.job))
 
-    const jobs = await JobModel.find({
-      status: 'published',
-      _id: { $nin: appliedJobIds },
-    }).lean()
+    const jobs = await JobModel.find({ status: 'published', _id: { $nin: appliedJobIds } }).lean()
+
+    const expYears = (candidate.experience ?? []).length
 
     const scored = jobs.map((j) => {
       const jobSkills = (j.skills ?? []).map((s: string) => s.toLowerCase())
-      const matched = candidateSkills.filter((s) => jobSkills.includes(s)).length
-      const total = Math.max(jobSkills.length, 1)
-      const matchPct = Math.round((matched / total) * 100)
+      const jobTokens = new Set([
+        ...jobSkills,
+        ...j.title.toLowerCase().split(/\s+/),
+        ...(j.description ?? '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length >= 3),
+        ...(j.requirements ?? []).join(' ').toLowerCase().split(/\s+/).filter((w) => w.length >= 3),
+      ])
 
-      // Boost for level alignment
-      const expYears = (candidate.experience ?? []).length
+      // Exact profile skill matches (highest weight)
+      const exactSkillMatches = profileSkills.filter((s) => jobSkills.includes(s))
+
+      // CV keyword hits against job tokens
+      const cvHits = cvKeywords.filter((kw) => jobTokens.has(kw))
+
+      // Combined unique signal
+      const combinedSignal = new Set([...exactSkillMatches, ...cvHits.slice(0, 20)])
+
+      const matchPct = Math.round((combinedSignal.size / Math.max(jobSkills.length + 5, 1)) * 100)
+
+      // Level alignment boost
       let levelBoost = 0
       if (j.level === 'graduate' && expYears <= 1) levelBoost = 10
       else if (j.level === 'entry' && expYears <= 3) levelBoost = 8
       else if (j.level === 'mid' && expYears >= 2 && expYears <= 6) levelBoost = 8
       else if (j.level === 'senior' && expYears >= 5) levelBoost = 10
+      else if (j.level === 'lead' && expYears >= 7) levelBoost = 8
+      else if (j.level === 'executive' && expYears >= 10) levelBoost = 8
 
       const score = Math.min(100, matchPct + levelBoost)
+
       const reasons: string[] = []
-      if (matched > 0) reasons.push(`${matched} skill${matched > 1 ? 's' : ''} match your profile`)
-      if (levelBoost > 0) reasons.push(`level aligns with your experience`)
-      if (j.remote === 'remote') reasons.push('fully remote role')
-      if (score < 20) reasons.push('broaden your skills to be a stronger fit')
+      if (exactSkillMatches.length > 0) reasons.push(`${exactSkillMatches.length} profile skill${exactSkillMatches.length > 1 ? 's' : ''} match`)
+      if (cvHits.length > 0 && exactSkillMatches.length === 0) reasons.push(`${cvHits.length} keyword${cvHits.length > 1 ? 's' : ''} found in your CV`)
+      if (cvHits.length > 0 && exactSkillMatches.length > 0) reasons.push(`CV content reinforces match`)
+      if (levelBoost > 0) reasons.push(`level fits your experience`)
+      if (j.remote === 'remote') reasons.push('fully remote')
+      if (j.remote === 'hybrid') reasons.push('hybrid working')
+      if (reasons.length === 0) reasons.push('open role in your field')
 
       return {
         _id: String(j._id),
@@ -298,17 +335,32 @@ candidateRouter.get('/recommendations', async (req, res, next) => {
         salaryMin: j.salaryMin,
         salaryMax: j.salaryMax,
         matchScore: score,
-        matchedSkills: matched,
+        matchedSkills: exactSkillMatches.length,
+        cvKeywordHits: cvHits.length,
         totalSkills: jobSkills.length,
         reasons,
+        matchSources: {
+          profileSkills: exactSkillMatches.length > 0,
+          cvContent: cvHits.length > 0,
+          experience: expYears > 0,
+        },
       }
     })
 
     const recommendations = scored
-      .filter((j) => j.matchScore >= 20)
+      .filter((j) => j.matchScore >= 15)
       .sort((a, b) => b.matchScore - a.matchScore)
       .slice(0, 10)
 
-    res.json({ recommendations, candidateSkillCount: candidateSkills.length })
+    const hasCv = Boolean(cvText)
+    res.json({
+      recommendations,
+      candidateSkillCount: profileSkills.length,
+      cvAnalysed: hasCv,
+      cvKeywordCount: cvKeywords.length,
+      matchNote: hasCv
+        ? 'Recommendations use your profile skills + CV content analysis'
+        : 'Upload a CV to improve recommendation accuracy',
+    })
   } catch (err) { next(err) }
 })

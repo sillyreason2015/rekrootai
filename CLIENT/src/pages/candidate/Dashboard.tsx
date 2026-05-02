@@ -158,7 +158,9 @@ export default function CandidateDashboard() {
               <Sparkles className="h-4 w-4 text-primary" />
               <CardTitle>Recommended for You</CardTitle>
             </div>
-            <span className="text-xs text-muted-foreground">AI-matched to your skills &amp; experience</span>
+            <span className="text-xs text-muted-foreground">
+              {recData.cvAnalysed ? `CV + profile · ${recData.cvKeywordCount} keywords analysed` : 'Profile skills only · upload a CV to improve'}
+            </span>
           </CardHeader>
           <CardContent className="space-y-3">
             {recData.recommendations.slice(0, 5).map((rec) => (

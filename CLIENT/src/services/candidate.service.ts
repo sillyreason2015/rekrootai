@@ -27,8 +27,9 @@ export const candidateService = {
     recommendations: Array<{
       _id: string; title: string; department: string; level?: string; location: string
       type: string; remote: string; salaryCurrency: string; salaryMin?: number; salaryMax?: number
-      matchScore: number; matchedSkills: number; totalSkills: number; reasons: string[]
+      matchScore: number; matchedSkills: number; cvKeywordHits: number; totalSkills: number; reasons: string[]
+      matchSources: { profileSkills: boolean; cvContent: boolean; experience: boolean }
     }>
-    candidateSkillCount: number
+    candidateSkillCount: number; cvAnalysed: boolean; cvKeywordCount: number; matchNote: string
   }>('/candidates/recommendations').then((r) => r.data),
 }
