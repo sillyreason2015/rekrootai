@@ -89,13 +89,19 @@ export default function AuditLog() {
                         <p className="text-xs text-muted-foreground font-mono">{entry.resourceId?.slice(-8)}</p>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">{entry.createdAt ? formatDate(entry.createdAt) : '-'}</td>
-                      <td className="px-4 py-3">
-                        <details>
-                          <summary className="cursor-pointer text-xs text-primary">View</summary>
-                          <pre className="mt-2 whitespace-pre-wrap rounded bg-muted p-2 text-[11px]">
-                            {JSON.stringify(entry.metadata ?? {}, null, 2)}
-                          </pre>
-                        </details>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {entry.metadata && Object.keys(entry.metadata).length > 0 ? (
+                          <dl className="space-y-0.5">
+                            {Object.entries(entry.metadata).slice(0, 4).map(([k, v]) => (
+                              <div key={k} className="flex gap-1.5">
+                                <dt className="capitalize shrink-0">{k.replace(/_/g, ' ')}:</dt>
+                                <dd className="font-medium text-foreground truncate max-w-[160px]">{String(v)}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        ) : (
+                          <span className="italic">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
