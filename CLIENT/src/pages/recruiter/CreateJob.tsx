@@ -52,6 +52,7 @@ export default function CreateJob() {
   const [locationTags, setLocationTags] = useState<string[]>([])
   const [locationInput, setLocationInput] = useState('')
   const [locationUndisclosed, setLocationUndisclosed] = useState(false)
+  const [salaryUndisclosed, setSalaryUndisclosed] = useState(false)
 
   const form = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -269,19 +270,36 @@ export default function CreateJob() {
                 </select>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>Currency</Label>
-                <Input {...register('salaryCurrency')} />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Salary</Label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" checked={salaryUndisclosed}
+                    onChange={(e) => {
+                      setSalaryUndisclosed(e.target.checked)
+                      if (e.target.checked) { form.setValue('salaryMin', undefined); form.setValue('salaryMax', undefined) }
+                    }} />
+                  Undisclosed
+                </label>
               </div>
-              <div className="space-y-1.5">
-                <Label>Min Salary</Label>
-                <Input type="number" placeholder="300000" {...register('salaryMin')} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Max Salary</Label>
-                <Input type="number" placeholder="500000" {...register('salaryMax')} />
-              </div>
+              {salaryUndisclosed ? (
+                <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-muted-foreground">Salary: Undisclosed</div>
+              ) : (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label>Currency</Label>
+                    <Input {...register('salaryCurrency')} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Min Salary</Label>
+                    <Input type="number" placeholder="300000" {...register('salaryMin')} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Max Salary</Label>
+                    <Input type="number" placeholder="500000" {...register('salaryMax')} />
+                  </div>
+                </div>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label>Job Description</Label>
