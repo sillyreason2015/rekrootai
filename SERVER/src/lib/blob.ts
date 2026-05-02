@@ -32,6 +32,16 @@ export function avatarKey(userId: string, fileName: string): string {
   return `avatar/${userId}/${Date.now()}-${safe}`
 }
 
+export function logoKey(companyId: string, fileName: string): string {
+  const safe = fileName.replace(/[^\w.\-]/g, '_')
+  return `logos/${companyId}/${Date.now()}-${safe}`
+}
+
+export function bannerKey(jobId: string, fileName: string): string {
+  const safe = fileName.replace(/[^\w.\-]/g, '_')
+  return `banners/${jobId}/${Date.now()}-${safe}`
+}
+
 export async function uploadBlob(key: string, body: Buffer, contentType: string): Promise<void> {
   requireBlobReady()
   await s3!.send(

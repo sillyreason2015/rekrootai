@@ -93,12 +93,19 @@ export default function JobDetail() {
         </div>
       )}
 
-      <Card className={cn(publicMode && 'rounded-[24px] border-[#dbc7bb] bg-[linear-gradient(180deg,#fffdfb_0%,#f8efe7_100%)] shadow-[0_16px_40px_rgba(86,42,24,0.06)]')}>
+      <Card className={cn(publicMode && 'rounded-[24px] border-[#dbc7bb] bg-[linear-gradient(180deg,#fffdfb_0%,#f8efe7_100%)] shadow-[0_16px_40px_rgba(86,42,24,0.06)]', 'overflow-hidden')}>
+        {(job as any).bannerUrl && (
+          <div className="h-40 w-full overflow-hidden">
+            <img src={(job as any).bannerUrl} alt="job banner" className="h-full w-full object-cover" />
+          </div>
+        )}
         <CardContent className="p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10">
-                <Building2 className="h-7 w-7 text-primary" />
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary/10 border">
+                {company?.logoUrl
+                  ? <img src={company.logoUrl} alt={company.name} className="h-full w-full object-contain p-1" />
+                  : <Building2 className="h-7 w-7 text-primary" />}
               </div>
               <div>
                 <h1 className="font-serif text-2xl font-semibold">{job.title}</h1>

@@ -106,6 +106,7 @@ export interface Job {
   salaryCurrency: string
   status: 'draft' | 'published' | 'closed'
   applicationDeadline?: string
+  bannerUrl?: string
   assessmentModules: AssessmentModuleConfig[]
   thresholds: {
     screening: number

@@ -1,8 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send } from 'lucide-react'
+import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send, ImagePlus } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/axios'
 import { candidateService } from '../services/candidate.service'
@@ -64,6 +64,9 @@ export default function Settings() {
   const [avatarUploading, setAvatarUploading] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState('')
   const avatarSrc = useMemo(() => avatarPreview || user?.avatarPreviewUrl || '', [avatarPreview, user?.avatarPreviewUrl])
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [logoPreview, setLogoPreview] = useState('')
+  const logoInputRef = useRef<HTMLInputElement>(null)
 
   const profileForm = useForm<ProfileForm>({
     resolver: zodResolver(profileSchema),
@@ -95,6 +98,17 @@ export default function Settings() {
   })
   const companyVerified = Boolean(company?.isVerified)
   const recruiterPendingReview = isRecruiter && !companyVerified
+
+  const uploadLogo = async (file: File) => {
+    setLogoUploading(true)
+    try {
+      const form = new FormData()
+      form.append('logo', file)
+      const { data } = await api.post<{ previewUrl: string }>('/companies/mine/logo', form, { headers: { 'Content-Type': 'multipart/form-data' } })
+      if (data.previewUrl) setLogoPreview(data.previewUrl)
+      qc.invalidateQueries({ queryKey: ['my-company'] })
+    } finally { setLogoUploading(false) }
+  }
 
   const saveCompany = useMutation({
     mutationFn: (data: CompanyForm) => api.patch('/companies/mine', data),
@@ -273,6 +287,34 @@ export default function Settings() {
               <CardHeader><CardTitle>Company Profile</CardTitle></CardHeader>
               <CardContent>
                 <SaveBanner show={companySaved} />
+                {/* Logo upload */}
+                <div className="mb-5 flex items-center gap-4">
+                  <div
+                    className="relative flex h-20 w-20 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-input bg-muted hover:border-primary/50 transition-colors"
+                    onClick={() => !recruiterPendingReview && logoInputRef.current?.click()}
+                  >
+                    {logoPreview || company?.logoUrl ? (
+                      <img src={logoPreview || ''} alt="logo" className="h-full w-full object-contain p-1" />
+                    ) : (
+                      <ImagePlus className="h-6 w-6 text-muted-foreground" />
+                    )}
+                    {logoUploading && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-background/70">
+                        <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium">Company Logo</p>
+                    <p className="text-xs text-muted-foreground mb-2">PNG, JPG or WebP · max 4 MB · shown on job listings</p>
+                    <Button type="button" size="sm" variant="outline" disabled={recruiterPendingReview || logoUploading}
+                      onClick={() => logoInputRef.current?.click()}>
+                      <ImagePlus className="h-3.5 w-3.5" /> {logoPreview ? 'Replace logo' : 'Upload logo'}
+                    </Button>
+                    <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadLogo(f) }} />
+                  </div>
+                </div>
                 <form onSubmit={companyForm.handleSubmit((d) => saveCompany.mutate(d))} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">

@@ -1,11 +1,12 @@
-import { useState, KeyboardEvent } from 'react'
+import { useState, KeyboardEvent, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, X, MapPin } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, X, MapPin, ImagePlus } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { jobService } from '../../services/job.service'
+import api from '../../lib/axios'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
@@ -53,6 +54,10 @@ export default function CreateJob() {
   const [locationInput, setLocationInput] = useState('')
   const [locationUndisclosed, setLocationUndisclosed] = useState(false)
   const [salaryUndisclosed, setSalaryUndisclosed] = useState(false)
+  const [bannerPreview, setBannerPreview] = useState('')
+  const [_bannerUploading, setBannerUploading] = useState(false)
+  const [pendingBannerFile, setPendingBannerFile] = useState<File | null>(null)
+  const bannerInputRef = useRef<HTMLInputElement>(null)
 
   const form = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -97,13 +102,23 @@ export default function CreateJob() {
     },
   })
 
+  const uploadBannerForJob = async (jobId: string, file: File) => {
+    setBannerUploading(true)
+    try {
+      const form = new FormData()
+      form.append('banner', file)
+      await api.post(`/companies/jobs/${jobId}/banner`, form, { headers: { 'Content-Type': 'multipart/form-data' } })
+    } finally { setBannerUploading(false) }
+  }
+
   // Draft: skip validation entirely — save whatever exists
   const onSaveDraft = async () => {
     setPublishing(true)
     setSubmitError('')
     try {
       const data = form.getValues()
-      await jobService.create(buildPayload(data, 'draft'))
+      const job = await jobService.create(buildPayload(data, 'draft'))
+      if (pendingBannerFile && job._id) await uploadBannerForJob(job._id, pendingBannerFile)
       navigate('/recruiter/jobs')
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -119,6 +134,7 @@ export default function CreateJob() {
       setSubmitError('')
       try {
         const job = await jobService.create(buildPayload(data, 'published'))
+        if (pendingBannerFile && job._id) await uploadBannerForJob(job._id, pendingBannerFile)
         navigate(`/recruiter/shortlist?job=${job._id}`)
       } catch (err: unknown) {
         const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -309,6 +325,41 @@ export default function CreateJob() {
                 placeholder="Describe the role, responsibilities, and what makes it exciting..."
                 {...register('description')}
               />
+            </div>
+            {/* Banner upload */}
+            <div className="space-y-2">
+              <Label>Job Banner Image <span className="text-xs text-muted-foreground font-normal">(optional)</span></Label>
+              <div
+                className="relative flex h-32 w-full cursor-pointer items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-input bg-muted/40 hover:border-primary/50 transition-colors"
+                onClick={() => bannerInputRef.current?.click()}
+              >
+                {bannerPreview ? (
+                  <>
+                    <img src={bannerPreview} alt="banner" className="h-full w-full object-cover" />
+                    <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                      <p className="text-white text-sm font-medium">Click to replace</p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-muted-foreground">
+                    <ImagePlus className="h-6 w-6" />
+                    <p className="text-xs">Click to upload a banner · PNG, JPG · max 4 MB</p>
+                  </div>
+                )}
+              </div>
+              <input ref={bannerInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (!f) return
+                  setPendingBannerFile(f)
+                  setBannerPreview(URL.createObjectURL(f))
+                }} />
+              {bannerPreview && (
+                <button type="button" className="text-xs text-destructive hover:underline"
+                  onClick={() => { setBannerPreview(''); setPendingBannerFile(null); if (bannerInputRef.current) bannerInputRef.current.value = '' }}>
+                  Remove banner
+                </button>
+              )}
             </div>
           </>
         )}

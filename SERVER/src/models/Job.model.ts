@@ -62,6 +62,7 @@ const jobSchema = new Schema<Omit<Job, 'createdAt'>>(
     salaryCurrency: { type: String, default: 'USD' },
     status: { type: String, enum: ['draft', 'published', 'closed'], default: 'draft' },
     applicationDeadline: String,
+    bannerUrl: String,
     assessmentModules: { type: [moduleConfigSchema], default: [] },
     thresholds: {
       screening: { type: Number, default: 0.5 },
