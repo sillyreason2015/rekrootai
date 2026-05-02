@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import * as Tooltip from '@radix-ui/react-tooltip'
 import { AuthProvider } from './contexts/AuthContext'
 import { TourProvider } from './contexts/TourContext'
 
@@ -62,6 +63,7 @@ import Help from './pages/Help'
 
 export default function App() {
   return (
+    <Tooltip.Provider delayDuration={150} skipDelayDuration={300}>
     <BrowserRouter>
       <AuthProvider>
         <TourProvider>
@@ -153,5 +155,6 @@ export default function App() {
         </TourProvider>
       </AuthProvider>
     </BrowserRouter>
+    </Tooltip.Provider>
   )
 }
