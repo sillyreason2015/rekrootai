@@ -75,14 +75,6 @@ export default function RecruiterDashboard() {
           </div>
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader className="pb-2"><CardTitle>Demo Checklist</CardTitle></CardHeader>
-        <CardContent className="space-y-1 text-sm">
-          <p>1. Open Shortlist and advance one candidate through each stage.</p>
-          <p>2. Confirm candidate receives notification + explanation at every gate.</p>
-          <p>3. Complete interview and open Final Selection for final decision.</p>
-        </CardContent>
-      </Card>
       {/* AI Suggestions */}
       <Card>
         <CardHeader className="pb-2">

@@ -74,13 +74,13 @@ export default function AIValidation() {
       {/* Proof point banner */}
       <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-4 space-y-1">
         <div className="flex items-center gap-2 text-sm font-semibold text-primary">
-          <Info className="h-4 w-4" /> Defense Proof Points
+          <Info className="h-4 w-4" /> How this pipeline works
         </div>
         <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
-          <li>XGBoost fairness gate with configurable disparate-impact threshold</li>
-          <li>SHAP-based explanation showing top feature contributions per candidate</li>
-          <li>Recruiter retains override authority — pipeline result is advisory</li>
-          <li>Every run is logged in the audit trail with actor, timestamp and model version</li>
+          <li>Fairness gate checks for demographic parity before confirming any shortlist decision</li>
+          <li>SHAP explanations show the exact contribution of each factor to the candidate's final score</li>
+          <li>Recruiter retains full override authority — all AI outputs are advisory</li>
+          <li>Every run is logged in the audit trail with actor, timestamp, and model version</li>
         </ul>
       </div>
 

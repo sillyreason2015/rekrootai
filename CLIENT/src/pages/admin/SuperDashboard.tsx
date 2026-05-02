@@ -23,16 +23,6 @@ export default function SuperDashboard() {
         <Link to="/internal/super-admin/audit-log" className="rounded-lg border bg-card px-4 py-3 text-sm hover:border-primary/40">Global Audit Log</Link>
         <Link to="/internal/super-admin/settings" className="rounded-lg border bg-card px-4 py-3 text-sm hover:border-primary/40">Platform Settings</Link>
       </div>
-      <Card>
-        <CardContent className="space-y-2 p-4 text-sm">
-          <p className="font-medium">Defense Readiness Checklist</p>
-          <p>1. Candidate can apply from public board.</p>
-          <p>2. Recruiter/Admin can run shortlist to assessment, fairness, and interview.</p>
-          <p>3. Candidate receives immediate explanations + notifications at each stage.</p>
-          <p>4. Final decision writes AI explanation and correspondence can be sent.</p>
-          <p>5. Super admin can review users, companies, and readiness status.</p>
-        </CardContent>
-      </Card>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map(([l, v]) => (
           <Card key={String(l)}>

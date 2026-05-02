@@ -43,12 +43,15 @@ export default function AdminCandidates() {
       <div className="flex items-center gap-3">
         <label className="text-sm font-medium">Job:</label>
         <select
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          className="h-9 min-w-[280px] rounded-md border border-input bg-background px-3 text-sm"
           value={effectiveJobId}
           onChange={(e) => setSelectedJob(e.target.value)}
         >
+          <option value="">Select a job…</option>
           {(jobs?.data ?? []).map((j: Job) => (
-            <option key={j._id} value={j._id}>{j.title}</option>
+            <option key={j._id} value={j._id}>
+              {j.title}{(j as any).department ? ` — ${(j as any).department}` : ''}{(j as any).level ? ` (${(j as any).level})` : ''}
+            </option>
           ))}
         </select>
       </div>
