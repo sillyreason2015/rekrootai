@@ -12,4 +12,6 @@ export const interviewService = {
     api.post(`/interviews/${id}/rubric`, { rubric }).then((r) => r.data),
   complete: (id: string) =>
     api.post(`/interviews/${id}/complete`).then((r) => r.data),
+  reschedule: (id: string, payload: { scheduledAt: string; durationMin: number; reason?: string }) =>
+    api.post(`/interviews/${id}/reschedule`, payload).then((r) => r.data),
 }

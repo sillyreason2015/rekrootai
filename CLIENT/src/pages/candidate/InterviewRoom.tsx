@@ -49,7 +49,7 @@ export default function CandidateInterviewRoom() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null)
 
-  const { data: interview, isLoading } = useQuery({
+  const { data: interview, isLoading, error } = useQuery({
     queryKey: ['interview', id],
     queryFn: () => interviewService.get(id!),
     enabled: !!id,
@@ -212,7 +212,14 @@ export default function CandidateInterviewRoom() {
   }
 
   if (isLoading) return <LoadingSpinner />
-  if (!interview) return <p>Interview not found.</p>
+  if (!interview) {
+    const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+    return (
+      <div className="mx-auto mt-24 max-w-xl rounded-lg border border-amber-300 bg-amber-50 p-5 text-sm text-amber-800">
+        {msg ?? 'Interview was not found or is no longer available.'}
+      </div>
+    )
+  }
 
   // Show proctoring consent before entering
   if (!proctoringAccepted) {
@@ -238,6 +245,17 @@ export default function CandidateInterviewRoom() {
           {connState === 'error' && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-red-400 max-w-xs truncate">{errorMsg}</span>
+              <button
+                className="rounded border border-blue-400/40 px-2 py-0.5 text-[11px] text-blue-300 hover:bg-blue-400/10"
+                onClick={() => {
+                  const track = localVideoTrackRef.current
+                  if (track) track.mute()
+                  setCamOn(false)
+                  setErrorMsg('Switched to audio-only mode. Reconnect to continue.')
+                }}
+              >
+                Audio-only
+              </button>
               <button
                 className="rounded border border-red-400/40 px-2 py-0.5 text-[11px] text-red-400 hover:bg-red-400/10"
                 onClick={() => window.location.reload()}

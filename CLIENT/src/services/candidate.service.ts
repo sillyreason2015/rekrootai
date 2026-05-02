@@ -22,4 +22,5 @@ export const candidateService = {
       nextAction?: { type: 'assessment' | 'interview'; label: string; href: string; dueAt?: string; jobTitle?: string } | null
       recentApplications: unknown[]
     }>('/candidates/me/dashboard').then((r) => r.data),
+  deleteAccount: () => api.delete('/candidates/me').then((r) => r.data),
 }

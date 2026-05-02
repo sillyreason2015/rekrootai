@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/axios'
+import { candidateService } from '../services/candidate.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
@@ -59,6 +60,7 @@ export default function Settings() {
   const [pwSaved, setPwSaved] = useState(false)
   const [pwError, setPwError] = useState('')
   const [companySaved, setCompanySaved] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
   const [avatarUploading, setAvatarUploading] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState('')
   const avatarSrc = useMemo(() => avatarPreview || user?.avatarPreviewUrl || '', [avatarPreview, user?.avatarPreviewUrl])
@@ -124,6 +126,12 @@ export default function Settings() {
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setInviteError(msg ?? 'Failed to send invite. Please try again.')
+    },
+  })
+  const deleteAccount = useMutation({
+    mutationFn: candidateService.deleteAccount,
+    onSuccess: () => {
+      window.location.href = '/register'
     },
   })
 
@@ -416,6 +424,28 @@ export default function Settings() {
               </form>
             </CardContent>
           </Card>
+          {user?.role === 'candidate' && (
+            <Card className="mt-4 border-destructive/30">
+              <CardHeader><CardTitle>Danger Zone</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  NDPR/GDPR account deletion removes your profile, applications, assessments, interviews, and related AI records.
+                </p>
+                <div className="space-y-1.5">
+                  <Label>Type DELETE to confirm</Label>
+                  <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} />
+                </div>
+                <Button
+                  variant="destructive"
+                  disabled={deleteConfirm !== 'DELETE' || deleteAccount.isPending}
+                  onClick={() => deleteAccount.mutate()}
+                >
+                  {deleteAccount.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Delete My Account
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Notifications */}

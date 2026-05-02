@@ -16,6 +16,14 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 
 export const candidateRouter = Router()
 
+function anonymizeText(input: string): string {
+  return input
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
+    .replace(/(\+?\d[\d\s\-()]{7,}\d)/g, '[redacted-phone]')
+    .replace(/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/g, '[redacted-date]')
+    .replace(/\b(male|female|man|woman|boy|girl)\b/gi, '[redacted-gender]')
+}
+
 candidateRouter.use(requireAuth, requireRole('candidate', 'admin'))
 
 // GET /candidates/me
@@ -53,7 +61,29 @@ candidateRouter.post('/me/cv', upload.single('cv'), async (req, res, next) => {
     const fileName = req.file.originalname
     const key = cvKey(req.user!._id, fileName)
     await uploadBlob(key, req.file.buffer, req.file.mimetype || 'application/octet-stream')
-    const cvParsed = { fileName, extracted: false, textPreview: 'Uploaded successfully. Parsing pipeline pending.' }
+    let rawText = ''
+    if (req.file.mimetype?.startsWith('text/')) {
+      rawText = req.file.buffer.toString('utf8').slice(0, 8000)
+    } else if (req.file.mimetype === 'application/pdf') {
+      const pdfModule = await import('pdf-parse') as unknown as (buf: Buffer) => Promise<{ text?: string }>
+      const parsed = await pdfModule(req.file.buffer)
+      rawText = String(parsed?.text ?? '').slice(0, 12000)
+    } else if (
+      req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      req.file.originalname.toLowerCase().endsWith('.docx')
+    ) {
+      const mammoth = await import('mammoth')
+      const parsed = await mammoth.extractRawText({ buffer: req.file.buffer })
+      rawText = String(parsed?.value ?? '').slice(0, 12000)
+    }
+    const masked = rawText ? anonymizeText(rawText) : ''
+    const cvParsed = {
+      fileName,
+      extracted: Boolean(rawText),
+      textPreview: rawText ? masked.slice(0, 350) : 'Uploaded successfully. Parsing pipeline pending.',
+      maskedCV: rawText ? masked : '',
+      anonymization: rawText ? 'applied' : 'pending_non_text_parse',
+    }
     await CandidateModel.findByIdAndUpdate(candidate._id, { cvUrl: key, cvParsed })
     await logAction({ actor: 'user', action: 'cv-upload', candidateId: String(candidate._id), mode: 'assist', payload: { fileName } })
     res.json({ cvUrl: key, parsed: cvParsed })

@@ -7,6 +7,7 @@ import { Input } from '../../components/ui/input'
 import { Badge } from '../../components/ui/badge'
 import { Card, CardContent } from '../../components/ui/card'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import { cn } from '../../lib/utils'
 import type { Job } from '../../types'
 
 const TYPES = ['All', 'full-time', 'part-time', 'contract', 'internship']
@@ -34,13 +35,29 @@ export default function JobBoard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-2xl font-semibold">Job Board</h1>
-        <p className="text-sm text-muted-foreground">Discover roles matched to your skills.</p>
-      </div>
+      {publicMode ? (
+        <div className="overflow-hidden rounded-[28px] border border-[#d9c5b7] bg-[linear-gradient(135deg,#fff9f4_0%,#f2e1d4_45%,#ead4c1_100%)] px-6 py-8 shadow-[0_20px_60px_rgba(86,42,24,0.08)]">
+          <div className="max-w-3xl space-y-4">
+            <div className="inline-flex rounded-full border border-[#c89f85] bg-white/70 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#8b3a1e]">
+              Public job board
+            </div>
+            <h1 className="font-serif text-4xl font-semibold leading-tight text-[#2d1a14] md:text-5xl">
+              Find roles that explain the hiring journey before you apply.
+            </h1>
+            <p className="max-w-2xl text-sm leading-7 text-[#6d554b] md:text-base">
+              Browse open positions, compare evaluation structure, and apply into a process where screening, assessment, fairness, interview, and decision are all visible stages.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <h1 className="font-serif text-2xl font-semibold">Job Board</h1>
+          <p className="text-sm text-muted-foreground">Discover roles matched to your skills.</p>
+        </div>
+      )}
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <div className={cn('flex flex-col gap-3 sm:flex-row', publicMode && 'rounded-[24px] border border-[#d9c5b7] bg-white/80 p-4 shadow-[0_16px_40px_rgba(86,42,24,0.06)]')}>
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -113,16 +130,21 @@ function JobCard({ job, publicMode }: { job: Job; publicMode?: boolean }) {
   const company = typeof job.company === 'object' ? job.company : null
 
   return (
-    <Card className="hover:border-primary/30 hover:shadow-md transition-all">
+    <Card className={cn('transition-all hover:border-primary/30 hover:shadow-md', publicMode && 'overflow-hidden rounded-[24px] border-[#dbc7bb] bg-[linear-gradient(180deg,#fffdfb_0%,#f7ede4_100%)] shadow-[0_16px_40px_rgba(86,42,24,0.06)] hover:-translate-y-1')}>
       <CardContent className="p-5">
         <div className="mb-3 flex items-start justify-between gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+          <div className={cn('flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10', publicMode && 'rounded-2xl bg-[#f3ded0]')}>
             <Building2 className="h-5 w-5 text-primary" />
           </div>
           <Badge variant="secondary">{job.type}</Badge>
         </div>
         <h3 className="font-serif text-base font-semibold leading-snug">{job.title}</h3>
         <p className="mt-0.5 text-sm text-muted-foreground">{company?.name ?? 'Company'}</p>
+        {publicMode && (
+          <p className="mt-3 text-sm leading-6 text-[#6d554b]">
+            {job.description.slice(0, 140)}{job.description.length > 140 ? '...' : ''}
+          </p>
+        )}
 
         <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
@@ -152,7 +174,7 @@ function JobCard({ job, publicMode }: { job: Job; publicMode?: boolean }) {
         <div className="mt-4">
           <Link
             to={publicMode ? `/jobs/${job._id}` : `/candidate/jobs/${job._id}`}
-            className="block w-full rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            className={cn('block w-full rounded-lg bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90', publicMode && 'rounded-full py-2.5')}
           >
             View & Apply
           </Link>

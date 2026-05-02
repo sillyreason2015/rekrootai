@@ -12,6 +12,7 @@ import { CandidateModel } from '../models/Candidate.model.js'
 import { UserModel } from '../models/User.model.js'
 import { AssessmentModel } from '../models/Assessment.model.js'
 import { notify } from '../lib/notify.js'
+import { AuditLogModel } from '../models/AuditLog.model.js'
 
 function buildNarrative(s: {
   resumeScore: number; assessmentScore: number; penaltyApplied: number
@@ -59,6 +60,31 @@ function buildNarrative(s: {
   return parts.join(' ')
 }
 
+function buildStageSpecificNarrative(s: {
+  stage?: string
+  resumeScore: number
+  assessmentScore: number
+  penaltyApplied: number
+  interviewScore: number
+  finalScore: number
+  decision?: string
+}): string {
+  const { stage } = s
+  if (stage === 'applied' || stage === 'screening') {
+    if (s.resumeScore > 0) return `Your CV relevance score is ${s.resumeScore.toFixed(1)}%. The recruiter and AI screening stage use this to determine progression to assessment.`
+    return 'Your application has been received and is currently in screening. CV scoring will appear as soon as evaluation is completed.'
+  }
+  if (stage === 'assessment') {
+    if (s.assessmentScore > 0) return `Your assessment score is ${s.assessmentScore.toFixed(1)}%. This is compared against the job threshold before fairness review and interview progression.`
+    return 'Assessment stage is active. Complete all modules to generate your score and explanation.'
+  }
+  if (stage === 'interview') {
+    if (s.interviewScore > 0) return `Your interview score is ${s.interviewScore.toFixed(1)}%. Recruiter rubric and AI summary are combined before final decision.`
+    return 'Interview stage is active. Interview scoring and explanation will appear after recruiter completion.'
+  }
+  return buildNarrative(s)
+}
+
 function isWeakGenericExplanation(text?: string): boolean {
   if (!text) return true
   const t = text.trim().toLowerCase()
@@ -72,6 +98,26 @@ function isWeakGenericExplanation(text?: string): boolean {
 }
 
 export const applicationsRouter = Router()
+
+applicationsRouter.get('/:id/correspondence/thread', requireAuth, async (req, res, next) => {
+  try {
+    const application = await getApplicationById(String(req.params.id))
+    if (!application) throw new HttpError(404, 'Application not found')
+    const entries = await AuditLogModel.find({
+      action: { $in: ['correspondence-send', 'correspondence-reply'] },
+      candidateId: String(application.candidate),
+      jobId: String(application.job),
+    }).sort({ timestamp: 1 }).lean()
+    res.json(entries.map((e) => ({
+      _id: String(e._id),
+      action: e.action,
+      actor: e.actor,
+      message: (e.payload as { message?: string })?.message ?? '',
+      subject: (e.payload as { subject?: string })?.subject ?? '',
+      timestamp: (e as { timestamp?: string; createdAt?: string }).timestamp ?? (e as { createdAt?: string }).createdAt,
+    })))
+  } catch (err) { next(err) }
+})
 
 // POST /applications
 applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin'), async (req, res, next) => {
@@ -363,6 +409,7 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
     // Notify candidate immediately with explanation link
     const cand = await CandidateModel.findById(application.candidate).lean()
     if (cand?.user) {
+      const candUser = await UserModel.findById(String(cand.user)).lean()
       notify(String(cand.user), {
         type: 'application_rejected',
         title: 'Application outcome — see your AI explanation',
@@ -371,6 +418,13 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
           : 'A decision has been made on your application. View your personalised AI explanation to understand how you were evaluated.',
         link: `/candidate/explanation/${String(application._id)}`,
       })
+      if (candUser?.email) {
+        await sendEmail({
+          to: candUser.email,
+          subject: 'Application outcome',
+          text: 'A decision has been made on your application. Please open your dashboard to see the AI explanation and recruiter feedback.',
+        })
+      }
     }
 
     await logAction({ actor: 'user', action: 'application-reject', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
@@ -422,12 +476,20 @@ applicationsRouter.post('/ai-decide', requireAuth, requireRole('recruiter', 'adm
         })
         const cand = await CandidateModel.findById(app.candidate).lean()
         if (cand?.user) {
+          const candUser = await UserModel.findById(String(cand.user)).lean()
           notify(String(cand.user), {
             type: 'application_rejected',
             title: 'Application not progressed — AI explanation available',
             body: `Your CV scored ${resumeScore}% against this role's requirements. View your detailed AI explanation to understand the evaluation.`,
             link: `/candidate/explanation/${String(app._id)}`,
           })
+          if (candUser?.email) {
+            await sendEmail({
+              to: candUser.email,
+              subject: 'Application did not progress',
+              text: `Your application for this role did not progress after AI screening (score ${resumeScore}%). Check your dashboard for full explanation.`,
+            })
+          }
         }
         results.push({ id: String(app._id), action: 'rejected', score: resumeScore })
       } else {
@@ -450,6 +512,8 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
       notes?: string
       closeJobOnHire?: boolean
     }
+    if (!decision) throw new HttpError(400, 'decision is required')
+    if (!notes || notes.trim().length < 10) throw new HttpError(400, 'decision rationale must be at least 10 characters')
     const application = await ApplicationModel.findByIdAndUpdate(
       String(req.params.id),
       {
@@ -491,6 +555,7 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
     // Notify candidate with link to AI explanation
     const candForDecision = await CandidateModel.findById(application.candidate).lean()
     if (candForDecision?.user) {
+      const candUser = await UserModel.findById(String(candForDecision.user)).lean()
       const isHire = decision === 'hire'
       notify(String(candForDecision.user), {
         type: 'decision_made',
@@ -500,6 +565,15 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
           : 'A recruiter has made a decision on your application. See your personalised AI explanation.',
         link: `/candidate/explanation/${String(application._id)}`,
       })
+      if (candUser?.email) {
+        await sendEmail({
+          to: candUser.email,
+          subject: isHire ? 'Offer decision on your application' : 'Application decision update',
+          text: isHire
+            ? 'Congratulations. A recruiter has extended an offer. View your full AI explanation and next steps in your dashboard.'
+            : 'A final decision has been recorded on your application. View your dashboard for detailed AI explanation.',
+        })
+      }
     }
     res.json({ ...application, _id: String(application._id) })
   } catch (err) {
@@ -528,7 +602,15 @@ applicationsRouter.get('/:id/explanation', requireAuth, async (req, res, next) =
     const aiExplanation = (ai?.output as { explanation?: string } | undefined)?.explanation
     const narrative = !isWeakGenericExplanation(aiExplanation)
       ? aiExplanation
-      : buildNarrative({ resumeScore, assessmentScore, penaltyApplied, interviewScore, finalScore, decision: application.decision as string | undefined, stage: application.stage })
+      : buildStageSpecificNarrative({
+          resumeScore,
+          assessmentScore,
+          penaltyApplied,
+          interviewScore,
+          finalScore,
+          decision: application.decision as string | undefined,
+          stage: application.stage,
+        })
 
     // Include recruiter note if present
     const recruiterNote = (application as { recruiterNote?: string }).recruiterNote
@@ -676,4 +758,25 @@ applicationsRouter.post('/:id/correspondence/send', requireAuth, requireRole('re
   } catch (err) {
     next(err)
   }
+})
+
+applicationsRouter.post('/:id/correspondence/reply', requireAuth, requireRole('candidate'), async (req, res, next) => {
+  try {
+    const application = await getApplicationById(String(req.params.id))
+    if (!application) throw new HttpError(404, 'Application not found')
+    const candidate = await getCandidateByUserId(req.user!._id)
+    if (!candidate || String(candidate._id) !== String(application.candidate)) throw new HttpError(403, 'Forbidden')
+    const body = req.body as { message?: string }
+    const message = String(body.message ?? '').trim()
+    if (message.length < 3) throw new HttpError(400, 'message too short')
+    await logAction({
+      actor: 'user',
+      action: 'correspondence-reply',
+      candidateId: String(application.candidate),
+      jobId: String(application.job),
+      mode: 'assist',
+      payload: { message },
+    })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
 })

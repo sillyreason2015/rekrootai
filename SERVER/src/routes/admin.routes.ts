@@ -97,6 +97,30 @@ adminRouter.get('/stats', async (_req, res, next) => {
   }
 })
 
+adminRouter.get('/question-insights', async (req, res, next) => {
+  try {
+    const isSuper = req.user?.role === 'super_admin'
+    const me = await UserModel.findById(req.user!._id).lean()
+    const companyName = me?.companyName
+    const userIds = !isSuper && companyName
+      ? (await UserModel.find({ companyName }, { _id: 1 }).lean()).map((u) => String(u._id))
+      : []
+    const jobs = !isSuper && userIds.length ? await JobModel.find({ createdBy: { $in: userIds } }, { _id: 1 }).lean() : []
+    const jobIds = jobs.map((j) => String(j._id))
+    const apps = await ApplicationModel.find(isSuper ? {} : { job: { $in: jobIds } }, { scores: 1 }).lean()
+    const total = apps.length || 1
+    const avgAssessment = apps.reduce((s, a) => s + Number(a.scores?.assessment ?? 0), 0) / total
+    const avgInterview = apps.reduce((s, a) => s + Number(a.scores?.interview ?? 0), 0) / total
+    res.json({
+      generatedAt: nowIso(),
+      insights: [
+        { metric: 'assessment_quality', value: +avgAssessment.toFixed(1), hint: 'Higher average indicates stronger question calibration.' },
+        { metric: 'interview_alignment', value: +avgInterview.toFixed(1), hint: 'Compare interview and assessment scores to tune question banks.' },
+      ],
+    })
+  } catch (err) { next(err) }
+})
+
 // GET /admin/audit-log
 adminRouter.get('/audit-log', async (req, res, next) => {
   try {

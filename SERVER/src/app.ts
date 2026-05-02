@@ -14,6 +14,7 @@ import { companyRouter } from './routes/company.routes.js'
 import { questionBankRouter } from './routes/questionbank.routes.js'
 import { recruiterRouter } from './routes/recruiter.routes.js'
 import { notificationsRouter } from './routes/notifications.routes.js'
+import { anonymizeRouter } from './routes/anonymize.routes.js'
 import { HttpError } from './lib/http.js'
 import { env } from './config/env.js'
 
@@ -46,6 +47,7 @@ app.use('/companies', companyRouter)
 app.use('/question-bank', questionBankRouter)
 app.use('/recruiter', recruiterRouter)
 app.use('/notifications', notificationsRouter)
+app.use('/anonymize', anonymizeRouter)
 
 app.use((_req, _res, next) => {
   next(new HttpError(404, 'Route not found'))

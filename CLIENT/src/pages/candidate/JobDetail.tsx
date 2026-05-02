@@ -7,13 +7,17 @@ import { Button } from '../../components/ui/button'
 import { Badge } from '../../components/ui/badge'
 import { Card, CardContent } from '../../components/ui/card'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import { cn } from '../../lib/utils'
 import { useState } from 'react'
 import type { Application } from '../../types'
 import { useAuth } from '../../contexts/AuthContext'
+import { useLocation } from 'react-router-dom'
 
 export default function JobDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const publicMode = location.pathname.startsWith('/jobs')
   const [applyError, setApplyError] = useState('')
   const { user } = useAuth()
 
@@ -66,7 +70,17 @@ export default function JobDetail() {
         <ChevronLeft className="h-4 w-4" /> Back to jobs
       </button>
 
-      <Card>
+      {publicMode && (
+        <div className="overflow-hidden rounded-[28px] border border-[#d9c5b7] bg-[linear-gradient(140deg,#fff8f2_0%,#f0ddcf_100%)] px-6 py-7 shadow-[0_20px_60px_rgba(86,42,24,0.08)]">
+          <p className="text-xs uppercase tracking-[0.18em] text-[#8b3a1e]/70">Public role preview</p>
+          <h1 className="mt-3 font-serif text-4xl font-semibold leading-tight text-[#2d1a14]">{job.title}</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-[#6d554b]">
+            Review the role, responsibilities, and evaluation structure before you apply. If you are not signed in, applying will take you into registration first.
+          </p>
+        </div>
+      )}
+
+      <Card className={cn(publicMode && 'rounded-[24px] border-[#dbc7bb] bg-[linear-gradient(180deg,#fffdfb_0%,#f8efe7_100%)] shadow-[0_16px_40px_rgba(86,42,24,0.06)]')}>
         <CardContent className="p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-4">

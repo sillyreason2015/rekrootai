@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Send, Loader2, Mail, CheckCircle2 } from 'lucide-react'
 import { applicationService } from '../../services/application.service'
 import { jobService } from '../../services/job.service'
@@ -30,6 +30,7 @@ const TEMPLATES: Record<string, { subject: string; body: string }> = {
 }
 
 export default function Correspondence() {
+  const qc = useQueryClient()
   const [selectedJob, setSelectedJob] = useState('')
   const [selectedApp, setSelectedApp] = useState('')
   const [subject, setSubject] = useState('')
@@ -44,6 +45,11 @@ export default function Correspondence() {
     queryFn: () => applicationService.listForJob(selectedJob),
     enabled: !!selectedJob,
   })
+  const { data: thread } = useQuery({
+    queryKey: ['correspondence-thread', selectedApp],
+    queryFn: () => applicationService.getCorrespondenceThread(selectedApp),
+    enabled: !!selectedApp,
+  })
 
   const sendMutation = useMutation({
     mutationFn: () => applicationService.sendCorrespondence(selectedApp, { subject, message }),
@@ -51,6 +57,7 @@ export default function Correspondence() {
       setSent((p) => [...p, selectedApp])
       setMessage('')
       setError('')
+      qc.invalidateQueries({ queryKey: ['correspondence-thread', selectedApp] })
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -160,6 +167,19 @@ export default function Correspondence() {
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           <CheckCircle2 className="h-4 w-4" />
           {sent.length} message{sent.length > 1 ? 's' : ''} sent successfully.
+        </div>
+      )}
+      {!!selectedApp && Array.isArray(thread) && thread.length > 0 && (
+        <div className="rounded-xl border bg-card p-4">
+          <p className="mb-2 text-sm font-medium">Conversation thread</p>
+          <div className="space-y-2">
+            {thread.map((t: any) => (
+              <div key={t._id} className="rounded-md bg-muted/40 p-2 text-xs">
+                <p className="font-medium">{t.action === 'correspondence-reply' ? 'Candidate reply' : 'Recruiter message'}</p>
+                <p className="text-muted-foreground">{t.message}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>

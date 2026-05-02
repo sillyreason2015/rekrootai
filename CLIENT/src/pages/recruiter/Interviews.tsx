@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Video, Calendar, Clock, CheckCircle2 } from 'lucide-react'
 import { interviewService } from '../../services/interview.service'
@@ -16,6 +17,7 @@ const statusVariant: Record<string, 'default' | 'secondary' | 'success' | 'destr
 }
 
 export default function RecruiterInterviews() {
+  const qc = useQueryClient()
   const { data: interviews, isLoading } = useQuery({
     queryKey: ['my-interviews'],
     queryFn: interviewService.getMine,
@@ -57,7 +59,7 @@ export default function RecruiterInterviews() {
             <div className="space-y-3">
               <h2 className="font-serif text-lg font-semibold">Upcoming</h2>
               {upcoming.map((interview: Interview) => (
-                <InterviewCard key={interview._id} interview={interview} />
+                <InterviewCard key={interview._id} interview={interview} onChanged={() => qc.invalidateQueries({ queryKey: ['my-interviews'] })} />
               ))}
             </div>
           )}
@@ -65,7 +67,7 @@ export default function RecruiterInterviews() {
             <div className="space-y-3">
               <h2 className="font-serif text-lg font-semibold text-muted-foreground">Past</h2>
               {past.map((interview: Interview) => (
-                <InterviewCard key={interview._id} interview={interview} />
+                <InterviewCard key={interview._id} interview={interview} onChanged={() => qc.invalidateQueries({ queryKey: ['my-interviews'] })} />
               ))}
             </div>
           )}
@@ -75,15 +77,27 @@ export default function RecruiterInterviews() {
   )
 }
 
-function InterviewCard({ interview }: { interview: Interview }) {
+function InterviewCard({ interview, onChanged }: { interview: Interview; onChanged: () => void }) {
   const job = typeof interview.job === 'object' ? interview.job : null
   const isLive = interview.status === 'live'
   const isScheduled = interview.status === 'scheduled'
   const isUpcoming = isLive || isScheduled
+  const [showReschedule, setShowReschedule] = useState(false)
+  const [scheduledAt, setScheduledAt] = useState(new Date(interview.scheduledAt).toISOString().slice(0, 16))
+  const [durationMin, setDurationMin] = useState(Number(interview.durationMin ?? 45))
+  const [reason, setReason] = useState('')
+  const rescheduleMutation = useMutation({
+    mutationFn: () => interviewService.reschedule(interview._id, { scheduledAt: new Date(scheduledAt).toISOString(), durationMin, reason }),
+    onSuccess: () => {
+      setShowReschedule(false)
+      onChanged()
+    },
+  })
 
   return (
     <Card className={isLive ? 'border-destructive/40 bg-destructive/5' : ''}>
-      <CardContent className="flex items-center justify-between gap-4 p-5">
+      <CardContent className="space-y-3 p-5">
+        <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${isLive ? 'bg-destructive/10' : 'bg-primary/10'}`}>
             {isLive ? (
@@ -113,14 +127,24 @@ function InterviewCard({ interview }: { interview: Interview }) {
             {isLive ? '● LIVE' : interview.status}
           </Badge>
           {isUpcoming && (
-            <Link
-              to={`/recruiter/interview/${interview._id}`}
-              className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
-                isLive ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'
-              }`}
-            >
-              {isLive ? 'Join Now' : 'Enter Room'}
-            </Link>
+            <>
+              <Link
+                to={`/recruiter/interview/${interview._id}`}
+                className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors ${
+                  isLive ? 'bg-destructive hover:bg-destructive/90' : 'bg-primary hover:bg-primary/90'
+                }`}
+              >
+                {isLive ? 'Join Now' : 'Enter Room'}
+              </Link>
+              {isScheduled && (
+                <button
+                  className="rounded-lg border px-3 py-2 text-xs"
+                  onClick={() => setShowReschedule((v) => !v)}
+                >
+                  Reschedule
+                </button>
+              )}
+            </>
           )}
           {interview.status === 'completed' && interview.score !== undefined && (
             <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 border border-emerald-200">
@@ -128,6 +152,39 @@ function InterviewCard({ interview }: { interview: Interview }) {
             </span>
           )}
         </div>
+        </div>
+        {showReschedule && isScheduled && (
+          <div className="grid gap-2 rounded-lg border bg-muted/30 p-3">
+            <input
+              type="datetime-local"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+            />
+            <input
+              type="number"
+              min={15}
+              max={180}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              value={durationMin}
+              onChange={(e) => setDurationMin(Number(e.target.value))}
+            />
+            <input
+              type="text"
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              value={reason}
+              placeholder="Reason (optional)"
+              onChange={(e) => setReason(e.target.value)}
+            />
+            <button
+              className="rounded-md bg-primary px-3 py-2 text-xs text-primary-foreground disabled:opacity-50"
+              disabled={rescheduleMutation.isPending}
+              onClick={() => rescheduleMutation.mutate()}
+            >
+              Confirm Reschedule
+            </button>
+          </div>
+        )}
       </CardContent>
     </Card>
   )

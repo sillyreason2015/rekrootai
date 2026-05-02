@@ -9,8 +9,79 @@ import { env } from '../config/env.js'
 import { AiOutputModel } from '../models/AiOutput.model.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { notify } from '../lib/notify.js'
+import { UserModel } from '../models/User.model.js'
+import { sendEmail } from '../lib/email.js'
 
 export const interviewsRouter = Router()
+
+async function handleInterviewNoShow(interviewId: string) {
+  const interview = await InterviewModel.findById(interviewId).lean()
+  if (!interview) return null
+  if (interview.status === 'completed' || interview.status === 'cancelled') return interview
+  const start = new Date(interview.scheduledAt).getTime()
+  const end = start + Number(interview.durationMin ?? 45) * 60_000
+  if (Date.now() <= end) return interview
+
+  const score = 0
+  const updatedInterview = await InterviewModel.findByIdAndUpdate(
+    interviewId,
+    { status: 'completed', score },
+    { new: true },
+  ).lean()
+  if (!updatedInterview) return null
+
+  const app = await ApplicationModel.findByIdAndUpdate(updatedInterview.application, {
+    status: 'decision_made',
+    stage: 'decision',
+    'scores.interview': score,
+  }, { new: true }).lean()
+
+  if (app) {
+    const resume = Number(app.scores?.resume ?? 0)
+    const assess = Number(app.scores?.assessment ?? 0)
+    const penalty = Number(app.scores?.penalty ?? 0)
+    const finalScore = (0.3 * resume) + (0.3 * assess) + (0.1 * penalty) + (0.3 * score)
+    await ApplicationModel.findByIdAndUpdate(String(app._id), { 'scores.final': finalScore, decision: 'reject', stage: 'rejected' })
+    await AiOutputModel.create({
+      application: String(app._id),
+      type: 'explanation',
+      input: { stage: 'interview_no_show', score: 0 },
+      output: {
+        stage: 'rejected',
+        explanation: 'The interview window elapsed without candidate attendance. The interview score was recorded as 0 and the application moved to final decision workflow.',
+        topFeatures: [{ name: 'interview_attendance', value: -1 }],
+      },
+      modelVersion: 'interview-no-show-v1',
+    })
+    const candidate = await CandidateModel.findById(app.candidate).lean()
+    if (candidate?.user) {
+      const candidateUser = await UserModel.findById(String(candidate.user)).lean()
+      notify(String(candidate.user), {
+        type: 'interview_missed',
+        title: 'Interview missed',
+        body: 'You did not join before the interview window ended. The interview score was recorded as 0.',
+        link: `/candidate/explanation/${String(app._id)}`,
+      })
+      if (candidateUser?.email) {
+        await sendEmail({
+          to: candidateUser.email,
+          subject: 'Interview window elapsed',
+          text: 'You did not join your scheduled interview before the time window elapsed. The interview score was recorded as 0. Check your dashboard for details.',
+        })
+      }
+    }
+  }
+
+  await logAction({
+    actor: 'ai',
+    action: 'interview-no-show',
+    candidateId: String(interview.candidate),
+    jobId: String(interview.job),
+    mode: 'assist',
+    payload: { interviewId, score: 0 },
+  })
+  return updatedInterview
+}
 
 // GET /interviews/mine
 interviewsRouter.get('/mine', requireAuth, async (req, res, next) => {
@@ -27,8 +98,12 @@ interviewsRouter.get('/mine', requireAuth, async (req, res, next) => {
 // GET /interviews/:id
 interviewsRouter.get('/:id', requireAuth, async (req, res, next) => {
   try {
-    const interview = await getInterviewById(String(req.params.id))
+    const interview = await handleInterviewNoShow(String(req.params.id)) ?? await getInterviewById(String(req.params.id))
     if (!interview) throw new HttpError(404, 'Interview not found')
+    const isCandidate = String(interview.candidate) === String(req.user!._id)
+    const isRecruiter = String(interview.recruiter) === String(req.user!._id)
+    const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin'
+    if (!isCandidate && !isRecruiter && !isAdmin) throw new HttpError(403, 'Forbidden')
     res.json({ ...interview, _id: String(interview._id) })
   } catch (err) {
     next(err)
@@ -45,6 +120,9 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin'), async
     }
     const application = applicationId ? await getApplicationById(applicationId) : null
     if (!application) throw new HttpError(404, 'Application not found')
+    if (String(application.stage) !== 'interview') {
+      throw new HttpError(400, 'Interview can only be scheduled after assessment and fairness stages are completed')
+    }
 
     const interview = await InterviewModel.create({
       application: String(application._id),
@@ -72,11 +150,68 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin'), async
   }
 })
 
+interviewsRouter.post('/:id/reschedule', requireAuth, requireRole('recruiter', 'admin'), async (req, res, next) => {
+  try {
+    const { scheduledAt, durationMin, reason } = req.body as { scheduledAt?: string; durationMin?: number; reason?: string }
+    if (!scheduledAt) throw new HttpError(400, 'scheduledAt is required')
+    const interview = await InterviewModel.findByIdAndUpdate(
+      String(req.params.id),
+      {
+        scheduledAt,
+        durationMin: Number(durationMin ?? 45),
+        status: 'scheduled',
+      },
+      { new: true },
+    ).lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    const candidate = await CandidateModel.findById(interview.candidate).lean()
+    if (candidate?.user) {
+      const candidateUser = await UserModel.findById(String(candidate.user)).lean()
+      notify(String(candidate.user), {
+        type: 'interview_rescheduled',
+        title: 'Interview rescheduled',
+        body: `Your interview has been moved to ${new Date(scheduledAt).toLocaleString()}.`,
+        link: '/candidate/applications',
+      })
+      if (candidateUser?.email) {
+        await sendEmail({
+          to: candidateUser.email,
+          subject: 'Interview rescheduled',
+          text: `Your interview has been rescheduled to ${new Date(scheduledAt).toLocaleString()}.${reason ? ` Reason: ${reason}` : ''}`,
+        })
+      }
+    }
+    await logAction({
+      actor: 'user',
+      action: 'interview-reschedule',
+      candidateId: String(interview.candidate),
+      jobId: String(interview.job),
+      mode: 'assist',
+      payload: { scheduledAt, durationMin, reason },
+    })
+    res.json({ ...interview, _id: String(interview._id) })
+  } catch (err) {
+    next(err)
+  }
+})
+
 // GET /interviews/:id/token
 interviewsRouter.get('/:id/token', requireAuth, async (req, res, next) => {
   try {
-    const interview = await getInterviewById(String(req.params.id))
+    const interview = await handleInterviewNoShow(String(req.params.id)) ?? await getInterviewById(String(req.params.id))
     if (!interview) throw new HttpError(404, 'Interview not found')
+    const isCandidate = String(interview.candidate) === String(req.user!._id)
+    const isRecruiter = String(interview.recruiter) === String(req.user!._id)
+    const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin'
+    if (!isCandidate && !isRecruiter && !isAdmin) throw new HttpError(403, 'Forbidden')
+    const app = await getApplicationById(String(interview.application))
+    if (!app) throw new HttpError(404, 'Application not found')
+    if (Number(interview.score ?? 1) === 0 && String(interview.status) === 'completed') {
+      throw new HttpError(410, 'Interview window elapsed. You did not join on time and the score was recorded as 0.')
+    }
+    if (String(app.stage) !== 'interview' && String(interview.status) !== 'completed') {
+      throw new HttpError(400, 'Interview room is only available during interview stage')
+    }
     const roomName = interview.roomToken ?? `room-${interview._id}`
 
     if (!env.LIVEKIT_API_KEY || !env.LIVEKIT_API_SECRET) {
@@ -116,7 +251,16 @@ interviewsRouter.post('/:id/rubric', requireAuth, requireRole('recruiter', 'admi
 // POST /interviews/:id/complete
 interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'admin'), async (req, res, next) => {
   try {
-    const score = Math.round(70 + Math.random() * 20)
+    const existing = await InterviewModel.findById(String(req.params.id)).lean()
+    if (!existing) throw new HttpError(404, 'Interview not found')
+    const rubric = Array.isArray(existing.rubric) ? existing.rubric : []
+    const numericScores = rubric
+      .map((item) => Number((item as { score?: number }).score))
+      .filter((n) => Number.isFinite(n) && n >= 0)
+    const score = numericScores.length
+      ? Math.round(numericScores.reduce((sum, n) => sum + n, 0) / numericScores.length)
+      : 0
+
     const interview = await InterviewModel.findByIdAndUpdate(
       String(req.params.id),
       { status: 'completed', score },

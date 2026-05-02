@@ -44,4 +44,8 @@ export const applicationService = {
     api.post('/applications/ai-decide', payload).then((r) => r.data),
   sendCorrespondence: (id: string, payload: { subject?: string; message: string }) =>
     api.post(`/applications/${id}/correspondence/send`, payload).then((r) => r.data),
+  getCorrespondenceThread: (id: string) =>
+    api.get(`/applications/${id}/correspondence/thread`).then((r) => r.data),
+  replyCorrespondence: (id: string, payload: { message: string }) =>
+    api.post(`/applications/${id}/correspondence/reply`, payload).then((r) => r.data),
 }
