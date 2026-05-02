@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useState, KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, X, MapPin } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { jobService } from '../../services/job.service'
 import { Button } from '../../components/ui/button'
@@ -18,7 +18,7 @@ const schema = z.object({
   department: z.string().min(2),
   level: z.enum(['graduate', 'entry', 'mid', 'senior', 'lead', 'executive']).default('mid'),
   positionsCount: z.coerce.number().min(1).default(1),
-  location: z.string().min(2),
+  location: z.string().min(1).default('Undisclosed'),
   type: z.enum(['full-time', 'part-time', 'contract', 'internship']),
   remote: z.enum(['on-site', 'hybrid', 'remote']),
   description: z.string().min(50),
@@ -49,6 +49,9 @@ export default function CreateJob() {
   const [step, setStep] = useState(0)
   const [publishing, setPublishing] = useState(false)
   const [submitError, setSubmitError] = useState('')
+  const [locationTags, setLocationTags] = useState<string[]>([])
+  const [locationInput, setLocationInput] = useState('')
+  const [locationUndisclosed, setLocationUndisclosed] = useState(false)
 
   const form = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -57,6 +60,7 @@ export default function CreateJob() {
       remote: 'hybrid',
       level: 'mid',
       positionsCount: 1,
+      location: 'Undisclosed',
       salaryCurrency: '₦',
       requirements: [{ value: '' }],
       responsibilities: [{ value: '' }],
@@ -92,10 +96,12 @@ export default function CreateJob() {
     },
   })
 
-  const onSaveDraft = form.handleSubmit(async (data) => {
+  // Draft: skip validation entirely — save whatever exists
+  const onSaveDraft = async () => {
     setPublishing(true)
     setSubmitError('')
     try {
+      const data = form.getValues()
       await jobService.create(buildPayload(data, 'draft'))
       navigate('/recruiter/jobs')
     } catch (err: unknown) {
@@ -104,21 +110,58 @@ export default function CreateJob() {
     } finally {
       setPublishing(false)
     }
-  })
+  }
 
-  const onPublish = form.handleSubmit(async (data) => {
-    setPublishing(true)
-    setSubmitError('')
-    try {
-      const job = await jobService.create(buildPayload(data, 'published'))
-      navigate(`/recruiter/shortlist?job=${job._id}`)
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setSubmitError(msg ?? 'Failed to publish. Check the question bank has enough questions first.')
-    } finally {
-      setPublishing(false)
+  const onPublish = form.handleSubmit(
+    async (data) => {
+      setPublishing(true)
+      setSubmitError('')
+      try {
+        const job = await jobService.create(buildPayload(data, 'published'))
+        navigate(`/recruiter/shortlist?job=${job._id}`)
+      } catch (err: unknown) {
+        const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        setSubmitError(msg ?? 'Failed to publish. Check the question bank has enough questions first.')
+      } finally {
+        setPublishing(false)
+      }
+    },
+    (errors) => {
+      // Navigate to first step with errors so user can see them
+      const fields = Object.keys(errors)
+      const step0Fields = ['title', 'department', 'level', 'positionsCount', 'location', 'type', 'remote', 'description', 'salaryCurrency']
+      const step1Fields = ['requirements', 'responsibilities', 'skills', 'applicationQuestions']
+      const step2Fields = ['assessmentModules', 'thresholds']
+      if (fields.some((f) => step0Fields.includes(f))) { setStep(0) }
+      else if (fields.some((f) => step1Fields.includes(f))) { setStep(1) }
+      else if (fields.some((f) => step2Fields.includes(f))) { setStep(2) }
+      setSubmitError('Please fix the highlighted fields before publishing.')
     }
-  })
+  )
+
+  const syncLocation = (tags: string[], undisclosed: boolean) => {
+    form.setValue('location', undisclosed ? 'Undisclosed' : tags.join(', ') || 'Undisclosed', { shouldValidate: true })
+  }
+
+  const addLocationTag = (val: string) => {
+    const trimmed = val.trim().replace(/,+$/, '')
+    if (!trimmed || locationTags.includes(trimmed)) return
+    const next = [...locationTags, trimmed]
+    setLocationTags(next)
+    setLocationInput('')
+    syncLocation(next, locationUndisclosed)
+  }
+
+  const removeLocationTag = (tag: string) => {
+    const next = locationTags.filter((t) => t !== tag)
+    setLocationTags(next)
+    syncLocation(next, locationUndisclosed)
+  }
+
+  const toggleUndisclosed = (val: boolean) => {
+    setLocationUndisclosed(val)
+    syncLocation(locationTags, val)
+  }
 
   const { register, watch } = form
   const values = watch()
@@ -163,8 +206,40 @@ export default function CreateJob() {
                 <Input type="number" min={1} {...register('positionsCount')} />
               </div>
               <div className="space-y-1.5">
-                <Label>Location</Label>
-                <Input placeholder="Lagos, Nigeria" {...register('location')} />
+                <Label className="flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" /> Location(s)</Label>
+                <label className="flex items-center gap-2 text-xs text-muted-foreground mb-1.5">
+                  <input type="checkbox" checked={locationUndisclosed} onChange={(e) => toggleUndisclosed(e.target.checked)} />
+                  Undisclosed / Remote only
+                </label>
+                {!locationUndisclosed && (
+                  <>
+                    <div className="flex min-h-[38px] flex-wrap gap-1.5 rounded-md border border-input bg-background px-2 py-1.5">
+                      {locationTags.map((tag) => (
+                        <span key={tag} className="flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+                          {tag}
+                          <button type="button" onClick={() => removeLocationTag(tag)}><X className="h-3 w-3" /></button>
+                        </span>
+                      ))}
+                      <input
+                        className="flex-1 min-w-[140px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                        placeholder="Type city, press Enter or comma…"
+                        value={locationInput}
+                        onChange={(e) => setLocationInput(e.target.value)}
+                        onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                          if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addLocationTag(locationInput) }
+                          if (e.key === 'Backspace' && !locationInput && locationTags.length) removeLocationTag(locationTags[locationTags.length - 1])
+                        }}
+                        onBlur={() => { if (locationInput) addLocationTag(locationInput) }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">Press Enter or comma to add each city. e.g. Lagos · Abuja · Remote</p>
+                  </>
+                )}
+                {locationUndisclosed && (
+                  <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-muted-foreground">Location: Undisclosed</div>
+                )}
+                {/* hidden field so react-hook-form tracks the value */}
+                <input type="hidden" {...register('location')} />
               </div>
             </div>
             <div className="space-y-2">
