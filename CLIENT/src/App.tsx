@@ -81,6 +81,14 @@ export default function App() {
           <Route path="/help" element={<Help />} />
           <Route path="/redirect" element={<AuthRedirect />} />
 
+          {/* Shared settings — any authenticated user, no role restriction */}
+          <Route element={<ProtectedRoute requireOnboarding={false} />}>
+            <Route element={<Layout />}>
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/admin/company-settings" element={<Settings />} />
+            </Route>
+          </Route>
+
           {/* Onboarding — requires login but not completed onboarding */}
           <Route element={<ProtectedRoute requireOnboarding={false} />}>
             <Route path="/onboarding" element={<Onboarding />} />
@@ -96,7 +104,6 @@ export default function App() {
               <Route path="/candidate/applications" element={<Applications />} />
               <Route path="/candidate/assessment/:applicationId" element={<Assessment />} />
               <Route path="/candidate/explanation/:id" element={<DecisionExplanation />} />
-              <Route path="/settings" element={<Settings />} />
             </Route>
             {/* Full-screen interview room */}
             <Route path="/candidate/interview/:id" element={<CandidateInterviewRoom />} />
@@ -113,7 +120,6 @@ export default function App() {
               <Route path="/recruiter/final-selection" element={<FinalSelection />} />
               <Route path="/recruiter/interviews" element={<RecruiterInterviews />} />
               <Route path="/recruiter/correspondence" element={<Correspondence />} />
-              <Route path="/settings" element={<Settings />} />
             </Route>
             {/* Full-screen interview room */}
             <Route path="/recruiter/interview/:id" element={<RecruiterInterviewRoom />} />
@@ -131,8 +137,6 @@ export default function App() {
               <Route path="/admin/ai-validation" element={<AIValidation />} />
               <Route path="/admin/livekit-test" element={<LiveKitTest />} />
               <Route path="/admin/bias-audit" element={<BiasAudit />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/admin/company-settings" element={<Settings />} />
             </Route>
           </Route>
 
@@ -145,7 +149,6 @@ export default function App() {
               <Route path="/internal/super-admin/audit-log" element={<AuditLog />} />
               <Route path="/internal/super-admin/bias-audit" element={<Navigate to="/internal/super-admin/dashboard" replace />} />
               <Route path="/internal/super-admin/settings" element={<SuperSettings />} />
-              <Route path="/settings" element={<Settings />} />
             </Route>
           </Route>
 
