@@ -11,6 +11,75 @@ import { UserModel } from '../models/User.model.js'
 export const recruiterRouter = Router()
 recruiterRouter.use(requireAuth, requireRole('recruiter'))
 
+// Helper: build a plain-English sentence from an audit entry
+async function buildNarrative(entry: {
+  actor?: string; action: string; candidateId?: string; jobId?: string;
+  mode?: string; payload?: Record<string, unknown>
+}): Promise<string> {
+  const who = entry.actor === 'ai' ? 'The AI system' : 'A recruiter'
+  let candidateName = 'a candidate'
+  let jobTitle = 'a job'
+
+  if (entry.candidateId) {
+    const u = await UserModel.findById(entry.candidateId, { firstName: 1, lastName: 1 }).lean()
+    if (u) candidateName = `${u.firstName} ${u.lastName}`
+  }
+  if (entry.jobId) {
+    const j = await JobModel.findById(entry.jobId, { title: 1 }).lean()
+    if (j) jobTitle = `"${j.title}"`
+  }
+
+  const p = entry.payload ?? {}
+  const score = typeof p.avgScore === 'number' ? `${p.avgScore}%` : null
+  const threshold = typeof p.threshold === 'number' ? `${p.threshold}%` : null
+  const passed = typeof p.passed === 'boolean' ? p.passed : null
+  const stage = p.stage ? String(p.stage) : null
+  const decision = p.decision ? String(p.decision) : null
+  const modeLabel = entry.mode ? ` (${entry.mode} mode)` : ''
+
+  switch (entry.action) {
+    case 'screening-passed':
+      return `${who}${modeLabel} screened ${candidateName} for ${jobTitle} — they passed${score ? ` with a score of ${score}` : ''}${threshold ? ` (threshold: ${threshold})` : ''}.`
+    case 'screening-failed':
+      return `${who}${modeLabel} screened ${candidateName} for ${jobTitle} — they did not meet the criteria${score ? ` (score: ${score}` + (threshold ? `, threshold: ${threshold})` : ')') : ''}.`
+    case 'shortlist':
+    case 'shortlisted':
+      return `${who}${modeLabel} shortlisted ${candidateName} for ${jobTitle}.`
+    case 'reject':
+    case 'rejected':
+      return `${who}${modeLabel} rejected ${candidateName} from ${jobTitle}${decision ? ` — reason: ${decision}` : ''}.`
+    case 'hire':
+    case 'hired':
+      return `${who} marked ${candidateName} as hired for ${jobTitle}.`
+    case 'interview-scheduled':
+      return `An interview was scheduled for ${candidateName} for the ${jobTitle} role.`
+    case 'interview-completed':
+      return `${candidateName}'s interview for ${jobTitle} was completed${score ? ` — interview score: ${score}` : ''}.`
+    case 'assessment-sent':
+      return `${who} sent an assessment to ${candidateName} for ${jobTitle}${stage ? ` (${stage} stage)` : ''}.`
+    case 'assessment-completed':
+      return `${candidateName} completed their assessment for ${jobTitle}${score ? ` — score: ${score}` : ''}${passed !== null ? `, result: ${passed ? 'passed' : 'failed'}` : ''}.`
+    case 'decision-override':
+      return `A recruiter manually overrode the AI decision${modeLabel} for ${candidateName} on ${jobTitle}${decision ? ` — new decision: ${decision}` : ''}.`
+    case 'bias-audit-run':
+      return `A fairness/bias audit was run on ${jobTitle} by ${who.toLowerCase()}.`
+    case 'email-sent':
+    case 'email_sent':
+      return `A correspondence email was sent to ${candidateName} regarding ${jobTitle}.`
+    case 'job-created':
+      return `The job posting ${jobTitle} was created.`
+    case 'job-published':
+      return `${jobTitle} was published and is now accepting applications.`
+    case 'apply':
+    case 'applied':
+      return `${candidateName} submitted an application for ${jobTitle}.`
+    default: {
+      const label = entry.action.replace(/[-_]/g, ' ')
+      return `${who}${modeLabel} performed "${label}" involving ${candidateName} on ${jobTitle}.`
+    }
+  }
+}
+
 recruiterRouter.get('/audit-log', async (req, res, next) => {
   try {
     const page = Number(req.query.page ?? 1)
@@ -21,7 +90,12 @@ recruiterRouter.get('/audit-log', async (req, res, next) => {
     const filter: Record<string, unknown> = { jobId: { $in: jobIds } }
     if (action) filter.action = { $regex: action, $options: 'i' }
     const entries = await AuditLogModel.find(filter).sort({ timestamp: -1 }).lean()
-    res.json(paginate(entries.map((e) => ({ ...e, _id: String(e._id) })), page, limit))
+    const enriched = await Promise.all(entries.map(async (e) => ({
+      ...e,
+      _id: String(e._id),
+      narrative: await buildNarrative(e as Parameters<typeof buildNarrative>[0]),
+    })))
+    res.json(paginate(enriched, page, limit))
   } catch (err) { next(err) }
 })
 

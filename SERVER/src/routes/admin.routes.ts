@@ -154,22 +154,85 @@ adminRouter.get('/audit-log', async (req, res, next) => {
     const filter = { ...baseFilter, ...scopeFilter }
     const entries = await AuditLogModel.find(filter).sort({ timestamp: -1 }).lean()
 
-    // Enrich with user info
+    // Enrich with user info + plain-English narrative
     const enriched = await Promise.all(
       entries.map(async (entry) => {
-        let user = { firstName: String(entry.actor), lastName: '', email: '' }
-        if (entry.actor === 'user' && entry.candidateId) {
-          const u = await UserModel.findById(entry.candidateId).lean()
+        let user = { firstName: entry.actor === 'ai' ? 'AI System' : 'System', lastName: '', email: '' }
+        if (entry.candidateId) {
+          const u = await UserModel.findById(entry.candidateId, { firstName: 1, lastName: 1, email: 1 }).lean()
           if (u) user = { firstName: u.firstName, lastName: u.lastName, email: u.email }
         }
+
+        // Look up job title and candidate name for the narrative
+        let candidateName = user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : 'a candidate'
+        let jobTitle = 'a job'
+        if (entry.jobId) {
+          const j = await JobModel.findById(entry.jobId, { title: 1 }).lean()
+          if (j) jobTitle = `"${j.title}"`
+        }
+
+        const who = entry.actor === 'ai' ? 'The AI system' : `${user.firstName} ${user.lastName}`.trim() || 'A user'
+        const p = (entry.payload as Record<string, unknown>) ?? {}
+        const score = typeof p.avgScore === 'number' ? `${p.avgScore}%` : null
+        const threshold = typeof p.threshold === 'number' ? `${p.threshold}%` : null
+        const passed = typeof p.passed === 'boolean' ? p.passed : null
+        const modeLabel = entry.mode ? ` (${entry.mode} mode)` : ''
+        const decision = p.decision ? String(p.decision) : null
+        const stage = p.stage ? String(p.stage) : null
+
+        let narrative: string
+        switch (entry.action) {
+          case 'screening-passed':
+            narrative = `${who}${modeLabel} screened ${candidateName} for ${jobTitle} — passed${score ? ` with score ${score}` : ''}${threshold ? ` (threshold: ${threshold})` : ''}.`; break
+          case 'screening-failed':
+            narrative = `${who}${modeLabel} screened ${candidateName} for ${jobTitle} — did not meet criteria${score ? ` (score: ${score}` + (threshold ? `, threshold: ${threshold})` : ')') : ''}.`; break
+          case 'shortlist': case 'shortlisted':
+            narrative = `${who}${modeLabel} shortlisted ${candidateName} for ${jobTitle}.`; break
+          case 'reject': case 'rejected':
+            narrative = `${who}${modeLabel} rejected ${candidateName} from ${jobTitle}${decision ? ` — reason: ${decision}` : ''}.`; break
+          case 'hire': case 'hired':
+            narrative = `${who} marked ${candidateName} as hired for ${jobTitle}.`; break
+          case 'interview-scheduled':
+            narrative = `An interview was scheduled for ${candidateName} for the ${jobTitle} role.`; break
+          case 'interview-completed':
+            narrative = `${candidateName}'s interview for ${jobTitle} was completed${score ? ` — score: ${score}` : ''}.`; break
+          case 'assessment-sent':
+            narrative = `${who} sent an assessment to ${candidateName} for ${jobTitle}${stage ? ` (${stage} stage)` : ''}.`; break
+          case 'assessment-completed':
+            narrative = `${candidateName} completed the assessment for ${jobTitle}${score ? ` — score: ${score}` : ''}${passed !== null ? `, result: ${passed ? 'passed' : 'failed'}` : ''}.`; break
+          case 'decision-override':
+            narrative = `${who} manually overrode the AI decision${modeLabel} for ${candidateName} on ${jobTitle}${decision ? ` — new decision: ${decision}` : ''}.`; break
+          case 'bias-audit-run': case 'bias_audit_run':
+            narrative = `A fairness/bias audit was run on ${jobTitle}.`; break
+          case 'email-sent': case 'email_sent':
+            narrative = `A correspondence email was sent to ${candidateName} regarding ${jobTitle}.`; break
+          case 'job-created':
+            narrative = `The job posting ${jobTitle} was created by ${who}.`; break
+          case 'job-published':
+            narrative = `${jobTitle} was published and is now live.`; break
+          case 'apply': case 'applied':
+            narrative = `${candidateName} submitted an application for ${jobTitle}.`; break
+          case 'login':
+            narrative = `${who} logged in to the platform.`; break
+          case 'register':
+            narrative = `${who} created a new account.`; break
+          default: {
+            const label = entry.action.replace(/[-_]/g, ' ')
+            narrative = `${who}${modeLabel} performed "${label}" involving ${candidateName} on ${jobTitle}.`
+          }
+        }
+
         return {
           _id: String(entry._id),
           action: entry.action,
+          narrative,
           user,
+          actor: entry.actor,
+          mode: entry.mode,
           resource: entry.jobId ? 'job' : entry.candidateId ? 'candidate' : 'system',
           resourceId: entry.jobId ?? entry.candidateId ?? String(entry._id),
           createdAt: (entry as { timestamp?: string; createdAt?: string }).timestamp ?? (entry as { createdAt?: string }).createdAt ?? '',
-          metadata: { mode: entry.mode, modelVersion: entry.modelVersion },
+          metadata: { ...(p as object), mode: entry.mode, modelVersion: entry.modelVersion },
         }
       }),
     )

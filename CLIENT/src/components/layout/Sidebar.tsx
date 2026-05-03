@@ -13,6 +13,7 @@ const candidateNav = [
   { to: '/candidate/dashboard', label: 'Dashboard', icon: LayoutDashboard, tour: 'candidate-dashboard' },
   { to: '/candidate/jobs', label: 'Job Board', icon: Search, tour: 'candidate-jobs' },
   { to: '/candidate/applications', label: 'Applications', icon: FileText, tour: 'candidate-applications' },
+  { to: '/settings', label: 'My Profile', icon: UserCog },
   { to: '/help', label: 'Help & Docs', icon: HelpCircle },
 ]
 
@@ -40,6 +41,7 @@ const adminNav = [
   { to: '/admin/livekit-test', label: 'LiveKit Test', icon: Wifi, tour: 'admin-livekit-test' },
   { to: '/admin/company-settings', label: 'Company', icon: Building2 },
   { to: '/admin/billing', label: 'Billing', icon: CreditCard },
+  { to: '/settings', label: 'My Profile', icon: UserCog },
   { to: '/help', label: 'Help & Docs', icon: HelpCircle },
 ]
 
