@@ -33,4 +33,8 @@ export const adminService = {
   getQuestionInsights: () => api.get('/admin/question-insights').then((r) => r.data),
   getSuperSettings: () => api.get('/admin/super/settings').then((r) => r.data),
   updateSuperSettings: (payload: Record<string, unknown>) => api.put('/admin/super/settings', payload).then((r) => r.data),
+  getSuperKeyStatus: () => api.get<Record<string, boolean>>('/admin/super/key-status').then((r) => r.data),
+  dangerPurgeAssessments: () => api.post('/admin/super/danger/purge-assessments').then((r) => r.data),
+  dangerResetCaches: () => api.post('/admin/super/danger/reset-caches').then((r) => r.data),
+  dangerArchiveJobs: () => api.post('/admin/super/danger/archive-jobs').then((r) => r.data),
 }

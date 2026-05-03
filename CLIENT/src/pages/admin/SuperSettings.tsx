@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Shield, Brain, ToggleLeft, ToggleRight, AlertTriangle, Key, Globe, Trash2 } from 'lucide-react'
+import { Shield, Brain, ToggleLeft, ToggleRight, AlertTriangle, Key, Globe, Trash2, Loader2, CheckCircle2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
@@ -7,6 +7,7 @@ import { Label } from '../../components/ui/label'
 import InfoTip from '../../components/shared/InfoTip'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { adminService } from '../../services/admin.service'
+import { cn } from '../../lib/utils'
 
 function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: () => void; disabled?: boolean }) {
   return (
@@ -18,54 +19,116 @@ function Toggle({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: (
   )
 }
 
+type DangerResult = { ok: boolean; deleted?: number; cleared?: number; archived?: number } | null
+
 export default function SuperSettings() {
-  // AI / model policies
   const [aiAssist, setAiAssist] = useState(true)
   const [fairnessGate, setFairnessGate] = useState(true)
   const [shapExplain, setShapExplain] = useState(true)
   const [proctoring, setProctoring] = useState(true)
   const [geminiGen, setGeminiGen] = useState(true)
-
-  // Compliance
   const [gdprMode, setGdprMode] = useState(true)
   const [auditImmutable, setAuditImmutable] = useState(true)
   const [candidateExplain, setCandidateExplain] = useState(true)
-
-  // Maintenance
   const [maintenance, setMaintenance] = useState(false)
   const [maintenanceMsg, setMaintenanceMsg] = useState('The platform is undergoing scheduled maintenance. We will be back shortly.')
-
-  // API keys (display only — not editable in UI for security)
-  const [showKeys, setShowKeys] = useState(false)
-
-  // Retention
   const [retentionDays, setRetentionDays] = useState(730)
-
+  const [showKeys, setShowKeys] = useState(false)
   const [saved, setSaved] = useState(false)
-  const { data } = useQuery({ queryKey: ['super-settings'], queryFn: adminService.getSuperSettings })
+  const [saveError, setSaveError] = useState('')
+  const [dangerResults, setDangerResults] = useState<Record<string, DangerResult>>({})
+  const [dangerConfirm, setDangerConfirm] = useState<string | null>(null)
+
+  const { data, isError } = useQuery({
+    queryKey: ['super-settings'],
+    queryFn: adminService.getSuperSettings,
+    retry: false,
+  })
+
+  const { data: keyStatus } = useQuery({
+    queryKey: ['super-key-status'],
+    queryFn: adminService.getSuperKeyStatus,
+    retry: false,
+  })
+
   useEffect(() => {
     if (!data) return
-    setAiAssist(Boolean(data.aiAssist)); setFairnessGate(Boolean(data.fairnessGate)); setShapExplain(Boolean(data.shapExplain)); setProctoring(Boolean(data.proctoring)); setGeminiGen(Boolean(data.geminiGen))
-    setGdprMode(Boolean(data.gdprMode)); setAuditImmutable(Boolean(data.auditImmutable)); setCandidateExplain(Boolean(data.candidateExplain))
-    setMaintenance(Boolean(data.maintenance)); setMaintenanceMsg(String(data.maintenanceMsg ?? maintenanceMsg)); setRetentionDays(Number(data.retentionDays ?? 730))
+    setAiAssist(Boolean(data.aiAssist))
+    setFairnessGate(Boolean(data.fairnessGate))
+    setShapExplain(Boolean(data.shapExplain))
+    setProctoring(Boolean(data.proctoring))
+    setGeminiGen(Boolean(data.geminiGen))
+    setGdprMode(Boolean(data.gdprMode))
+    setAuditImmutable(Boolean(data.auditImmutable))
+    setCandidateExplain(Boolean(data.candidateExplain))
+    setMaintenance(Boolean(data.maintenance))
+    setMaintenanceMsg(String(data.maintenanceMsg ?? maintenanceMsg))
+    setRetentionDays(Number(data.retentionDays ?? 730))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data])
+
   const saveMutation = useMutation({ mutationFn: adminService.updateSuperSettings })
+
   const handleSave = async () => {
-    await saveMutation.mutateAsync({ aiAssist, fairnessGate, shapExplain, proctoring, geminiGen, gdprMode, auditImmutable, candidateExplain, maintenance, maintenanceMsg, retentionDays })
-    setSaved(true); setTimeout(() => setSaved(false), 2500)
+    setSaveError('')
+    try {
+      await saveMutation.mutateAsync({
+        aiAssist, fairnessGate, shapExplain, proctoring, geminiGen,
+        gdprMode, auditImmutable, candidateExplain,
+        maintenance, maintenanceMsg, retentionDays,
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch {
+      setSaveError('Failed to save. Check your connection and try again.')
+    }
+  }
+
+  const runDanger = async (key: string, fn: () => Promise<DangerResult>) => {
+    if (dangerConfirm !== key) { setDangerConfirm(key); return }
+    setDangerConfirm(null)
+    try {
+      const result = await fn()
+      setDangerResults((prev) => ({ ...prev, [key]: result }))
+      setTimeout(() => setDangerResults((prev) => ({ ...prev, [key]: null })), 5000)
+    } catch {
+      setDangerResults((prev) => ({ ...prev, [key]: null }))
+    }
+  }
+
+  const keyRows: { name: string; label: string; envKey: string }[] = [
+    { name: 'GEMINI_API_KEY',  label: 'Gemini AI',          envKey: 'GEMINI_API_KEY' },
+    { name: 'LIVEKIT_API_KEY', label: 'LiveKit (video)',     envKey: 'LIVEKIT_API_KEY' },
+    { name: 'SMTP_HOST',       label: 'Email (SMTP)',        envKey: 'SMTP_HOST' },
+    { name: 'BLOB_ACCESS_KEY', label: 'S3 / Blob storage',  envKey: 'BLOB_ACCESS_KEY' },
+    { name: 'ML_SERVICE_URL',  label: 'ML scoring service', envKey: 'ML_SERVICE_URL' },
+    { name: 'MONGODB_URI',     label: 'MongoDB',            envKey: 'MONGODB_URI' },
+    { name: 'JWT_SECRET',      label: 'JWT secret',         envKey: 'JWT_SECRET' },
+  ]
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center space-y-3">
+        <AlertTriangle className="h-10 w-10 text-destructive" />
+        <p className="font-semibold">Access denied</p>
+        <p className="text-sm text-muted-foreground">Platform settings are restricted to super admins only.</p>
+      </div>
+    )
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-serif text-2xl font-semibold">Platform Settings</h1>
-          <p className="text-sm text-muted-foreground">Global controls for the RekrootAI platform.</p>
+          <p className="text-sm text-muted-foreground">Global controls for the RekrootAI platform — super admin only.</p>
         </div>
-        <Button onClick={handleSave} className="gap-2">
-          {saved ? '✓ Saved' : 'Save changes'}
-        </Button>
+        <div className="flex items-center gap-3">
+          {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+          <Button onClick={handleSave} disabled={saveMutation.isPending} className="gap-2 min-w-[120px]">
+            {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <><CheckCircle2 className="h-4 w-4" /> Saved</> : 'Save changes'}
+          </Button>
+        </div>
       </div>
 
       {/* Maintenance Mode */}
@@ -105,17 +168,14 @@ export default function SuperSettings() {
         <CardContent className="divide-y">
           {[
             { label: 'AI Assist mode', desc: 'Allow recruiters to use AI-powered shortlist recommendations.', tip: 'When off, all companies are forced into Override mode — AI scores are hidden and recruiters work manually.', val: aiAssist, set: setAiAssist },
-            { label: 'Fairness gate', desc: 'Run demographic parity checks before confirming shortlist decisions.', tip: 'Disabling this removes the bias-detection layer platform-wide. Not recommended — audit trail will record the change.', val: fairnessGate, set: setFairnessGate },
-            { label: 'SHAP explainability', desc: 'Generate feature-importance explanations for every score.', tip: 'When off, candidates and recruiters will no longer see score breakdowns. Final scores are still computed.', val: shapExplain, set: setShapExplain },
-            { label: 'Interview proctoring', desc: 'Monitor tab switches and focus loss during assessments and interviews.', tip: 'Disabling removes all proctoring signals platform-wide. Individual companies cannot override this.', val: proctoring, set: setProctoring },
-            { label: 'Gemini AI question generation', desc: 'Allow recruiters to generate job-specific questions via Gemini API.', tip: 'When off, the Question Bank falls back to static templates only. Useful if the API key is expired or over quota.', val: geminiGen, set: setGeminiGen },
+            { label: 'Fairness gate', desc: 'Run demographic parity checks before confirming shortlist decisions.', tip: 'Disabling this removes the bias-detection layer platform-wide. Not recommended.', val: fairnessGate, set: setFairnessGate },
+            { label: 'SHAP explainability', desc: 'Generate feature-importance explanations for every score.', tip: 'When off, candidates and recruiters will no longer see score breakdowns.', val: shapExplain, set: setShapExplain },
+            { label: 'Interview proctoring', desc: 'Monitor tab switches and focus loss during assessments and interviews.', tip: 'Disabling removes all proctoring signals platform-wide.', val: proctoring, set: setProctoring },
+            { label: 'Gemini AI question generation', desc: 'Allow recruiters to generate job-specific questions via Gemini API.', tip: 'When off, the Question Bank falls back to static templates only.', val: geminiGen, set: setGeminiGen },
           ].map(({ label, desc, tip, val, set }) => (
             <div key={label} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
               <div className="flex-1 pr-4">
-                <p className="flex items-center gap-1.5 text-sm font-medium">
-                  {label}
-                  <InfoTip content={tip} />
-                </p>
+                <p className="flex items-center gap-1.5 text-sm font-medium">{label}<InfoTip content={tip} /></p>
                 <p className="text-xs text-muted-foreground">{desc}</p>
               </div>
               <Toggle enabled={val} onToggle={() => set(!val)} />
@@ -134,16 +194,13 @@ export default function SuperSettings() {
         </CardHeader>
         <CardContent className="divide-y">
           {[
-            { label: 'GDPR / NDPR right-to-erasure', desc: 'Allow candidates to request full deletion of their personal data.', tip: 'When enabled, candidates can trigger a deletion request from their settings. PII is removed; anonymised decision records are retained.', val: gdprMode, set: setGdprMode },
-            { label: 'Immutable audit log', desc: 'Prevent any user from editing or deleting audit entries.', tip: 'This should always be on. Disabling it is recorded as a super-admin action and cannot be undone retroactively.', val: auditImmutable, set: setAuditImmutable },
-            { label: 'Candidate decision explanations', desc: 'Allow candidates to view their SHAP-backed score breakdown.', tip: 'When off, candidates can still see their outcome but not the detailed breakdown. Turning this off may conflict with GDPR Article 22 rights.', val: candidateExplain, set: setCandidateExplain },
+            { label: 'GDPR / NDPR right-to-erasure', desc: 'Allow candidates to request full deletion of their personal data.', tip: 'When enabled, candidates can trigger a deletion request from their settings.', val: gdprMode, set: setGdprMode },
+            { label: 'Immutable audit log', desc: 'Prevent any user from editing or deleting audit entries.', tip: 'This should always be on. Disabling it is recorded and cannot be undone retroactively.', val: auditImmutable, set: setAuditImmutable },
+            { label: 'Candidate decision explanations', desc: 'Allow candidates to view their SHAP-backed score breakdown.', tip: 'Turning this off may conflict with GDPR Article 22 rights.', val: candidateExplain, set: setCandidateExplain },
           ].map(({ label, desc, tip, val, set }) => (
             <div key={label} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
               <div className="flex-1 pr-4">
-                <p className="flex items-center gap-1.5 text-sm font-medium">
-                  {label}
-                  <InfoTip content={tip} />
-                </p>
+                <p className="flex items-center gap-1.5 text-sm font-medium">{label}<InfoTip content={tip} /></p>
                 <p className="text-xs text-muted-foreground">{desc}</p>
               </div>
               <Toggle enabled={val} onToggle={() => set(!val)} />
@@ -153,47 +210,37 @@ export default function SuperSettings() {
             <div className="flex-1 pr-4">
               <p className="flex items-center gap-1.5 text-sm font-medium">
                 Audit log retention
-                <InfoTip content="How long audit records are kept before being eligible for archival. Minimum 2 years recommended for compliance. PII erasure requests are honoured before this period ends." />
+                <InfoTip content="How long audit records are kept. Minimum 2 years recommended for compliance." />
               </p>
               <p className="text-xs text-muted-foreground">Days to retain audit records.</p>
             </div>
-            <Input
-              type="number"
-              min={365}
-              max={3650}
-              value={retentionDays}
-              onChange={(e) => setRetentionDays(+e.target.value)}
-              className="w-24 text-right"
-            />
+            <Input type="number" min={365} max={3650} value={retentionDays} onChange={(e) => setRetentionDays(+e.target.value)} className="w-24 text-right" />
           </div>
         </CardContent>
       </Card>
 
-      {/* Provider Keys */}
+      {/* Provider Keys — real status from server */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Key className="h-4 w-4 text-amber-500" />
             Provider Keys
-            <InfoTip content="These keys are stored server-side in environment variables. This panel shows their status only — values are never exposed in the UI." />
+            <InfoTip content="Status is live — checked against server environment variables. Values are never exposed in the UI." />
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {[
-            { name: 'GEMINI_API_KEY', label: 'Gemini AI', status: true },
-            { name: 'LIVEKIT_API_KEY', label: 'LiveKit (video)', status: true },
-            { name: 'SMTP_HOST', label: 'Email (SMTP)', status: true },
-            { name: 'BLOB_ACCESS_KEY', label: 'S3 / Blob storage', status: true },
-            { name: 'ML_SERVICE_URL', label: 'ML scoring service', status: true },
-          ].map(({ label, status }) => (
-            <div key={label} className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-2.5 text-sm">
-              <span className="font-medium">{label}</span>
-              <span className={`flex items-center gap-1.5 text-xs font-medium ${status ? 'text-emerald-600' : 'text-destructive'}`}>
-                <span className={`h-2 w-2 rounded-full ${status ? 'bg-emerald-500' : 'bg-destructive'}`} />
-                {status ? 'Configured' : 'Missing'}
-              </span>
-            </div>
-          ))}
+        <CardContent className="space-y-2">
+          {keyRows.map(({ label, envKey }) => {
+            const status = keyStatus ? keyStatus[envKey] : undefined
+            return (
+              <div key={label} className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-2.5 text-sm">
+                <span className="font-medium">{label}</span>
+                <span className={cn('flex items-center gap-1.5 text-xs font-medium', status === undefined ? 'text-muted-foreground' : status ? 'text-emerald-600' : 'text-destructive')}>
+                  <span className={cn('h-2 w-2 rounded-full', status === undefined ? 'bg-muted-foreground animate-pulse' : status ? 'bg-emerald-500' : 'bg-destructive')} />
+                  {status === undefined ? 'Checking…' : status ? 'Configured' : 'Missing'}
+                </span>
+              </div>
+            )
+          })}
           <button onClick={() => setShowKeys(!showKeys)} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mt-1">
             <Globe className="h-3.5 w-3.5" />
             {showKeys ? 'Hide' : 'Show'} environment variable names
@@ -208,7 +255,7 @@ export default function SuperSettings() {
         </CardContent>
       </Card>
 
-      {/* Danger zone */}
+      {/* Danger Zone */}
       <Card className="border-destructive/30">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base text-destructive">
@@ -217,21 +264,55 @@ export default function SuperSettings() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {[
-            { label: 'Purge all expired assessments', desc: 'Permanently delete assessment records past the expiry date.' },
-            { label: 'Reset all AI caches', desc: 'Clear Gemini question cache and ML model caches across all companies.' },
-            { label: 'Archive closed jobs', desc: 'Move all closed-status jobs and their applications to cold storage.' },
-          ].map(({ label, desc }) => (
-            <div key={label} className="flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3">
-              <div>
+          {([
+            {
+              key: 'purge',
+              label: 'Purge all expired assessments',
+              desc: 'Permanently delete assessment records past the expiry date.',
+              fn: () => adminService.dangerPurgeAssessments(),
+              resultLabel: (r: DangerResult) => r?.deleted !== undefined ? `${r.deleted} record${r.deleted !== 1 ? 's' : ''} deleted.` : '',
+            },
+            {
+              key: 'caches',
+              label: 'Reset all AI caches',
+              desc: 'Clear Gemini question cache and stale AI output records.',
+              fn: () => adminService.dangerResetCaches(),
+              resultLabel: (r: DangerResult) => r?.cleared !== undefined ? `${r.cleared} cache record${r.cleared !== 1 ? 's' : ''} cleared.` : '',
+            },
+            {
+              key: 'archive',
+              label: 'Archive closed jobs',
+              desc: 'Move all closed-status jobs and their applications to archive.',
+              fn: () => adminService.dangerArchiveJobs(),
+              resultLabel: (r: DangerResult) => r?.archived !== undefined ? `${r.archived} job${r.archived !== 1 ? 's' : ''} archived.` : '',
+            },
+          ] as const).map(({ key, label, desc, fn, resultLabel }) => (
+            <div key={key} className="flex items-center justify-between rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 gap-4">
+              <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium">{label}</p>
                 <p className="text-xs text-muted-foreground">{desc}</p>
+                {dangerResults[key] && (
+                  <p className="mt-1 text-xs text-emerald-600 font-medium flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3" /> Done — {resultLabel(dangerResults[key])}
+                  </p>
+                )}
               </div>
-              <Button size="sm" variant="outline" className="shrink-0 border-destructive/30 text-destructive hover:bg-destructive/10">
-                Run
+              <Button
+                size="sm"
+                variant="outline"
+                className={cn(
+                  'shrink-0 transition-colors',
+                  dangerConfirm === key
+                    ? 'border-destructive bg-destructive text-destructive-foreground hover:bg-destructive/90'
+                    : 'border-destructive/30 text-destructive hover:bg-destructive/10',
+                )}
+                onClick={() => runDanger(key, fn as () => Promise<DangerResult>)}
+              >
+                {dangerConfirm === key ? 'Confirm' : 'Run'}
               </Button>
             </div>
           ))}
+          <p className="text-xs text-muted-foreground pt-1">Click <strong>Run</strong> once to stage, then <strong>Confirm</strong> to execute. All danger actions are logged.</p>
         </CardContent>
       </Card>
     </div>

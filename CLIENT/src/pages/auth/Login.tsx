@@ -95,7 +95,7 @@ export default function Login() {
       </div>
 
       {/* Right panel — form */}
-      <div className="flex flex-1 items-center justify-center px-6">
+      <div className="auth-split-right flex flex-1 items-center justify-center px-6">
         <div className="w-full max-w-sm">
           <div className="mb-8">
             <h2 className="font-serif text-3xl font-semibold">Welcome back</h2>

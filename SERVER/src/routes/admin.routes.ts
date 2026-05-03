@@ -493,3 +493,53 @@ adminRouter.put('/super/settings', async (req, res, next) => {
     res.json({ ...settings, _id: String(settings!._id) })
   } catch (err) { next(err) }
 })
+
+// GET /admin/super/key-status — which provider env vars are present
+adminRouter.get('/super/key-status', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const check = (v: string | undefined) => !!v && v.length > 0
+    res.json({
+      GEMINI_API_KEY:  check(process.env.GEMINI_API_KEY),
+      LIVEKIT_API_KEY: check(process.env.LIVEKIT_API_KEY),
+      SMTP_HOST:       check(process.env.SMTP_HOST),
+      BLOB_ACCESS_KEY: check(process.env.BLOB_ACCESS_KEY),
+      ML_SERVICE_URL:  check(process.env.ML_SERVICE_URL),
+      MONGODB_URI:     check(process.env.MONGODB_URI),
+      JWT_SECRET:      check(process.env.JWT_SECRET),
+    })
+  } catch (err) { next(err) }
+})
+
+// POST /admin/super/danger/purge-assessments
+adminRouter.post('/super/danger/purge-assessments', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const cutoff = new Date().toISOString()
+    const result = await AssessmentModel.deleteMany({ expiresAt: { $lt: cutoff } } as never)
+    await logAction({ actor: 'ai', action: 'danger-purge-assessments', mode: 'assist', payload: { deleted: result.deletedCount } as unknown as Record<string, unknown> })
+    res.json({ ok: true, deleted: result.deletedCount })
+  } catch (err) { next(err) }
+})
+
+// POST /admin/super/danger/reset-caches
+adminRouter.post('/super/danger/reset-caches', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    // Clear AiOutput cache records older than 1 day
+    const cutoff = new Date(Date.now() - 86_400_000)
+    const result = await AiOutputModel.deleteMany({ createdAt: { $lt: cutoff } })
+    await logAction({ actor: 'ai', action: 'danger-reset-caches', mode: 'assist', payload: { cleared: result.deletedCount } as unknown as Record<string, unknown> })
+    res.json({ ok: true, cleared: result.deletedCount })
+  } catch (err) { next(err) }
+})
+
+// POST /admin/super/danger/archive-jobs
+adminRouter.post('/super/danger/archive-jobs', async (req, res, next) => {
+  try {
+    requireSuper(req as never)
+    const result = await JobModel.updateMany({ status: 'closed' }, { $set: { status: 'archived' } })
+    await logAction({ actor: 'ai', action: 'danger-archive-jobs', mode: 'assist', payload: { archived: result.modifiedCount } as unknown as Record<string, unknown> })
+    res.json({ ok: true, archived: result.modifiedCount })
+  } catch (err) { next(err) }
+})
