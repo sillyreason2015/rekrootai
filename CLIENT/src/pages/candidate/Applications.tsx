@@ -1,19 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { FileText, ExternalLink, CheckCircle2, Circle, Clock } from 'lucide-react'
+import { FileText, ExternalLink, CheckCircle2, Circle, Clock, XCircle } from 'lucide-react'
 import { applicationService } from '../../services/application.service'
 import { Card, CardContent } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import InfoTip from '../../components/shared/InfoTip'
 import { formatRelative, scoreBg, cn } from '../../lib/utils'
 import type { Application, Job } from '../../types'
 
 const PIPELINE_STAGES = [
-  { key: 'applied',     label: 'Applied',     days: null },
-  { key: 'screening',   label: 'Screening',   days: '1–2 days' },
-  { key: 'assessment',  label: 'Assessment',  days: '2–5 days' },
-  { key: 'interview',   label: 'Interview',   days: '3–7 days' },
-  { key: 'decision',    label: 'Decision',    days: '1–3 days' },
+  { key: 'applied',     label: 'Applied',    days: null },
+  { key: 'screening',   label: 'Screening',  days: '1–2 days' },
+  { key: 'assessment',  label: 'Assessment', days: '2–5 days' },
+  { key: 'interview',   label: 'Interview',  days: '3–7 days' },
+  { key: 'decision',    label: 'Decision',   days: '1–3 days' },
 ]
 
 const stageColor: Record<string, 'default' | 'secondary' | 'destructive' | 'success' | 'warning'> = {
@@ -31,10 +32,10 @@ const stageHint: Record<string, string> = {
   offered:    'Congratulations — an offer has been extended!',
 }
 
-function PipelineTracker({ stage }: { stage: string }) {
-  const isRejected = stage === 'rejected' || stage === 'offered'
+function PipelineTracker({ stage, interviewMissed }: { stage: string; interviewMissed?: boolean }) {
+  const isTerminal = stage === 'rejected' || stage === 'offered'
   const currentIdx = PIPELINE_STAGES.findIndex((s) => s.key === stage)
-  const activeIdx = isRejected ? PIPELINE_STAGES.length : currentIdx
+  const activeIdx = isTerminal ? PIPELINE_STAGES.length : currentIdx
 
   return (
     <div className="mt-3">
@@ -43,10 +44,24 @@ function PipelineTracker({ stage }: { stage: string }) {
           const done = i < activeIdx
           const active = i === activeIdx
           const isLast = i === PIPELINE_STAGES.length - 1
+          // Interview stage blocked due to no-show
+          const isBlockedInterview = s.key === 'interview' && interviewMissed
+
           return (
             <div key={s.key} className="flex flex-1 items-center">
               <div className="flex flex-col items-center gap-1 shrink-0">
-                {done ? (
+                {isBlockedInterview ? (
+                  /* Red blocked interview node */
+                  <div className="relative flex items-center justify-center">
+                    <XCircle className="h-4 w-4 text-destructive" />
+                    <span className="absolute -top-0.5 -right-0.5">
+                      <InfoTip
+                        content="You did not join before the interview window ended. The interview score was recorded as 0 and the pipeline was closed. See the AI explanation for the full breakdown."
+                        side="top"
+                      />
+                    </span>
+                  </div>
+                ) : done ? (
                   <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                 ) : active ? (
                   <div className="h-4 w-4 rounded-full border-2 border-primary bg-primary/20 flex items-center justify-center">
@@ -55,15 +70,33 @@ function PipelineTracker({ stage }: { stage: string }) {
                 ) : (
                   <Circle className="h-4 w-4 text-muted-foreground/30" />
                 )}
-                <span className={cn('text-[10px] font-medium whitespace-nowrap', done ? 'text-emerald-600' : active ? 'text-primary' : 'text-muted-foreground/40')}>
+
+                <span className={cn(
+                  'text-[10px] font-medium whitespace-nowrap',
+                  isBlockedInterview ? 'text-destructive' :
+                  done ? 'text-emerald-600' :
+                  active ? 'text-primary' :
+                  'text-muted-foreground/40',
+                )}>
                   {s.label}
                 </span>
-                {active && s.days && (
+
+                {/* Only show day estimate for active non-blocked stage */}
+                {active && !isBlockedInterview && s.days && (
                   <span className="text-[9px] text-muted-foreground whitespace-nowrap">~{s.days}</span>
                 )}
+                {isBlockedInterview && (
+                  <span className="text-[9px] text-destructive whitespace-nowrap font-semibold">Missed</span>
+                )}
               </div>
+
               {!isLast && (
-                <div className={cn('h-px flex-1 mx-1 mb-4', i < activeIdx ? 'bg-emerald-400' : 'bg-muted-foreground/20')} />
+                <div className={cn(
+                  'h-px flex-1 mx-1 mb-4',
+                  isBlockedInterview ? 'bg-destructive/40' :
+                  i < activeIdx ? 'bg-emerald-400' :
+                  'bg-muted-foreground/20',
+                )} />
               )}
             </div>
           )
@@ -104,6 +137,8 @@ export default function Applications() {
           {applications.map((app: Application) => {
             const job = app.job as Job
             const hint = stageHint[app.stage] ?? ''
+            const missed = Boolean(app.interviewMissed)
+
             return (
               <Card key={app._id} className={cn('hover:border-primary/30 transition-colors', app.stage === 'rejected' ? 'opacity-70' : '')}>
                 <CardContent className="p-5 space-y-4">
@@ -115,12 +150,20 @@ export default function Applications() {
                         <Badge variant={stageColor[app.stage] ?? 'secondary'} className="capitalize shrink-0">
                           {app.stage}
                         </Badge>
+                        {missed && (
+                          <Badge variant="destructive" className="shrink-0">Interview missed</Badge>
+                        )}
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
                         <Clock className="h-3 w-3" /> Applied {formatRelative(app.createdAt)}
                       </p>
-                      {hint && (
+                      {hint && !missed && (
                         <p className="mt-1.5 text-xs text-foreground/70 leading-relaxed">{hint}</p>
+                      )}
+                      {missed && (
+                        <p className="mt-1.5 text-xs text-destructive leading-relaxed">
+                          You did not attend the scheduled interview. The pipeline has been closed and a score of 0 was recorded for the interview stage.
+                        </p>
                       )}
                     </div>
                     {/* Score */}
@@ -131,12 +174,15 @@ export default function Applications() {
                     )}
                   </div>
 
-                  {/* Pipeline progress bar */}
-                  {app.stage !== 'offered' && <PipelineTracker stage={app.stage} />}
+                  {/* Pipeline progress — skip for offered */}
+                  {app.stage !== 'offered' && (
+                    <PipelineTracker stage={app.stage} interviewMissed={missed} />
+                  )}
 
-                  {/* Actions */}
+                  {/* Actions — only show if there is a real next action */}
                   <div className="flex flex-wrap items-center gap-2 pt-1">
-                    {app.stage === 'assessment' && (
+                    {/* Assessment CTA */}
+                    {app.stage === 'assessment' && app.assessmentStatus !== 'completed' && app.assessmentStatus !== 'expired' && (
                       <>
                         <Link
                           to={`/candidate/assessment/${app._id}`}
@@ -151,7 +197,9 @@ export default function Applications() {
                         )}
                       </>
                     )}
-                    {app.stage === 'interview' && app.interviewId && (
+
+                    {/* Interview CTA — only if not missed and link exists */}
+                    {app.stage === 'interview' && !missed && app.interviewId && (
                       <Link
                         to={`/candidate/interview/${app.interviewId}`}
                         className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
@@ -159,25 +207,31 @@ export default function Applications() {
                         Join Interview Room <ExternalLink className="h-3 w-3" />
                       </Link>
                     )}
-                    {app.stage === 'interview' && !app.interviewId && (
+                    {app.stage === 'interview' && !missed && !app.interviewId && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-muted px-3 py-1 text-xs text-muted-foreground">
                         <Clock className="h-3 w-3" /> Interview link pending
                       </span>
                     )}
-                    {(app.stage === 'decision' || app.stage === 'rejected') && (
+
+                    {/* Explanation link — decision, rejected, or missed interview */}
+                    {(app.stage === 'decision' || app.stage === 'rejected' || missed) && (
                       <Link
                         to={`/candidate/explanation/${app._id}`}
                         className="inline-flex items-center gap-1 rounded-md border border-primary/30 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5"
                       >
-                        {app.stage === 'rejected' ? 'Why this decision' : 'View AI explanation'} <ExternalLink className="h-3 w-3" />
+                        {app.stage === 'rejected' || missed ? 'Why this decision' : 'View AI explanation'} <ExternalLink className="h-3 w-3" />
                       </Link>
                     )}
+
+                    {/* Offer */}
                     {app.stage === 'offered' && (
                       <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700">
                         🎉 Offer Extended — check your email for next steps
                       </div>
                     )}
                   </div>
+
+                  {/* Decision timeline */}
                   <div className="rounded-lg border bg-muted/20 p-3 text-xs">
                     <p className="mb-1 font-medium">Decision Timeline</p>
                     <div className="space-y-1 text-muted-foreground">
@@ -185,7 +239,8 @@ export default function Applications() {
                       {app.assessmentExpiresAt && <p>Assessment window set: {new Date(app.assessmentExpiresAt).toLocaleString()}</p>}
                       {app.fairnessComputedAt && <p>Fairness computed: {new Date(app.fairnessComputedAt).toLocaleString()}</p>}
                       {app.explanationComputedAt && <p>AI explanation generated: {new Date(app.explanationComputedAt).toLocaleString()}</p>}
-                      {app.interviewId && <p>Interview scheduled: linked</p>}
+                      {missed && <p className="text-destructive font-medium">Interview missed — pipeline closed.</p>}
+                      {!missed && app.interviewId && <p>Interview scheduled: linked</p>}
                     </div>
                   </div>
                 </CardContent>

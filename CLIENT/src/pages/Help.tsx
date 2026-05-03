@@ -217,6 +217,7 @@ export default function Help() {
     : sections
 
   return (
+    <div className="auth-doodle-bg min-h-screen">
     <div className="mx-auto max-w-3xl space-y-10 px-4 py-10">
       {/* Header */}
       <div className="space-y-2">
@@ -292,6 +293,7 @@ export default function Help() {
         </Link>{' '}
         page for a full per-candidate breakdown.
       </div>
+    </div>
     </div>
   )
 }

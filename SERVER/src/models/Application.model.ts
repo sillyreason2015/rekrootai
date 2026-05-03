@@ -25,6 +25,7 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
     },
     recruiterNotes: String,
     recruiterNote: String,  // human-in-the-loop feedback shown to candidate in explanation
+    interviewMissed: { type: Boolean, default: false },
     decision: { type: String, enum: ['hire', 'reject', 'hold'] },
     decisionBy: String,
     decisionAt: String,

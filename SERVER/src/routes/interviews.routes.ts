@@ -41,7 +41,7 @@ async function handleInterviewNoShow(interviewId: string) {
     const assess = Number(app.scores?.assessment ?? 0)
     const penalty = Number(app.scores?.penalty ?? 0)
     const finalScore = (0.3 * resume) + (0.3 * assess) + (0.1 * penalty) + (0.3 * score)
-    await ApplicationModel.findByIdAndUpdate(String(app._id), { 'scores.final': finalScore, decision: 'reject', stage: 'rejected' })
+    await ApplicationModel.findByIdAndUpdate(String(app._id), { 'scores.final': finalScore, decision: 'reject', stage: 'rejected', interviewMissed: true })
     await AiOutputModel.create({
       application: String(app._id),
       type: 'explanation',
