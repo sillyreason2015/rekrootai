@@ -4,13 +4,13 @@
 
 @layer base {
   :root {
-    --background: 33 75% 95%;        /* #FAF3EC cream */
-    --foreground: 20 14% 18%;        /* dark brown text */
+    --background: 33 75% 95%;
+    --foreground: 20 14% 18%;
     --card: 33 60% 97%;
     --card-foreground: 20 14% 18%;
     --popover: 33 60% 97%;
     --popover-foreground: 20 14% 18%;
-    --primary: 18 71% 32%;           /* #8B3A1E terracotta */
+    --primary: 18 71% 32%;
     --primary-foreground: 33 75% 97%;
     --secondary: 30 25% 88%;
     --secondary-foreground: 20 14% 18%;
@@ -24,6 +24,11 @@
     --input: 30 20% 82%;
     --ring: 18 71% 32%;
     --radius: 0.625rem;
+
+    /* Doodle tint for light mode — dark terracotta */
+    --doodle-stroke: %238b3a1e;
+    --doodle-opacity: 0.13;
+    --doodle-overlay-opacity: 0.11;
   }
 
   .dark {
@@ -46,6 +51,11 @@
     --border: 24 18% 22%;
     --input: 24 18% 22%;
     --ring: 18 71% 60%;
+
+    /* Doodle tint for dark mode — warm peach, visible on dark */
+    --doodle-stroke: %23e0a37f;
+    --doodle-opacity: 0.22;
+    --doodle-overlay-opacity: 0.18;
   }
 }
 
@@ -61,6 +71,93 @@
   }
 }
 
+/* ─── DOODLE SVG BACKGROUNDS ──────────────────────────────────────────── */
+
+/*
+  Two SVG variants — identical shapes, different stroke colours.
+  Light mode uses dark terracotta (%238b3a1e).
+  Dark mode uses warm peach (%23e0a37f) so the lines show on dark.
+  All backgrounds respect hsl(var(--background)) so the base colour
+  always matches the active theme.
+*/
+
+/* Light mode SVG (dark strokes) */
+@property --_doodle-bg-url-light {
+  syntax: "*";
+  inherits: false;
+  initial-value: none;
+}
+
+/* ── Main app work area ────────────────────────────── */
+.doodle-main-bg {
+  background-color: hsl(var(--background));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cg fill='none' stroke='%238b3a1e' stroke-opacity='0.13' stroke-width='1.6'%3E%3Crect x='22' y='26' width='36' height='28' rx='3'/%3E%3Cpath d='M32 26v-6h16v6'/%3E%3Crect x='158' y='36' width='40' height='32' rx='4'/%3E%3Cpath d='M172 36v-7h14v7'/%3E%3Crect x='50' y='130' width='38' height='46' rx='4'/%3E%3Cpath d='M58 141h22M58 152h17M58 162h12'/%3E%3Ccircle cx='142' cy='142' r='15'/%3E%3Cpath d='M136 142l5 5 9-10'/%3E%3Cpath d='M180 151h22M180 161h18M180 171h12'/%3E%3Cpath d='M90 52h26M90 61h20'/%3E%3Ccircle cx='202' cy='196' r='10'/%3E%3Cpath d='M196 196l5 5 9-10'/%3E%3Crect x='18' y='172' width='28' height='20' rx='2'/%3E%3Cpath d='M22 177h20M22 183h15'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 240px 240px;
+  background-attachment: local;
+}
+
+/* Dark mode override — same shapes, light peach strokes */
+.dark .doodle-main-bg {
+  background-color: hsl(var(--background));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cg fill='none' stroke='%23e0a37f' stroke-opacity='0.22' stroke-width='1.6'%3E%3Crect x='22' y='26' width='36' height='28' rx='3'/%3E%3Cpath d='M32 26v-6h16v6'/%3E%3Crect x='158' y='36' width='40' height='32' rx='4'/%3E%3Cpath d='M172 36v-7h14v7'/%3E%3Crect x='50' y='130' width='38' height='46' rx='4'/%3E%3Cpath d='M58 141h22M58 152h17M58 162h12'/%3E%3Ccircle cx='142' cy='142' r='15'/%3E%3Cpath d='M136 142l5 5 9-10'/%3E%3Cpath d='M180 151h22M180 161h18M180 171h12'/%3E%3Cpath d='M90 52h26M90 61h20'/%3E%3Ccircle cx='202' cy='196' r='10'/%3E%3Cpath d='M196 196l5 5 9-10'/%3E%3Crect x='18' y='172' width='28' height='20' rx='2'/%3E%3Cpath d='M22 177h20M22 183h15'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* ── Auth pages (login, register, check-email, etc.) ─ */
+.auth-doodle-bg {
+  position: relative;
+  background-color: hsl(var(--background));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cg fill='none' stroke='%238b3a1e' stroke-opacity='0.13' stroke-width='1.6'%3E%3Crect x='22' y='26' width='36' height='28' rx='3'/%3E%3Cpath d='M32 26v-6h16v6'/%3E%3Crect x='158' y='36' width='40' height='32' rx='4'/%3E%3Cpath d='M172 36v-7h14v7'/%3E%3Crect x='50' y='130' width='38' height='46' rx='4'/%3E%3Cpath d='M58 141h22M58 152h17M58 162h12'/%3E%3Ccircle cx='142' cy='142' r='15'/%3E%3Cpath d='M136 142l5 5 9-10'/%3E%3Cpath d='M180 151h22M180 161h18M180 171h12'/%3E%3Cpath d='M90 52h26M90 61h20'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 240px 240px;
+  isolation: isolate;
+}
+
+.dark .auth-doodle-bg {
+  background-color: hsl(var(--background));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cg fill='none' stroke='%23e0a37f' stroke-opacity='0.22' stroke-width='1.6'%3E%3Crect x='22' y='26' width='36' height='28' rx='3'/%3E%3Cpath d='M32 26v-6h16v6'/%3E%3Crect x='158' y='36' width='40' height='32' rx='4'/%3E%3Cpath d='M172 36v-7h14v7'/%3E%3Crect x='50' y='130' width='38' height='46' rx='4'/%3E%3Cpath d='M58 141h22M58 152h17M58 162h12'/%3E%3Ccircle cx='142' cy='142' r='15'/%3E%3Cpath d='M136 142l5 5 9-10'/%3E%3Cpath d='M180 151h22M180 161h18M180 171h12'/%3E%3Cpath d='M90 52h26M90 61h20'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Left branding panel on auth pages — doodle over primary colour */
+.auth-brand-panel {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.auth-brand-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.14' stroke-width='1.8'%3E%3Crect x='24' y='28' width='40' height='32' rx='4'/%3E%3Cpath d='M36 28v-8h18v8'/%3E%3Crect x='170' y='38' width='44' height='34' rx='4'/%3E%3Cpath d='M184 38v-8h16v8'/%3E%3Crect x='54' y='142' width='42' height='50' rx='5'/%3E%3Cpath d='M62 154h26M62 165h21M62 176h15'/%3E%3Ccircle cx='152' cy='152' r='17'/%3E%3Cpath d='M145 152l6 6 11-12'/%3E%3Cpath d='M196 162h26M196 173h21M196 184h14'/%3E%3Cpath d='M92 56h28M92 66h22'/%3E%3Ccircle cx='216' cy='208' r='11'/%3E%3Cpath d='M209 208l6 6 10-11'/%3E%3Crect x='20' y='184' width='30' height='22' rx='2'/%3E%3Cpath d='M25 190h20M25 197h15'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 260px 260px;
+}
+.auth-brand-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Legacy class aliases (kept for any remaining usages) ─ */
+.doodle-work-bg-candidate,
+.doodle-work-bg-recruiter,
+.doodle-work-bg-admin,
+.doodle-work-bg {
+  background-color: hsl(var(--background));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cg fill='none' stroke='%238b3a1e' stroke-opacity='0.12' stroke-width='1.6'%3E%3Crect x='22' y='26' width='36' height='28' rx='3'/%3E%3Cpath d='M32 26v-6h16v6'/%3E%3Crect x='158' y='36' width='40' height='32' rx='4'/%3E%3Cpath d='M172 36v-7h14v7'/%3E%3Crect x='50' y='130' width='38' height='46' rx='4'/%3E%3Cpath d='M58 141h22M58 152h17M58 162h12'/%3E%3Ccircle cx='142' cy='142' r='15'/%3E%3Cpath d='M136 142l5 5 9-10'/%3E%3Cpath d='M180 151h22M180 161h18M180 171h12'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 240px 240px;
+}
+
+.dark .doodle-work-bg-candidate,
+.dark .doodle-work-bg-recruiter,
+.dark .doodle-work-bg-admin,
+.dark .doodle-work-bg {
+  background-color: hsl(var(--background));
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240' viewBox='0 0 240 240'%3E%3Cg fill='none' stroke='%23e0a37f' stroke-opacity='0.20' stroke-width='1.6'%3E%3Crect x='22' y='26' width='36' height='28' rx='3'/%3E%3Cpath d='M32 26v-6h16v6'/%3E%3Crect x='158' y='36' width='40' height='32' rx='4'/%3E%3Cpath d='M172 36v-7h14v7'/%3E%3Crect x='50' y='130' width='38' height='46' rx='4'/%3E%3Cpath d='M58 141h22M58 152h17M58 162h12'/%3E%3Ccircle cx='142' cy='142' r='15'/%3E%3Cpath d='M136 142l5 5 9-10'/%3E%3Cpath d='M180 151h22M180 161h18M180 171h12'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* ── Sidebar & Navbar — always opaque, no doodle ─────── */
+/* (cards and panels use bg-card which is semi-opaque via CSS variable) */
+
+/* ── Scrollbar ─────────────────────────────────────────── */
 @layer utilities {
   .scrollbar-thin {
     scrollbar-width: thin;
@@ -102,52 +199,22 @@
 }
 
 @keyframes fade-rise {
-  from {
-    opacity: 0;
-    transform: translateY(16px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes float-orb {
-  0%, 100% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  50% {
-    transform: translate3d(0, -18px, 0) scale(1.06);
-  }
+  0%, 100% { transform: translate3d(0,0,0) scale(1); }
+  50%       { transform: translate3d(0,-18px,0) scale(1.06); }
 }
-
 @keyframes pulse-border {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(139, 58, 30, 0.18);
-  }
-  50% {
-    box-shadow: 0 0 0 10px rgba(139, 58, 30, 0);
-  }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(139,58,30,0.18); }
+  50%       { box-shadow: 0 0 0 10px rgba(139,58,30,0); }
 }
-
 @keyframes drift-card {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-6px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-6px); }
 }
-
 @keyframes hero-float-in {
-  from {
-    opacity: 0;
-    transform: translateY(20px) scale(0.985);
-    filter: blur(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0);
-  }
+  from { opacity: 0; transform: translateY(20px) scale(0.985); filter: blur(6px); }
+  to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }

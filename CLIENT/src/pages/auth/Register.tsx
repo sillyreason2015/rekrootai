@@ -84,9 +84,9 @@ export default function Register() {
   }, [user, navigate])
 
   return (
-    <div className="flex min-h-screen">
+    <div className="auth-doodle-bg flex min-h-screen">
       {/* Left panel */}
-      <div className="hidden w-1/2 flex-col justify-between bg-primary p-12 lg:flex">
+      <div className="auth-brand-panel hidden w-1/2 flex-col justify-between bg-primary p-12 lg:flex">
         <span className="font-serif text-2xl font-bold text-primary-foreground">RekrootAI</span>
         <div>
           <h1 className="font-serif text-4xl font-semibold leading-tight text-primary-foreground">
@@ -100,7 +100,7 @@ export default function Register() {
       </div>
 
       {/* Right panel */}
-      <div className="flex flex-1 items-center justify-center bg-background px-6 py-10">
+      <div className="flex flex-1 items-center justify-center px-6 py-10">
         <div className="w-full max-w-sm">
           <div className="mb-6">
             <h2 className="font-serif text-3xl font-semibold">Create account</h2>

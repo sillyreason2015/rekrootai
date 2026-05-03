@@ -167,7 +167,7 @@ export default function RecruiterOnboarding() {
   const sidebar = WHY_ASK[Math.min(step, WHY_ASK.length - 1)]
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="auth-doodle-bg flex min-h-screen">
       {/* Left — form area */}
       <div className="flex flex-1 flex-col px-6 py-10 lg:px-16">
         <div className="mb-8">

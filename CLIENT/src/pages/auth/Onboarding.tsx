@@ -99,7 +99,7 @@ export default function Onboarding() {
   })
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
+    <div className="auth-doodle-bg flex min-h-screen items-center justify-center px-4 py-10">
       <div className="w-full max-w-lg">
         {/* Header */}
         <div className="mb-8 text-center">

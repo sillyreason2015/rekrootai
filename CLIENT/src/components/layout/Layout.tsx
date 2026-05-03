@@ -9,7 +9,8 @@ export default function Layout() {
       <Navbar />
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto bg-background p-6 scrollbar-thin">
+        {/* doodle-main-bg handles both light and dark — no bg-background override needed */}
+        <main className="doodle-main-bg flex-1 overflow-y-auto p-6 scrollbar-thin">
           <Outlet />
         </main>
       </div>

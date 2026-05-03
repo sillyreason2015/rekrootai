@@ -22,7 +22,7 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
+    <div className="auth-doodle-bg flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <Link to="/login" className="mb-8 flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
           <ArrowLeft className="h-4 w-4" /> Back to sign in
