@@ -144,6 +144,14 @@ export interface Application {
   recruiterNotes?: string
   recruiterNote?: string
   interviewMissed?: boolean
+  missedInterviewRecovery?: {
+    status?: 'pending' | 'approved' | 'rejected'
+    reason?: string
+    proposedAt?: string
+    requestedAt?: string
+    reviewNote?: string
+    reviewedAt?: string
+  }
   decision?: 'hire' | 'reject' | 'hold'
   decisionBy?: string
   decisionAt?: string

@@ -11,4 +11,8 @@ export const recruiterService = {
     api.get(`/recruiter/jobs/${jobId}/cvs`).then((r) => r.data),
   getJobTriage: (jobId: string, mode: 'assist' | 'veto' | 'override') =>
     api.get('/recruiter/jobs/' + jobId + '/triage', { params: { mode } }).then((r) => r.data),
+  askAssistant: (applicationId: string, question: string) =>
+    api.post(`/recruiter/applications/${applicationId}/assistant`, { question }).then((r) => r.data),
+  approveMissedInterviewRecovery: (applicationId: string, payload: { approved: boolean; note?: string; proposedAt?: string }) =>
+    api.post(`/recruiter/applications/${applicationId}/missed-interview/review`, payload).then((r) => r.data),
 }

@@ -14,4 +14,6 @@ export const interviewService = {
     api.post(`/interviews/${id}/complete`).then((r) => r.data),
   reschedule: (id: string, payload: { scheduledAt: string; durationMin: number; reason?: string }) =>
     api.post(`/interviews/${id}/reschedule`, payload).then((r) => r.data),
+  requestMissedInterviewRecovery: (id: string, payload: { reason: string; proposedAt?: string }) =>
+    api.post(`/interviews/${id}/missed-recovery-request`, payload).then((r) => r.data),
 }

@@ -14,4 +14,5 @@ export const jobService = {
     api.get<PaginatedResponse<Job>>('/jobs/mine', { params }).then((r) => r.data),
   updateThresholds: (id: string, thresholds: { assessment?: number; fairness?: number; interview?: number }) =>
     api.patch(`/jobs/${id}/thresholds`, thresholds).then((r) => r.data),
+  delete: (id: string) => api.delete(`/jobs/${id}`).then((r) => r.data),
 }

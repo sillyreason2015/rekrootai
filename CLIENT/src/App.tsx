@@ -32,6 +32,7 @@ import RecruiterDashboard from './pages/recruiter/Dashboard'
 import RecruiterInterviews from './pages/recruiter/Interviews'
 import RecruiterJobs from './pages/recruiter/Jobs'
 import CreateJob from './pages/recruiter/CreateJob'
+import EditJob from './pages/recruiter/EditJob'
 import Shortlist from './pages/recruiter/Shortlist'
 import QuestionBank from './pages/recruiter/QuestionBank'
 import RecruiterInterviewRoom from './pages/recruiter/InterviewRoom'
@@ -134,6 +135,7 @@ export default function App() {
               <Route path="/admin/audit-log" element={<AuditLog />} />
               <Route path="/admin/billing" element={<Billing />} />
               <Route path="/admin/jobs/create" element={<CreateJob />} />
+              <Route path="/admin/jobs/:id/edit" element={<EditJob />} />
               <Route path="/admin/ai-validation" element={<AIValidation />} />
               <Route path="/admin/livekit-test" element={<LiveKitTest />} />
               <Route path="/admin/bias-audit" element={<BiasAudit />} />

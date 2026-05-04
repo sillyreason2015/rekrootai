@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Briefcase, ClipboardList, Video, TrendingUp, ChevronRight, Sparkles, MapPin, Clock } from 'lucide-react'
+import { Briefcase, ClipboardList, Video, TrendingUp, ChevronRight, Sparkles, MapPin, Clock, GraduationCap, Pencil } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { candidateService } from '../../services/candidate.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
@@ -47,6 +47,26 @@ export default function CandidateDashboard() {
     queryFn: candidateService.getRecommendations,
     staleTime: 5 * 60 * 1000,
   })
+  const { data: profile } = useQuery({
+    queryKey: ['candidate-profile'],
+    queryFn: candidateService.getProfile,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const completeness = (() => {
+    if (!profile) return 0
+    const checks = [
+      !!user?.firstName,
+      !!((profile as any).headline),
+      !!((profile as any).location),
+      (profile.skills?.length ?? 0) > 0,
+      (profile.experience?.length ?? 0) > 0,
+      (profile.education?.length ?? 0) > 0,
+      !!profile.cvUrl,
+      !!((profile as any).linkedIn),
+    ]
+    return Math.round((checks.filter(Boolean).length / checks.length) * 100)
+  })()
 
   if (isLoading) return <LoadingSpinner />
 
@@ -65,6 +85,20 @@ export default function CandidateDashboard() {
         </h1>
         <p className="text-sm text-muted-foreground">Here's what's happening with your applications.</p>
       </div>
+
+      {/* Profile completeness */}
+      {profile && completeness < 100 && (
+        <div className="rounded-xl border bg-card px-4 py-3 space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="font-medium">Profile {completeness}% complete</span>
+            <Link to="/settings?tab=career" className="text-xs text-primary hover:underline">Complete profile →</Link>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: `${completeness}%` }} />
+          </div>
+          <p className="text-xs text-muted-foreground">A complete profile improves your AI match score and recommendation ranking.</p>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid gap-4 sm:grid-cols-3">
@@ -149,6 +183,110 @@ export default function CandidateDashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* Career Profile Summary */}
+      {profile && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle>Career Profile</CardTitle>
+            <Link to="/settings?tab=career" className="flex items-center gap-1 text-xs text-primary hover:underline">
+              <Pencil className="h-3 w-3" /> Edit
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Work Experience */}
+            <div>
+              <div className="flex items-center gap-1.5 mb-2">
+                <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Work Experience</span>
+              </div>
+              {!profile.experience?.length ? (
+                <p className="text-sm text-muted-foreground italic">
+                  No experience added.{' '}
+                  <Link to="/settings?tab=career" className="text-primary hover:underline">Add yours →</Link>
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {profile.experience.slice(0, 3).map((exp, i) => (
+                    <div key={i} className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium leading-tight">{exp.title}</p>
+                        <p className="text-xs text-muted-foreground">{exp.company}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs text-muted-foreground whitespace-nowrap">
+                          {exp.startDate && exp.startDate.slice(0, 7)}
+                          {exp.current ? ' – Present' : exp.endDate ? ` – ${exp.endDate.slice(0, 7)}` : ''}
+                        </p>
+                        {exp.current && (
+                          <span className="inline-block rounded-full bg-emerald-100 text-emerald-700 px-2 py-0.5 text-[10px] font-medium mt-0.5">Current</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {profile.experience.length > 3 && (
+                    <p className="text-xs text-muted-foreground">+{profile.experience.length - 3} more roles</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t" />
+
+            {/* Education */}
+            <div>
+              <div className="flex items-center gap-1.5 mb-2">
+                <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Education</span>
+              </div>
+              {!profile.education?.length ? (
+                <p className="text-sm text-muted-foreground italic">
+                  No education added.{' '}
+                  <Link to="/settings?tab=career" className="text-primary hover:underline">Add yours →</Link>
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {profile.education.slice(0, 2).map((edu, i) => (
+                    <div key={i} className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium leading-tight">{edu.degree}{edu.field ? ` — ${edu.field}` : ''}</p>
+                        <p className="text-xs text-muted-foreground">{edu.institution}</p>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <p className="text-xs text-muted-foreground whitespace-nowrap">
+                          {edu.startDate && edu.startDate.slice(0, 7)}
+                          {edu.current ? ' – Present' : edu.endDate ? ` – ${edu.endDate.slice(0, 7)}` : ''}
+                        </p>
+                        {edu.current && (
+                          <span className="inline-block rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-[10px] font-medium mt-0.5">Current</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {profile.education.length > 2 && (
+                    <p className="text-xs text-muted-foreground">+{profile.education.length - 2} more</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Skills strip */}
+            {profile.skills?.length > 0 && (
+              <>
+                <div className="border-t" />
+                <div className="flex flex-wrap gap-1.5">
+                  {profile.skills.slice(0, 8).map((s) => (
+                    <span key={s} className="rounded-full border bg-muted px-2.5 py-0.5 text-xs">{s}</span>
+                  ))}
+                  {profile.skills.length > 8 && (
+                    <span className="rounded-full border bg-muted px-2.5 py-0.5 text-xs text-muted-foreground">+{profile.skills.length - 8} more</span>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* AI Recommendation Engine */}
       {recData && recData.recommendations.length > 0 && (

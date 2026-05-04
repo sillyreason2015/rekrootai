@@ -160,6 +160,24 @@ jobsRouter.post('/:id/close', requireAuth, requireRole('admin', 'super_admin'), 
   } catch (err) { next(err) }
 })
 
+// DELETE /jobs/:id — permanently removes draft jobs; published/closed jobs are archived instead
+jobsRouter.delete('/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
+  try {
+    await assertCompanyVerifiedForJobActions(req.user!._id, req.user?.role)
+    const job = await JobModel.findById(String(req.params.id)).lean()
+    if (!job) throw new HttpError(404, 'Job not found')
+
+    if (job.status === 'published') {
+      // Protect published jobs — close first, then delete
+      throw new HttpError(400, 'Cannot delete a published job. Close it first.')
+    }
+
+    await JobModel.findByIdAndDelete(String(req.params.id))
+    await logAction({ actor: 'user', action: 'job-deleted', jobId: String(req.params.id), mode: 'assist' })
+    res.json({ ok: true, deleted: String(req.params.id) })
+  } catch (err) { next(err) }
+})
+
 jobsRouter.get('/:jobId/question-banks/:metric', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), (req, res) => {
   res.json({
     jobId: req.params.jobId,

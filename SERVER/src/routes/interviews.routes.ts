@@ -323,6 +323,39 @@ interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'ad
   }
 })
 
+// POST /interviews/:id/missed-recovery-request — candidate requests a reschedule after missing
+interviewsRouter.post('/:id/missed-recovery-request', requireAuth, requireRole('candidate'), async (req, res, next) => {
+  try {
+    const { reason, proposedAt } = req.body as { reason?: string; proposedAt?: string }
+    if (!reason?.trim()) throw new HttpError(400, 'reason is required')
+
+    const interview = await InterviewModel.findById(String(req.params.id)).lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+
+    const app = await ApplicationModel.findById(String(interview.application)).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+
+    // Store the recovery request on the application
+    await ApplicationModel.findByIdAndUpdate(String(app._id), {
+      'missedInterviewRecovery.requestedAt': new Date().toISOString(),
+      'missedInterviewRecovery.reason': reason.trim(),
+      'missedInterviewRecovery.proposedAt': proposedAt ?? null,
+      'missedInterviewRecovery.status': 'pending',
+    })
+
+    await logAction({
+      actor: 'user',
+      action: 'missed-interview-recovery-requested',
+      candidateId: String(app.candidate),
+      jobId: String(app.job),
+      mode: 'assist',
+      payload: { reason: reason.trim() },
+    })
+
+    res.json({ ok: true, message: 'Recovery request submitted. The recruiter will review your request.' })
+  } catch (err) { next(err) }
+})
+
 // GET /interviews/:id/artifacts
 interviewsRouter.get('/:id/artifacts', requireAuth, async (req, res, next) => {
   try {

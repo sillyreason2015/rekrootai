@@ -1,8 +1,9 @@
-import { useMemo, useState, useRef } from 'react'
+import { useMemo, useState, useRef, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send, ImagePlus } from 'lucide-react'
+import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send, ImagePlus, Briefcase, GraduationCap, Plus, Trash2, Pencil, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/axios'
 import { candidateService } from '../services/candidate.service'
@@ -12,6 +13,7 @@ import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { ExperienceEntry, EducationEntry } from '../types'
 
 const profileSchema = z.object({
   firstName: z.string().min(2),
@@ -50,9 +52,105 @@ function SaveBanner({ show }: { show: boolean }) {
   )
 }
 
+function ExperienceForm({ initial, onSave, onCancel }: {
+  initial: ExperienceEntry
+  onSave: (e: ExperienceEntry) => void
+  onCancel: () => void
+}) {
+  const [v, setV] = useState<ExperienceEntry>(initial)
+  return (
+    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Job Title *</Label>
+          <Input value={v.title} onChange={(e) => setV({ ...v, title: e.target.value })} placeholder="e.g. Software Engineer" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Company *</Label>
+          <Input value={v.company} onChange={(e) => setV({ ...v, company: e.target.value })} placeholder="e.g. Acme Corp" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Start Date</Label>
+          <Input type="month" value={v.startDate} onChange={(e) => setV({ ...v, startDate: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">End Date</Label>
+          <Input type="month" value={v.endDate ?? ''} disabled={v.current} onChange={(e) => setV({ ...v, endDate: e.target.value })} />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm cursor-pointer">
+        <input type="checkbox" checked={v.current} onChange={(e) => setV({ ...v, current: e.target.checked, endDate: e.target.checked ? '' : v.endDate })} />
+        I currently work here
+      </label>
+      <div className="space-y-1">
+        <Label className="text-xs">Description</Label>
+        <textarea rows={3} value={v.description} onChange={(e) => setV({ ...v, description: e.target.value })}
+          placeholder="Key responsibilities and achievements…"
+          className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring" />
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={() => { if (v.title && v.company) onSave(v) }} disabled={!v.title || !v.company}>
+          <CheckCircle2 className="h-3.5 w-3.5" /> Save
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel}><X className="h-3.5 w-3.5" /> Cancel</Button>
+      </div>
+    </div>
+  )
+}
+
+function EducationForm({ initial, onSave, onCancel }: {
+  initial: EducationEntry
+  onSave: (e: EducationEntry) => void
+  onCancel: () => void
+}) {
+  const [v, setV] = useState<EducationEntry>(initial)
+  return (
+    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+      <div className="space-y-1">
+        <Label className="text-xs">Institution *</Label>
+        <Input value={v.institution} onChange={(e) => setV({ ...v, institution: e.target.value })} placeholder="e.g. University of Lagos" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Degree *</Label>
+          <Input value={v.degree} onChange={(e) => setV({ ...v, degree: e.target.value })} placeholder="e.g. B.Sc Computer Science" />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">Field of Study</Label>
+          <Input value={v.field} onChange={(e) => setV({ ...v, field: e.target.value })} placeholder="e.g. Computer Science" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <Label className="text-xs">Start Date</Label>
+          <Input type="month" value={v.startDate} onChange={(e) => setV({ ...v, startDate: e.target.value })} />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs">End Date</Label>
+          <Input type="month" value={v.endDate ?? ''} disabled={v.current} onChange={(e) => setV({ ...v, endDate: e.target.value })} />
+        </div>
+      </div>
+      <label className="flex items-center gap-2 text-sm cursor-pointer">
+        <input type="checkbox" checked={v.current} onChange={(e) => setV({ ...v, current: e.target.checked, endDate: e.target.checked ? '' : v.endDate })} />
+        Currently studying here
+      </label>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={() => { if (v.institution && v.degree) onSave(v) }} disabled={!v.institution || !v.degree}>
+          <CheckCircle2 className="h-3.5 w-3.5" /> Save
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel}><X className="h-3.5 w-3.5" /> Cancel</Button>
+      </div>
+    </div>
+  )
+}
+
 export default function Settings() {
   const { user, refreshUser } = useAuth()
   const qc = useQueryClient()
+  const [searchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
   const isCompanyAdmin = user?.role === 'admin'
   const isRecruiter = user?.role === 'recruiter'
   const canManageCompany = isRecruiter || isCompanyAdmin
@@ -153,6 +251,47 @@ export default function Settings() {
     },
   })
 
+  // ── Career tab (candidates only) ──────────────────────────────────────────
+  const { data: candidateProfile, refetch: refetchProfile } = useQuery({
+    queryKey: ['candidate-profile'],
+    queryFn: candidateService.getProfile,
+    enabled: user?.role === 'candidate',
+  })
+
+  const [experience, setExperience] = useState<ExperienceEntry[]>([])
+  const [education, setEducation] = useState<EducationEntry[]>([])
+  const [skills, setSkills] = useState<string[]>([])
+  const [skillInput, setSkillInput] = useState('')
+  const [aboutMe, setAboutMe] = useState({ headline: '', location: '', linkedIn: '', portfolio: '', availableFrom: '' })
+  const [careerSaved, setCareerSaved] = useState(false)
+  const [editingExp, setEditingExp] = useState<number | 'new' | null>(null)
+  const [editingEdu, setEditingEdu] = useState<number | 'new' | null>(null)
+
+  useEffect(() => {
+    if (candidateProfile) {
+      setExperience(candidateProfile.experience ?? [])
+      setEducation(candidateProfile.education ?? [])
+      setSkills(candidateProfile.skills ?? [])
+      setAboutMe({
+        headline: (candidateProfile as any).headline ?? '',
+        location: (candidateProfile as any).location ?? '',
+        linkedIn: (candidateProfile as any).linkedIn ?? '',
+        portfolio: (candidateProfile as any).portfolio ?? '',
+        availableFrom: (candidateProfile as any).availableFrom ?? '',
+      })
+    }
+  }, [candidateProfile])
+
+  const saveCareer = useMutation({
+    mutationFn: () => candidateService.updateProfile({ experience, education, skills, ...aboutMe } as any),
+    onSuccess: async () => {
+      await refetchProfile()
+      setCareerSaved(true)
+      setTimeout(() => setCareerSaved(false), 3000)
+    },
+  })
+
+
   const saveProfile = async (data: ProfileForm) => {
     await api.patch('/auth/me', data)
     await refreshUser()
@@ -212,9 +351,12 @@ export default function Settings() {
         )}
       </div>
 
-      <Tabs defaultValue={canManageCompany ? 'company' : 'profile'}>
-        <TabsList>
+      <Tabs defaultValue={tabParam ?? (canManageCompany ? 'company' : 'profile')}>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="profile" className="gap-1.5"><User className="h-4 w-4" /> Profile</TabsTrigger>
+          {user?.role === 'candidate' && (
+            <TabsTrigger value="career" className="gap-1.5"><Briefcase className="h-4 w-4" /> Career</TabsTrigger>
+          )}
           {canManageCompany && (
             <TabsTrigger value="company" className="gap-1.5"><Building2 className="h-4 w-4" /> Company</TabsTrigger>
           )}
@@ -281,6 +423,193 @@ export default function Settings() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Career (candidates only) */}
+        {user?.role === 'candidate' && (
+          <TabsContent value="career" className="space-y-6">
+            <SaveBanner show={careerSaved} />
+
+            {/* About Me */}
+            <Card>
+              <CardHeader><CardTitle>About Me</CardTitle></CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Professional Headline</Label>
+                  <Input value={aboutMe.headline} onChange={(e) => setAboutMe({ ...aboutMe, headline: e.target.value })} placeholder="e.g. Full-Stack Engineer · 5 years experience" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Location</Label>
+                    <Input value={aboutMe.location} onChange={(e) => setAboutMe({ ...aboutMe, location: e.target.value })} placeholder="e.g. Lagos, Nigeria" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Available From</Label>
+                    <Input type="date" value={aboutMe.availableFrom} onChange={(e) => setAboutMe({ ...aboutMe, availableFrom: e.target.value })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">LinkedIn URL</Label>
+                    <Input value={aboutMe.linkedIn} onChange={(e) => setAboutMe({ ...aboutMe, linkedIn: e.target.value })} placeholder="https://linkedin.com/in/..." />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Portfolio / GitHub</Label>
+                    <Input value={aboutMe.portfolio} onChange={(e) => setAboutMe({ ...aboutMe, portfolio: e.target.value })} placeholder="https://..." />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Skills */}
+            <Card>
+              <CardHeader><CardTitle>Skills</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <Input
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if ((e.key === 'Enter' || e.key === ',') && skillInput.trim()) {
+                        e.preventDefault()
+                        const s = skillInput.trim().replace(/,$/, '')
+                        if (s && !skills.includes(s)) setSkills([...skills, s])
+                        setSkillInput('')
+                      }
+                    }}
+                    placeholder="Type a skill and press Enter…"
+                  />
+                  <Button type="button" size="sm" variant="outline" onClick={() => {
+                    const s = skillInput.trim()
+                    if (s && !skills.includes(s)) { setSkills([...skills, s]); setSkillInput('') }
+                  }}><Plus className="h-3.5 w-3.5" /></Button>
+                </div>
+                {skills.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {skills.map((s) => (
+                      <span key={s} className="flex items-center gap-1 rounded-full border bg-muted px-2.5 py-0.5 text-xs">
+                        {s}
+                        <button onClick={() => setSkills(skills.filter((x) => x !== s))} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">Skills improve your AI job match score.</p>
+              </CardContent>
+            </Card>
+
+            {/* Work Experience */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-3">
+                <div className="flex items-center gap-2">
+                  <Briefcase className="h-4 w-4 text-primary" />
+                  <CardTitle>Work Experience</CardTitle>
+                </div>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditingExp('new')}>
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {experience.length === 0 && editingExp !== 'new' && (
+                  <p className="text-sm text-muted-foreground italic">No work experience added yet.</p>
+                )}
+                {experience.map((exp, i) => (
+                  <div key={i}>
+                    {editingExp === i ? (
+                      <ExperienceForm
+                        initial={exp}
+                        onSave={(updated) => {
+                          const next = [...experience]; next[i] = updated; setExperience(next); setEditingExp(null)
+                        }}
+                        onCancel={() => setEditingExp(null)}
+                      />
+                    ) : (
+                      <div className="flex items-start justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
+                        <div className="space-y-0.5 min-w-0">
+                          <p className="font-medium text-sm">{exp.title}</p>
+                          <p className="text-xs text-muted-foreground">{exp.company}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {exp.startDate}{exp.current ? ' – Present' : exp.endDate ? ` – ${exp.endDate}` : ''}
+                          </p>
+                          {exp.description && (
+                            <p className="text-xs text-foreground/70 mt-1 line-clamp-2">{exp.description}</p>
+                          )}
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <button onClick={() => setEditingExp(i)} className="rounded p-1 hover:bg-accent"><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></button>
+                          <button onClick={() => setExperience(experience.filter((_, j) => j !== i))} className="rounded p-1 hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5 text-destructive" /></button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {editingExp === 'new' && (
+                  <ExperienceForm
+                    initial={{ title: '', company: '', startDate: '', endDate: '', current: false, description: '' }}
+                    onSave={(entry) => { setExperience([...experience, entry]); setEditingExp(null) }}
+                    onCancel={() => setEditingExp(null)}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Education */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-3">
+                <div className="flex items-center gap-2">
+                  <GraduationCap className="h-4 w-4 text-primary" />
+                  <CardTitle>Education</CardTitle>
+                </div>
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setEditingEdu('new')}>
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </Button>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {education.length === 0 && editingEdu !== 'new' && (
+                  <p className="text-sm text-muted-foreground italic">No education added yet.</p>
+                )}
+                {education.map((edu, i) => (
+                  <div key={i}>
+                    {editingEdu === i ? (
+                      <EducationForm
+                        initial={edu}
+                        onSave={(updated) => {
+                          const next = [...education]; next[i] = updated; setEducation(next); setEditingEdu(null)
+                        }}
+                        onCancel={() => setEditingEdu(null)}
+                      />
+                    ) : (
+                      <div className="flex items-start justify-between gap-3 rounded-lg border bg-muted/20 px-4 py-3">
+                        <div className="space-y-0.5 min-w-0">
+                          <p className="font-medium text-sm">{edu.degree}{edu.field ? ` in ${edu.field}` : ''}</p>
+                          <p className="text-xs text-muted-foreground">{edu.institution}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {edu.startDate}{edu.current ? ' – Present' : edu.endDate ? ` – ${edu.endDate}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex gap-1 shrink-0">
+                          <button onClick={() => setEditingEdu(i)} className="rounded p-1 hover:bg-accent"><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></button>
+                          <button onClick={() => setEducation(education.filter((_, j) => j !== i))} className="rounded p-1 hover:bg-destructive/10"><Trash2 className="h-3.5 w-3.5 text-destructive" /></button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {editingEdu === 'new' && (
+                  <EducationForm
+                    initial={{ institution: '', degree: '', field: '', startDate: '', endDate: '', current: false }}
+                    onSave={(entry) => { setEducation([...education, entry]); setEditingEdu(null) }}
+                    onCancel={() => setEditingEdu(null)}
+                  />
+                )}
+              </CardContent>
+            </Card>
+
+            <Button onClick={() => saveCareer.mutate()} disabled={saveCareer.isPending}>
+              {saveCareer.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              <Save className="h-4 w-4" /> Save Career Profile
+            </Button>
+          </TabsContent>
+        )}
 
         {/* Company (recruiter only) */}
         {canManageCompany && (

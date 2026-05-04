@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Briefcase, Lock, ChevronDown, ChevronUp, Settings2, CheckCircle2 } from 'lucide-react'
+import { Briefcase, Lock, ChevronDown, ChevronUp, Settings2, CheckCircle2, Globe, Pencil, Trash2 } from 'lucide-react'
 import { jobService } from '../../services/job.service'
 import api from '../../lib/axios'
 import { Card, CardContent } from '../../components/ui/card'
@@ -25,6 +25,7 @@ export default function RecruiterJobs() {
   const [expandedThresh, setExpandedThresh] = useState<string | null>(null)
   const [threshDrafts, setThreshDrafts] = useState<Record<string, ThresholdDraft>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const { data, isLoading } = useQuery({
@@ -35,6 +36,16 @@ export default function RecruiterJobs() {
   const closeMutation = useMutation({
     mutationFn: (id: string) => jobService.close(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['my-jobs'] }),
+  })
+
+  const publishMutation = useMutation({
+    mutationFn: (id: string) => jobService.publish(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['my-jobs'] }),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => jobService.delete(id),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['my-jobs'] }); setConfirmDelete(null) },
   })
 
   const saveThreshMutation = useMutation({
@@ -135,10 +146,19 @@ export default function RecruiterJobs() {
                         {job.department} | {job.location} | Posted {formatRelative(job.createdAt)}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Link to={`/recruiter/shortlist?job=${job._id}`} className="text-xs text-primary hover:underline">
-                        View applicants
-                      </Link>
+                    <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                      {job.status !== 'draft' && (
+                        <Link to={`/recruiter/shortlist?job=${job._id}`} className="text-xs text-primary hover:underline">
+                          View applicants
+                        </Link>
+                      )}
+                      {isAdmin && (
+                        <Link to={`/admin/jobs/${job._id}/edit`}>
+                          <Button size="sm" variant="outline" className="gap-1">
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </Button>
+                        </Link>
+                      )}
                       <button
                         onClick={() => setExpandedThresh(isExpand ? null : job._id)}
                         className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-accent transition-colors"
@@ -148,10 +168,37 @@ export default function RecruiterJobs() {
                         Thresholds
                         {isExpand ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                       </button>
-                      {job.status === 'published' && (
-                        <Button size="sm" variant="outline" onClick={() => closeMutation.mutate(job._id)}>
+                      {job.status === 'draft' && isAdmin && (
+                        <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 gap-1"
+                          onClick={() => publishMutation.mutate(job._id)} disabled={publishMutation.isPending}>
+                          <Globe className="h-3.5 w-3.5" /> Publish
+                        </Button>
+                      )}
+                      {job.status === 'published' && isAdmin && (
+                        <Button size="sm" variant="outline" className="gap-1"
+                          onClick={() => closeMutation.mutate(job._id)} disabled={closeMutation.isPending}>
                           <Lock className="h-3.5 w-3.5" /> Close
                         </Button>
+                      )}
+                      {job.status !== 'published' && isAdmin && (
+                        confirmDelete === job._id ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-destructive font-medium">Delete?</span>
+                            <Button size="sm" variant="destructive" className="h-7 px-2 text-xs"
+                              onClick={() => deleteMutation.mutate(job._id)} disabled={deleteMutation.isPending}>
+                              Yes
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs"
+                              onClick={() => setConfirmDelete(null)}>
+                              No
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button size="sm" variant="outline" className="text-destructive border-destructive/20 hover:bg-destructive/5 gap-1"
+                            onClick={() => setConfirmDelete(job._id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )
                       )}
                     </div>
                   </div>

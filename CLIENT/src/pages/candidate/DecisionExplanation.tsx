@@ -219,7 +219,7 @@ export default function DecisionExplanation() {
       )}
 
       {/* SHAP feature importance */}
-      {scores?.shapValues && Object.keys(scores.shapValues).length > 0 && (
+      {scores?.shapValues && Object.entries(scores.shapValues).some(([, v]) => Math.abs(v) > 0.001) && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -230,6 +230,7 @@ export default function DecisionExplanation() {
           </CardHeader>
           <CardContent className="space-y-3">
             {Object.entries(scores.shapValues)
+              .filter(([, v]) => Math.abs(v) > 0.001)
               .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
               .slice(0, 8)
               .map(([feat, val]) => (

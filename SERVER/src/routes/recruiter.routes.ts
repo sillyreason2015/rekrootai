@@ -3,7 +3,9 @@ import { requireAuth, requireRole } from '../lib/auth.js'
 import { AuditLogModel } from '../models/AuditLog.model.js'
 import { JobModel } from '../models/Job.model.js'
 import { ApplicationModel } from '../models/Application.model.js'
-import { paginate } from '../lib/http.js'
+import { paginate, HttpError } from '../lib/http.js'
+import { notify } from '../lib/notify.js'
+import { logAction } from '../data/store.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { presignedDownloadUrl } from '../lib/blob.js'
 import { UserModel } from '../models/User.model.js'
@@ -148,6 +150,79 @@ recruiterRouter.get('/applications/:id/cv', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// POST /recruiter/applications/:id/assistant — AI chat about a candidate (Assist mode)
+recruiterRouter.post('/applications/:id/assistant', async (req, res, next) => {
+  try {
+    const { question } = req.body as { question?: string }
+    if (!question?.trim()) throw new HttpError(400, 'question is required')
+
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+
+    const candidate = await CandidateModel.findById(String(app.candidate)).lean()
+    const candidateUser = candidate?.user ? await UserModel.findById(String(candidate.user), { firstName: 1, lastName: 1 }).lean() : null
+    const job = await JobModel.findById(String(app.job), { title: 1, requirements: 1, skills: 1 }).lean()
+
+    const name = candidateUser ? `${candidateUser.firstName} ${candidateUser.lastName}` : 'The candidate'
+    const scores = app.scores ?? {}
+    const skillList = (candidate?.skills ?? []).join(', ') || 'not listed'
+    const expCount = (candidate?.experience ?? []).length
+    const cvText = (candidate?.cvParsed as { maskedCV?: string } | undefined)?.maskedCV?.slice(0, 800) ?? ''
+
+    // Build a context-rich prompt for Gemini
+    const context = `
+You are an AI hiring assistant helping a recruiter evaluate a candidate in Assist mode.
+Candidate: ${name}
+Role applied for: ${job?.title ?? 'Unknown'}
+Required skills: ${(job?.skills ?? []).join(', ') || 'not specified'}
+Candidate skills: ${skillList}
+Experience entries: ${expCount}
+CV excerpt: ${cvText || 'Not available'}
+Assessment score: ${scores.assessment ?? 0}%
+Resume match score: ${scores.resume ?? 0}%
+Interview score: ${scores.interview ?? 0}%
+Composite score: ${scores.final ?? 0}%
+Current pipeline stage: ${app.stage}
+
+Recruiter's question: ${question.trim()}
+
+Respond in 2–4 concise sentences. Be direct, professional, and evidence-based. Reference scores and skills where relevant.
+    `.trim()
+
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      // Fallback: rule-based response when Gemini isn't configured
+      const score = scores.final ?? 0
+      let answer = ''
+      if (/strength|strong|good/i.test(question)) {
+        answer = score >= 70
+          ? `${name} is performing strongly with a composite score of ${score.toFixed(0)}%. Their skills (${skillList.slice(0, 80)}) align well with the role requirements. The assessment and resume scores both indicate solid capability. I'd recommend progressing them to the next stage.`
+          : score >= 45
+          ? `${name} shows some relevant skills including ${skillList.slice(0, 80)}. Their composite score of ${score.toFixed(0)}% is borderline — the assessment performance may be the limiting factor. Consider a closer review of their CV before deciding.`
+          : `${name}'s profile shows limited alignment with role requirements at this stage (score: ${score.toFixed(0)}%). Their listed skills are: ${skillList.slice(0, 80)}. Further manual review of their CV would help clarify potential.`
+      } else if (/risk|concern|weak/i.test(question)) {
+        answer = score < 50
+          ? `The primary concern with ${name} is their low composite score of ${score.toFixed(0)}%. This may reflect limited skill overlap or weaker assessment performance. The resume match score (${scores.resume ?? 0}%) suggests the CV doesn't closely align with the role's requirements.`
+          : `${name}'s score of ${score.toFixed(0)}% is acceptable but the interview score (${scores.interview ?? 0}%) and assessment score (${scores.assessment ?? 0}%) should be reviewed carefully before making a decision.`
+      } else if (/progress|next|recommend/i.test(question)) {
+        answer = score >= 65
+          ? `I recommend progressing ${name} — their composite score of ${score.toFixed(0)}% clears the typical 60% threshold. You can proceed to schedule an interview or move to the decision stage.`
+          : `${name}'s current score of ${score.toFixed(0)}% is below the recommended 65% progression threshold. I'd suggest reviewing their CV manually or waiting for the assessment result before progressing.`
+      } else {
+        answer = `${name} currently has a composite score of ${score.toFixed(0)}% at the ${app.stage} stage. Their skills include: ${skillList.slice(0, 100)}. Resume match: ${scores.resume ?? 0}%, Assessment: ${scores.assessment ?? 0}%, Interview: ${scores.interview ?? 0}%.`
+      }
+      return res.json({ answer })
+    }
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai')
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const result = await model.generateContent(context)
+    const answer = result.response.text().trim()
+    res.json({ answer })
+  } catch (err) { next(err) }
+})
+
 recruiterRouter.get('/jobs/:jobId/triage', async (req, res, next) => {
   try {
     const jobId = String(req.params.jobId)
@@ -185,5 +260,46 @@ recruiterRouter.get('/jobs/:jobId/triage', async (req, res, next) => {
         'Run fairness gate before confirming any shortlist to check demographic parity.',
       ],
     })
+  } catch (err) { next(err) }
+})
+
+// POST /recruiter/applications/:id/missed-interview/review
+recruiterRouter.post('/applications/:id/missed-interview/review', async (req, res, next) => {
+  try {
+    const { approved, note } = req.body as { approved?: boolean; note?: string }
+    if (approved === undefined) throw new HttpError(400, 'approved is required')
+
+    const app = await ApplicationModel.findById(String(req.params.id)).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+
+    if (approved) {
+      await ApplicationModel.findByIdAndUpdate(String(app._id), {
+        stage: 'interview',
+        interviewMissed: false,
+        decision: null,
+        'missedInterviewRecovery.status': 'approved',
+        'missedInterviewRecovery.reviewNote': note ?? '',
+        'missedInterviewRecovery.reviewedAt': new Date().toISOString(),
+      })
+      notify(String(app.candidate), { type: 'info', title: 'Recovery Approved', body: 'Your missed interview recovery request has been approved. You will receive a new interview invitation.' })
+    } else {
+      await ApplicationModel.findByIdAndUpdate(String(app._id), {
+        'missedInterviewRecovery.status': 'rejected',
+        'missedInterviewRecovery.reviewNote': note ?? '',
+        'missedInterviewRecovery.reviewedAt': new Date().toISOString(),
+      })
+      notify(String(app.candidate), { type: 'warning', title: 'Recovery Request Reviewed', body: 'Your missed interview recovery request was reviewed but could not be approved at this time.' })
+    }
+
+    await logAction({
+      actor: 'user',
+      action: approved ? 'missed-interview-recovery-approved' : 'missed-interview-recovery-rejected',
+      candidateId: String(app.candidate),
+      jobId: String(app.job),
+      mode: 'assist',
+      payload: { approved, note },
+    })
+
+    res.json({ ok: true, approved })
   } catch (err) { next(err) }
 })

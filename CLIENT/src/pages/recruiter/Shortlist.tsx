@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle, Calendar, Video, ArrowRight, Download, Layers, TrendingUp, TrendingDown, Minus, Bot, X } from 'lucide-react'
+import {
+  ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle,
+  Calendar, Video, ArrowRight, Download, Layers, TrendingUp, TrendingDown,
+  Minus, Bot, X, Send, Loader2, Info, FileText,
+} from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { applicationService } from '../../services/application.service'
 import { jobService } from '../../services/job.service'
@@ -17,10 +21,21 @@ import type { Application, Candidate, User } from '../../types'
 
 type Mode = 'Assist' | 'Veto' | 'Override'
 
+type ChatMessage = { role: 'user' | 'ai'; text: string }
+
+type ExplanationData = {
+  scores?: {
+    resumeScore?: number; assessmentScore?: number; penaltyApplied?: number
+    interviewScore?: number; finalScore?: number; explanation?: string
+    shapValues?: Record<string, number>; stage?: string; decision?: string
+    weights?: { w1: number; w2: number; w3: number; w4: number }
+  }
+}
+
 function stageLabel(stage: string) {
   const labels: Record<string, string> = {
     applied: 'Applied', screening: 'Screening', assessment: 'Assessment',
-    interview: 'Interview', decision: 'Decision', rejected: 'Rejected',
+    interview: 'Interview', decision: 'Decision', rejected: 'Rejected', offered: 'Offered',
   }
   return labels[stage] ?? stage
 }
@@ -33,8 +48,204 @@ function stageBadge(stage: string) {
     interview: 'bg-purple-50 text-purple-700',
     decision: 'bg-emerald-50 text-emerald-700',
     rejected: 'bg-red-50 text-red-600',
+    offered: 'bg-emerald-100 text-emerald-800',
   }
   return colors[stage] ?? 'bg-muted text-muted-foreground'
+}
+
+/** Inline AI Explanation panel shown inside the card */
+function ExplanationPanel({ appId, candidateName }: { appId: string; candidateName: string }) {
+  const { data, isLoading, isError } = useQuery<ExplanationData>({
+    queryKey: ['recruiter-explanation', appId],
+    queryFn: () => applicationService.getExplanation(appId),
+    retry: false,
+  })
+
+  const scores = data?.scores
+
+  if (isLoading) return (
+    <div className="flex items-center gap-2 py-6 justify-center text-muted-foreground text-sm">
+      <Loader2 className="h-4 w-4 animate-spin" /> Loading AI explanation…
+    </div>
+  )
+  if (isError || !scores) return (
+    <p className="py-4 text-sm text-muted-foreground italic">No AI explanation generated yet for this candidate.</p>
+  )
+
+  const bars = [
+    { label: 'CV / Resume Match',    value: scores.resumeScore,    weight: scores.weights?.w1 ?? 0.3 },
+    { label: 'Assessment Score',     value: scores.assessmentScore, weight: scores.weights?.w2 ?? 0.3 },
+    { label: 'Fairness Adjustment',  value: scores.penaltyApplied, weight: scores.weights?.w3 ?? 0.1 },
+    { label: 'Interview Evaluation', value: scores.interviewScore, weight: scores.weights?.w4 ?? 0.3 },
+  ]
+  const shapEntries = Object.entries(scores.shapValues ?? {}).filter(([, v]) => Math.abs(v) > 0.001).sort(([, a], [, b]) => Math.abs(b) - Math.abs(a)).slice(0, 6)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <AiBadge label="AI Evaluation" size="md" />
+        <span className="text-xs text-muted-foreground">{candidateName} · {scores.stage ?? 'unknown stage'}</span>
+        {scores.decision && (
+          <span className={cn('ml-auto rounded-full px-2.5 py-0.5 text-xs font-semibold border', scores.decision === 'hire' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : scores.decision === 'reject' ? 'bg-red-50 text-red-700 border-red-200' : 'bg-amber-50 text-amber-700 border-amber-200')}>
+            {scores.decision}
+          </span>
+        )}
+      </div>
+
+      {/* Composite score */}
+      {(scores.finalScore ?? 0) > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
+          <p className={cn('text-3xl font-bold font-serif', scoreBg(scores.finalScore!).split(' ').find(c => c.startsWith('text-')))}>{scores.finalScore!.toFixed(1)}%</p>
+          <div>
+            <p className="text-sm font-medium">Composite Score</p>
+            <p className="text-xs text-muted-foreground">Weighted across all completed stages</p>
+          </div>
+        </div>
+      )}
+
+      {/* Score breakdown bars */}
+      <div className="space-y-3">
+        {bars.map(({ label, value, weight }) => {
+          const present = (value ?? 0) > 0
+          return (
+            <div key={label} className={cn('space-y-1', !present && 'opacity-40')}>
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium">{label} <span className="text-muted-foreground font-normal">({(weight * 100).toFixed(0)}%)</span></span>
+                {present && value !== undefined
+                  ? <span className={cn('rounded-full border px-2 py-0.5 text-xs font-semibold', scoreBg(value))}>{value.toFixed(1)}%</span>
+                  : <span className="rounded-full border px-2 py-0.5 text-xs text-muted-foreground bg-muted">Pending</span>}
+              </div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                <div className="h-full rounded-full bg-primary transition-all duration-700" style={{ width: present && value !== undefined ? `${Math.min(100, value)}%` : '0%' }} />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* AI narrative */}
+      {scores.explanation && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3">
+          <div className="flex items-center gap-2 mb-2">
+            <Info className="h-4 w-4 text-primary shrink-0" />
+            <p className="text-xs font-semibold text-primary">AI Evaluation Summary</p>
+          </div>
+          <p className="text-sm leading-relaxed text-foreground/80 whitespace-pre-line">{scores.explanation}</p>
+        </div>
+      )}
+
+      {/* SHAP features */}
+      {shapEntries.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">SHAP Feature Importance</p>
+          {shapEntries.map(([feat, val]) => (
+            <div key={feat} className="flex items-center gap-3 text-xs">
+              <span className="w-40 shrink-0 truncate capitalize text-muted-foreground">{feat.replace(/_/g, ' ')}</span>
+              <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                <div className={cn('h-full rounded-full', val >= 0 ? 'bg-emerald-400' : 'bg-red-400')} style={{ width: `${Math.min(100, Math.abs(val) * 200)}%` }} />
+              </div>
+              <span className={cn('w-12 text-right font-mono', val >= 0 ? 'text-emerald-600' : 'text-red-600')}>
+                {val >= 0 ? '+' : ''}{val.toFixed(2)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Inline AI chat panel — Assist mode only */
+function AssistantPanel({ appId, name, scores, onClose }: {
+  appId: string; name: string; scores: Application['scores']; stage?: string; onClose: () => void
+}) {
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: 'ai', text: `Hi! I'm ready to help you evaluate **${name}**. Ask me about their strengths, concerns, whether to progress them, or anything else about their profile.` }
+  ])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const send = async () => {
+    const q = input.trim()
+    if (!q || loading) return
+    setInput('')
+    setMessages((prev) => [...prev, { role: 'user', text: q }])
+    setLoading(true)
+    try {
+      const { answer } = await recruiterService.askAssistant(appId, q)
+      setMessages((prev) => [...prev, { role: 'ai', text: answer }])
+    } catch {
+      setMessages((prev) => [...prev, { role: 'ai', text: 'Sorry, I could not get a response right now. Please try again.' }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bot className="h-4 w-4 text-primary" />
+          <p className="text-sm font-semibold">AI Hiring Assistant — {name}</p>
+          <AiBadge size="sm" />
+        </div>
+        <button onClick={onClose}><X className="h-4 w-4 text-muted-foreground hover:text-foreground" /></button>
+      </div>
+
+      {/* Score summary strip */}
+      <div className="grid grid-cols-4 gap-2 text-xs">
+        {[
+          { label: 'Resume',     val: scores?.resume },
+          { label: 'Assessment', val: scores?.assessment },
+          { label: 'Interview',  val: scores?.interview },
+          { label: 'Composite',  val: scores?.final },
+        ].map(({ label, val }) => (
+          <div key={label} className="rounded-md border bg-background px-2 py-2 text-center">
+            <p className="text-muted-foreground">{label}</p>
+            <p className="font-bold text-sm mt-0.5">{val != null && val > 0 ? `${val.toFixed(0)}%` : '—'}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Chat messages */}
+      <div className="max-h-56 overflow-y-auto space-y-2 rounded-lg border bg-background p-3 scrollbar-thin">
+        {messages.map((m, i) => (
+          <div key={i} className={cn('text-sm leading-relaxed', m.role === 'user' ? 'text-right' : 'text-left')}>
+            <span className={cn('inline-block rounded-xl px-3 py-2 max-w-[85%] text-left', m.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted text-foreground')}>
+              {m.text}
+            </span>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Thinking…
+          </div>
+        )}
+      </div>
+
+      {/* Suggested questions */}
+      <div className="flex flex-wrap gap-1.5">
+        {[`What are ${name.split(' ')[0]}'s strengths?`, 'Any concerns?', 'Should I progress them?'].map((q) => (
+          <button key={q} onClick={() => { setInput(q); }} className="rounded-full border bg-background px-2.5 py-1 text-xs hover:bg-accent transition-colors">{q}</button>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div className="flex gap-2">
+        <input
+          className="flex-1 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder={`Ask about ${name.split(' ')[0]}…`}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+          disabled={loading}
+        />
+        <Button size="sm" onClick={send} disabled={!input.trim() || loading} className="shrink-0">
+          <Send className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 export default function Shortlist() {
@@ -42,6 +253,7 @@ export default function Shortlist() {
   const jobId = params.get('job') ?? ''
   const [mode, setMode] = useState<Mode>('Assist')
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [showExplanation, setShowExplanation] = useState<string | null>(null)
   const [scheduleFor, setScheduleFor] = useState<string | null>(null)
   const [scheduledAt, setScheduledAt] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0)
@@ -51,6 +263,7 @@ export default function Shortlist() {
   const [vetoSummary, setVetoSummary] = useState<{ processed: number; shortlisted: number; rejected: number; review: number } | null>(null)
   const [assistantCandidate, setAssistantCandidate] = useState<{ id: string; name: string; scores: Application['scores']; stage: string } | null>(null)
   const [showTriage, setShowTriage] = useState(false)
+  const [cvNotice, setCvNotice] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
@@ -70,11 +283,11 @@ export default function Shortlist() {
 
   const mutOpts = { onSuccess: () => qc.invalidateQueries({ queryKey: ['applications', selectedJob] }) }
 
-  const shortlistMutation = useMutation({ mutationFn: (id: string) => applicationService.shortlist(id), ...mutOpts })
-  const rejectMutation = useMutation({ mutationFn: (id: string) => applicationService.reject(id), ...mutOpts })
+  const shortlistMutation  = useMutation({ mutationFn: (id: string) => applicationService.shortlist(id), ...mutOpts })
+  const rejectMutation     = useMutation({ mutationFn: (id: string) => applicationService.reject(id), ...mutOpts })
   const sendAssessmentMutation = useMutation({ mutationFn: (id: string) => applicationService.sendAssessment(id, 60), ...mutOpts })
-  const fairnessMutation = useMutation({ mutationFn: (id: string) => applicationService.runFairnessGate(id), ...mutOpts })
-  const scheduleMutation = useMutation({
+  const fairnessMutation   = useMutation({ mutationFn: (id: string) => applicationService.runFairnessGate(id), ...mutOpts })
+  const scheduleMutation   = useMutation({
     mutationFn: ({ appId, scheduledAt, durationMin }: { appId: string; scheduledAt: string; durationMin: number }) =>
       api.post('/interviews', { applicationId: appId, scheduledAt: new Date(scheduledAt).toISOString(), durationMin }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['applications', selectedJob] }); setScheduleFor(null) },
@@ -97,6 +310,22 @@ export default function Shortlist() {
     },
   })
 
+  const downloadCv = async (appId: string) => {
+    setCvNotice(null)
+    try {
+      const r = await recruiterService.getApplicationCv(appId)
+      if (r.url) {
+        const a = document.createElement('a'); a.href = r.url; a.target = '_blank'; a.click()
+      } else {
+        setCvNotice('This candidate has not uploaded a CV yet.')
+        setTimeout(() => setCvNotice(null), 4000)
+      }
+    } catch {
+      setCvNotice('CV not available for this candidate.')
+      setTimeout(() => setCvNotice(null), 4000)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -107,84 +336,62 @@ export default function Shortlist() {
         <div className="flex items-center gap-2">
           <InfoTip
             size="md"
-            content="Choose how much autonomy the AI has. Assist: you approve each candidate. Veto: AI shortlists automatically, you remove any. Override: full manual control, AI scores are advisory only."
+            content="Assist: you approve each candidate. Veto: AI shortlists automatically, you remove any. Override: full manual control, AI scores are advisory only."
           />
           <div className="flex rounded-xl border bg-card p-1">
-          {(['Assist', 'Veto', 'Override'] as Mode[]).map((m) => (
-            <button key={m} onClick={() => {
-              setMode(m)
-              if (m === 'Veto' && selectedJob) vetoMutation.mutate()
-            }}
-              className={cn('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
-                mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
-              {m === 'Assist' && <CheckCircle2 className="h-3.5 w-3.5" />}
-              {m === 'Veto' && <Ban className="h-3.5 w-3.5" />}
-              {m === 'Override' && <Shield className="h-3.5 w-3.5" />}
-              {m}
-            </button>
-          ))}
+            {(['Assist', 'Veto', 'Override'] as Mode[]).map((m) => (
+              <button key={m} onClick={() => {
+                setMode(m)
+                if (m === 'Veto' && selectedJob) vetoMutation.mutate()
+              }}
+                className={cn('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+                  mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
+                {m === 'Assist'   && <CheckCircle2 className="h-3.5 w-3.5" />}
+                {m === 'Veto'     && <Ban          className="h-3.5 w-3.5" />}
+                {m === 'Override' && <Shield       className="h-3.5 w-3.5" />}
+                {m}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       <div className="rounded-lg border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-        {mode === 'Assist' && 'AI assists — recommendations shown but you approve each decision.'}
-        {mode === 'Veto' && 'AI shortlists automatically. You can veto individual candidates.'}
+        {mode === 'Assist'   && 'AI assists — recommendations shown but you approve each decision.'}
+        {mode === 'Veto'     && 'AI shortlists automatically. You can veto individual candidates.'}
         {mode === 'Override' && 'Full manual control. AI scores are advisory only.'}
       </div>
+
       {mode === 'Veto' && vetoSummary && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
           Veto run complete: processed {vetoSummary.processed}, shortlisted {vetoSummary.shortlisted}, rejected {vetoSummary.rejected}, manual review {vetoSummary.review}.
         </div>
       )}
-      {assistantCandidate && (
-        <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Bot className="h-4 w-4 text-primary" />
-              <p className="text-sm font-semibold">AI Hiring Companion — {assistantCandidate.name}</p>
-            </div>
-            <button onClick={() => setAssistantCandidate(null)}><X className="h-4 w-4 text-muted-foreground" /></button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            {[
-              { label: 'Resume', val: assistantCandidate.scores?.resume },
-              { label: 'Assessment', val: assistantCandidate.scores?.assessment },
-              { label: 'Interview', val: assistantCandidate.scores?.interview },
-              { label: 'Final', val: assistantCandidate.scores?.final },
-            ].map(({ label, val }) => (
-              <div key={label} className="rounded-md border bg-background px-3 py-2 text-center">
-                <p className="text-muted-foreground">{label}</p>
-                <p className="font-bold text-sm mt-0.5">{val != null && val > 0 ? `${val.toFixed(0)}%` : '—'}</p>
-              </div>
-            ))}
-          </div>
-          <div className="rounded-lg bg-background border px-3 py-3 text-sm text-muted-foreground space-y-2">
-            {assistantCandidate.scores?.final != null && assistantCandidate.scores.final >= 75 && (
-              <p className="text-emerald-600 font-medium">✓ Strong performer — recommend progressing to next stage.</p>
-            )}
-            {assistantCandidate.scores?.final != null && assistantCandidate.scores.final >= 50 && assistantCandidate.scores.final < 75 && (
-              <p className="text-amber-600 font-medium">⚠ Borderline score — review assessment and interview details before deciding.</p>
-            )}
-            {(assistantCandidate.scores?.final == null || assistantCandidate.scores.final < 50) && assistantCandidate.stage !== 'applied' && (
-              <p className="text-red-600 font-medium">✗ Below threshold — consider rejection with documented rationale.</p>
-            )}
-            {assistantCandidate.stage === 'applied' && (
-              <p>Candidate is in initial review. Shortlist to begin AI-assisted screening.</p>
-            )}
-            <p className="text-xs">
-              Current mode: <strong>{mode}</strong> — {mode === 'Assist' ? 'approve each step manually.' : mode === 'Veto' ? 'AI auto-processes, you can veto.' : 'full manual control, AI scores are advisory.'}
-            </p>
-          </div>
+
+      {cvNotice && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30 px-4 py-2.5 text-sm text-amber-800 dark:text-amber-300 flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" /> {cvNotice}
         </div>
       )}
 
+      {/* AI Companion chat */}
+      {assistantCandidate && mode === 'Assist' && (
+        <AssistantPanel
+          appId={assistantCandidate.id}
+          name={assistantCandidate.name}
+          scores={assistantCandidate.scores}
+          stage={assistantCandidate.stage}
+          onClose={() => setAssistantCandidate(null)}
+        />
+      )}
+
+      {/* Job + toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <label className="text-sm font-medium">Job:</label>
         <select className="h-9 min-w-[260px] rounded-md border border-input bg-background px-3 text-sm"
           value={selectedJob} onChange={(e) => { setSelectedJob(e.target.value); setShowTriage(false) }}>
           <option value="">Select a job…</option>
-          {jobs?.data.map((j) => (
+          {jobs?.data.map((j: any) => (
             <option key={j._id} value={j._id}>
               {j.title}{j.department ? ` — ${j.department}` : ''}{j.level ? ` (${j.level})` : ''}{j.status === 'draft' ? ' [draft]' : j.status === 'closed' ? ' [closed]' : ''}
             </option>
@@ -195,14 +402,16 @@ export default function Shortlist() {
             <Button size="sm" variant="outline" className="gap-1.5"
               onClick={async () => {
                 const bundle = await recruiterService.getJobCvBundle(selectedJob)
-                bundle.cvs?.forEach((c: { name: string; url: string }) => {
+                const cvs = bundle.cvs ?? []
+                if (!cvs.length) { setCvNotice('No CVs available for this job yet.'); setTimeout(() => setCvNotice(null), 4000); return }
+                cvs.forEach((c: { name: string; url: string }) => {
                   const a = document.createElement('a'); a.href = c.url; a.download = `${c.name}.pdf`; a.target = '_blank'; a.click()
                 })
               }}>
               <Download className="h-3.5 w-3.5" /> Download All CVs
             </Button>
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowTriage((v) => !v)}>
-              <Layers className="h-3.5 w-3.5" /> {showTriage ? 'Hide' : 'AI Triage'}
+              <Layers className="h-3.5 w-3.5" /> {showTriage ? 'Hide Triage' : 'AI Triage'}
             </Button>
           </>
         )}
@@ -227,9 +436,9 @@ export default function Shortlist() {
               )}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {[
-                  { key: 'strong', label: 'Strong', icon: TrendingUp, color: 'emerald' },
-                  { key: 'review', label: 'Needs Review', icon: Minus, color: 'amber' },
-                  { key: 'weak', label: 'Weak', icon: TrendingDown, color: 'red' },
+                  { key: 'strong', label: 'Strong',      icon: TrendingUp,   color: 'emerald' },
+                  { key: 'review', label: 'Needs Review', icon: Minus,        color: 'amber'   },
+                  { key: 'weak',   label: 'Weak',         icon: TrendingDown, color: 'red'     },
                 ].map(({ key, label, icon: Icon, color }) => (
                   <div key={key} className={`rounded-lg border border-${color}-200 dark:border-${color}-900 bg-${color}-50 dark:bg-${color}-950/20 p-3 space-y-2`}>
                     <div className={`flex items-center gap-2 text-${color}-700 dark:text-${color}-400`}>
@@ -269,6 +478,7 @@ export default function Shortlist() {
               const name = user ? `${user.firstName} ${user.lastName}` : 'Candidate'
               const initials = user ? `${user.firstName[0]}${user.lastName[0]}` : '?'
               const isExpand = expanded === app._id
+              const isExplaining = showExplanation === app._id
               const isScheduling = scheduleFor === app._id
               const extApp = app as Application & { fairnessComputedAt?: string; explanationComputedAt?: string; interviewId?: string; interviewStatus?: string; interviewScheduledAt?: string }
 
@@ -288,74 +498,69 @@ export default function Shortlist() {
                       </div>
 
                       {/* Score */}
-                        {(app.scores?.final ?? 0) > 0 && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <div className={cn('rounded-full border px-3 py-1 text-sm font-bold', scoreBg(app.scores?.final ?? 0))}>
-                              {(app.scores?.final ?? 0).toFixed(0)}%
-                            </div>
-                            <InfoTip content="Weighted composite of CV match, assessment score, and interview performance. Threshold to reach interview stage is 60% by default." />
+                      {(app.scores?.final ?? 0) > 0 && (
+                        <div className="flex items-center gap-1 shrink-0">
+                          <div className={cn('rounded-full border px-3 py-1 text-sm font-bold', scoreBg(app.scores?.final ?? 0))}>
+                            {(app.scores?.final ?? 0).toFixed(0)}%
                           </div>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => window.open(`/candidate/explanation/${app._id}`, '_blank')}
-                        >
-                          Explain
-                        </Button>
+                          <InfoTip content="Weighted composite of CV match, assessment, and interview. Hover the breakdown below for details." />
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      <Button size="sm" variant="outline" className="gap-1"
+                        onClick={() => setShowExplanation(isExplaining ? null : app._id)}>
+                        <FileText className="h-3.5 w-3.5" />
+                        {isExplaining ? 'Hide' : 'AI Explanation'}
+                      </Button>
+
+                      <Button size="sm" variant="outline" className="gap-1"
+                        onClick={() => downloadCv(app._id)}>
+                        <Download className="h-3.5 w-3.5" /> CV
+                      </Button>
+
+                      {mode === 'Assist' && (
                         <Button size="sm" variant="outline" className="gap-1"
-                          onClick={async () => {
-                            try {
-                              const r = await recruiterService.getApplicationCv(app._id)
-                              if (r.url) { const a = document.createElement('a'); a.href = r.url; a.target = '_blank'; a.click() }
-                            } catch { /* no CV */ }
-                          }}>
-                          <Download className="h-3.5 w-3.5" /> CV
+                          onClick={() => setAssistantCandidate(
+                            assistantCandidate?.id === app._id ? null :
+                            { id: app._id, name, scores: app.scores, stage: app.stage }
+                          )}>
+                          <Bot className="h-3.5 w-3.5" />
+                          {assistantCandidate?.id === app._id ? 'Close Chat' : 'Assist Me'}
                         </Button>
-                        <Button size="sm" variant="outline" className="gap-1"
-                          onClick={() => setAssistantCandidate({ id: app._id, name, scores: app.scores, stage: app.stage })}>
-                          <Bot className="h-3.5 w-3.5" /> Assist Me
-                        </Button>
-                        <AiBadge />
+                      )}
+
+                      <AiBadge />
 
                       {/* Pipeline action buttons */}
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {/* Step 1: Shortlist (applied → screening) */}
                         {app.stage === 'applied' && mode !== 'Veto' && (
                           <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
                             onClick={() => shortlistMutation.mutate(app._id)} disabled={shortlistMutation.isPending}>
                             <CheckCircle2 className="h-3.5 w-3.5" /> Shortlist
                           </Button>
                         )}
-
-                        {/* Step 2: Send Assessment (screening) */}
                         {app.stage === 'screening' && mode !== 'Override' && (
                           <Button size="sm" variant="outline"
                             onClick={() => sendAssessmentMutation.mutate(app._id)} disabled={sendAssessmentMutation.isPending}>
                             <ArrowRight className="h-3.5 w-3.5" /> Send Assessment
                           </Button>
                         )}
-
-                        {/* Step 3: Run Fairness Gate (assessment) */}
                         {app.stage === 'assessment' && mode !== 'Override' && (
                           <div className="flex items-center gap-1">
                             <Button size="sm" variant="outline" className="text-purple-600 border-purple-200 hover:bg-purple-50"
                               onClick={() => fairnessMutation.mutate(app._id)} disabled={fairnessMutation.isPending}>
                               <Shield className="h-3.5 w-3.5" /> Run Fairness
                             </Button>
-                            <InfoTip content="Checks for demographic parity across protected groups before confirming a shortlist decision. Flags any statistically significant disparity for recruiter review." />
+                            <InfoTip content="Checks for demographic parity before confirming a shortlist decision." />
                           </div>
                         )}
-
-                        {/* Step 4: Schedule Interview (interview stage, no interview yet) */}
                         {app.stage === 'interview' && !extApp.interviewId && (
                           <Button size="sm" variant="outline" className="text-blue-600 border-blue-200 hover:bg-blue-50"
                             onClick={() => setScheduleFor(isScheduling ? null : app._id)}>
                             <Calendar className="h-3.5 w-3.5" /> Schedule Interview
                           </Button>
                         )}
-
-                        {/* Interview scheduled — join or complete */}
                         {app.stage === 'interview' && extApp.interviewId && extApp.interviewStatus !== 'completed' && (
                           <>
                             <Button size="sm" variant="outline" className="text-purple-600 border-purple-200"
@@ -368,9 +573,7 @@ export default function Shortlist() {
                             </Button>
                           </>
                         )}
-
-                        {/* Reject (available at all non-final stages) */}
-                        {!['decision', 'rejected'].includes(app.stage) && mode !== 'Veto' && (
+                        {!['decision', 'rejected', 'offered'].includes(app.stage) && mode !== 'Veto' && (
                           <Button size="sm" variant="outline" className="text-destructive border-destructive/20 hover:bg-destructive/5"
                             onClick={() => rejectMutation.mutate(app._id)} disabled={rejectMutation.isPending}>
                             <Ban className="h-3.5 w-3.5" />
@@ -383,6 +586,7 @@ export default function Shortlist() {
                       </button>
                     </div>
 
+                    {/* AI suggestion strip */}
                     <div className="border-t px-4 py-3">
                       <AiSuggestion
                         stage={app.stage}
@@ -391,6 +595,13 @@ export default function Shortlist() {
                         decision={(app as any).decision}
                       />
                     </div>
+
+                    {/* Inline AI Explanation panel */}
+                    {isExplaining && (
+                      <div className="border-t px-4 pb-4 pt-3">
+                        <ExplanationPanel appId={app._id} candidateName={name} />
+                      </div>
+                    )}
 
                     {/* Schedule Interview inline panel */}
                     {isScheduling && (
@@ -419,16 +630,15 @@ export default function Shortlist() {
                       </div>
                     )}
 
-                    {/* SHAP details expansion */}
+                    {/* Expanded SHAP score details */}
                     {isExpand && (
                       <div className="border-t px-4 pb-4 pt-3 space-y-3">
-                        {mode === 'Assist' && null}
-                        <AiBadge label="SHAP Score Breakdown" size="md" />
+                        <AiBadge label="Stage Score Breakdown" size="md" />
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                           {[
                             { label: 'Resume',     value: app.scores?.resume },
                             { label: 'Assessment', value: app.scores?.assessment },
-                            { label: 'Penalty',    value: app.scores?.penalty },
+                            { label: 'Fairness',   value: app.scores?.penalty },
                             { label: 'Interview',  value: app.scores?.interview },
                           ].map(({ label, value }) => (
                             <div key={label} className="rounded-lg border bg-muted/30 p-3 text-center">
@@ -453,7 +663,7 @@ export default function Shortlist() {
                           <div className="flex items-start gap-2">
                             <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
                             <p className="text-xs text-muted-foreground">
-                              Final score is a weighted composite (CV 30% · Assessment 30% · Interview 30% · Fairness 10%). Human review required before any hiring decision.
+                              Final score is weighted: CV 30% · Assessment 30% · Interview 30% · Fairness 10%. Human review required before any hiring decision.
                             </p>
                           </div>
                         )}
