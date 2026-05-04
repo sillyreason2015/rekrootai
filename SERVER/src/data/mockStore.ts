@@ -14,20 +14,7 @@ import { nowIso } from '../lib/http.js'
 
 const seedNow = nowIso()
 
-export const db: {
-  users: User[]
-  companies: Company[]
-  candidates: Candidate[]
-  jobs: Job[]
-  applications: Application[]
-  assessments: Assessment[]
-  interviews: Interview[]
-  aiOutputs: AiOutput[]
-  biasAudits: BiasAudit[]
-  auditLog: AuditLogEntry[]
-  refreshTokens: Map<string, string>
-  invitations: Array<{ email: string; role: string; sentAt: string }>
-} = {
+export const db = {
   users: [
     {
       _id: 'mock-admin',
@@ -62,7 +49,7 @@ export const db: {
       onboardingComplete: true,
       createdAt: seedNow,
     },
-  ],
+  ] as User[],
   companies: [
     {
       _id: 'company-1',
@@ -74,7 +61,7 @@ export const db: {
       vision: 'Every decision explained.',
       values: ['Transparency', 'Fairness', 'Speed'],
     },
-  ],
+  ] as Company[],
   candidates: [
     {
       _id: 'candidate-1',
@@ -101,11 +88,11 @@ export const db: {
         },
       ],
       cvUrl: '/uploads/mock-candidate-cv.pdf',
-      cvParsed: { summary: 'Candidate CV parsed successfully' },
+      cvParsed: { fileName: 'mock-candidate-cv.pdf', summary: 'Candidate CV parsed successfully' },
       location: 'Lagos, Nigeria',
       availableFrom: '2026-05-01',
     },
-  ],
+  ] as Candidate[],
   jobs: [
     {
       _id: 'job-1',
@@ -155,23 +142,23 @@ export const db: {
         { type: 'situational', timeLimit: 20, weight: 0.3 },
         { type: 'personality', timeLimit: 10, weight: 0.2 },
       ],
-      thresholds: { screening: 0.55, assessment: 75, fairness: 0.55, interview: 75 },
+      thresholds: { screening: 0.55, assessment: 75, fairness: 0.5, interview: 70 },
       alpha: 0.4,
       createdBy: 'mock-recruiter',
       createdAt: seedNow,
     },
-  ],
+  ] as Job[],
   applications: [
     {
       _id: 'app-1',
       job: 'job-1',
       candidate: 'candidate-1',
       status: 'shortlisted',
-      scores: { resume: 88, assessment: 79, penalty: 0, interview: 82, final: 83 },
+      scores: { resume: 0.88, assessment: 0.0, penalty: 0.0, interview: 0.0, final: 0.0 },
       stage: 'screening',
       createdAt: seedNow,
     },
-  ],
+  ] as Application[],
   assessments: [
     {
       _id: 'assessment-1',
@@ -182,7 +169,6 @@ export const db: {
         { type: 'technical', questions: [], score: 82 },
         { type: 'situational', questions: [], score: 80 },
         { type: 'personality', questions: [], score: 0 },
-        { type: 'social', questions: [], score: 76 },
       ],
       status: 'completed',
       startedAt: seedNow,
@@ -190,7 +176,7 @@ export const db: {
       expiresAt: seedNow,
       score: 79,
     },
-  ],
+  ] as Assessment[],
   interviews: [
     {
       _id: 'interview-1',
@@ -205,7 +191,7 @@ export const db: {
       rubric: [],
       status: 'scheduled',
     },
-  ],
+  ] as Interview[],
   aiOutputs: [
     {
       _id: 'ai-1',
@@ -216,7 +202,7 @@ export const db: {
       modelVersion: 'mock-1.0',
       createdAt: seedNow,
     },
-  ],
+  ] as AiOutput[],
   biasAudits: [
     {
       _id: 'bias-1',
@@ -226,7 +212,7 @@ export const db: {
       flagged: false,
       details: { summary: 'Healthy fairness range' },
     },
-  ],
+  ] as BiasAudit[],
   auditLog: [
     {
       _id: 'audit-1',
@@ -239,7 +225,7 @@ export const db: {
       modelVersion: 'mock-1.0',
       inputHash: 'hash-1',
     },
-  ],
+  ] as AuditLogEntry[],
   refreshTokens: new Map<string, string>(),
   invitations: [] as Array<{ email: string; role: string; sentAt: string }>,
 }
