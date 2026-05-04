@@ -12,7 +12,7 @@ import { JobModel } from '../models/Job.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { cvKey, presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
-import { buildParsedCvData, mergeCandidateWithCv } from '../lib/candidate-profile.js'
+import { buildParsedCvData, mergeCandidateWithCv, extractStructuredProfileFromCv } from '../lib/candidate-profile.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
 
@@ -71,8 +71,9 @@ candidateRouter.post('/me/cv', upload.single('cv'), async (req, res, next) => {
     if (req.file.mimetype?.startsWith('text/')) {
       rawText = req.file.buffer.toString('utf8').slice(0, 8000)
     } else if (req.file.mimetype === 'application/pdf') {
-      const pdfModule = await import('pdf-parse') as unknown as (buf: Buffer) => Promise<{ text?: string }>
-      const parsed = await pdfModule(req.file.buffer)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pdfParse = ((await import('pdf-parse/lib/pdf-parse.js' as string)) as any).default as (buf: Buffer) => Promise<{ text?: string }>
+      const parsed = await pdfParse(req.file.buffer)
       rawText = String(parsed?.text ?? '').slice(0, 12000)
     } else if (
       req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -87,6 +88,18 @@ candidateRouter.post('/me/cv', upload.single('cv'), async (req, res, next) => {
     const derivedProfile = mergeCandidateWithCv(candidate, cvParsed)
     await CandidateModel.findByIdAndUpdate(candidate._id, { cvUrl: key, cvParsed, ...derivedProfile })
     await logAction({ actor: 'user', action: 'cv-upload', candidateId: String(candidate._id), mode: 'assist', payload: { fileName } })
+    // Fire-and-forget: enrich profile with Gemini-structured extraction (headline, richer skills/exp/edu)
+    if (rawText) {
+      extractStructuredProfileFromCv(rawText).then((enriched) => {
+        const update: Record<string, unknown> = {
+          skills: enriched.skills.length ? enriched.skills : derivedProfile.skills,
+          experience: enriched.experience.length ? enriched.experience : derivedProfile.experience,
+          education: enriched.education.length ? enriched.education : derivedProfile.education,
+        }
+        if (enriched.headline) update.headline = enriched.headline
+        return CandidateModel.findByIdAndUpdate(candidate._id, update)
+      }).catch(() => { /* silent fail — sync parse already saved */ })
+    }
     res.json({ cvUrl: key, parsed: cvParsed })
   } catch (err) {
     next(err)

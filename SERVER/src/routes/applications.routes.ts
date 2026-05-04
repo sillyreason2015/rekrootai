@@ -486,7 +486,7 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
 })
 
 // POST /applications/ai-decide — Veto mode: AI auto-shortlists/rejects applied candidates for a job
-applicationsRouter.post('/ai-decide', requireAuth, requireRole('recruiter', 'admin'), async (req, res, next) => {
+applicationsRouter.post('/ai-decide', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const { jobId, shortlistThreshold = 65, rejectThreshold = 40 } = req.body as {
       jobId?: string; shortlistThreshold?: number; rejectThreshold?: number

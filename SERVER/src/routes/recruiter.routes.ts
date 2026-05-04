@@ -192,7 +192,13 @@ Respond ONLY with valid JSON. No markdown, no code fences.`.trim()
     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim()
-    const parsed = JSON.parse(text.replace(/^```json\s*/i, '').replace(/```\s*$/, ''))
+    let parsed: Record<string, unknown> = {}
+    try {
+      parsed = JSON.parse(text.replace(/^```json\s*/i, '').replace(/```\s*$/, ''))
+    } catch {
+      // Gemini returned non-JSON — extract what we can
+      parsed = { overall: text.slice(0, 300), strengths: [], gaps: [], suggestedQuestions: [] }
+    }
     res.json({ ...parsed, score: app.scores?.resume ?? 0 })
   } catch (err) { next(err) }
 })

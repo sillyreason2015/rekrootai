@@ -1,4 +1,5 @@
 import type { Candidate, ExperienceEntry, EducationEntry, Job } from '../domain.js'
+import { env } from '../config/env.js'
 
 type ParsedCvData = {
   fileName: string
@@ -81,6 +82,53 @@ export function buildParsedCvData(fileName: string, rawText: string, masked: str
     inferredSkills: rawText ? inferSkillsFromCv(rawText) : [],
     inferredExperience: rawText ? inferExperienceFromCv(rawText) : [],
     inferredEducation: rawText ? inferEducationFromCv(rawText) : [],
+  }
+}
+
+/**
+ * Uses Gemini to extract structured experience, education, skills and headline
+ * from raw CV text. Falls back to keyword inference if Gemini is unavailable.
+ */
+export async function extractStructuredProfileFromCv(rawText: string): Promise<{
+  skills: string[]
+  experience: ExperienceEntry[]
+  education: EducationEntry[]
+  headline: string
+}> {
+  const fallback = {
+    skills: inferSkillsFromCv(rawText),
+    experience: inferExperienceFromCv(rawText),
+    education: inferEducationFromCv(rawText),
+    headline: '',
+  }
+  if (!env.GEMINI_API_KEY || !rawText) return fallback
+
+  const prompt = `Extract structured profile data from this CV. Return ONLY valid JSON with these keys:
+- "headline": string — a 1-line professional headline (e.g. "Senior Software Engineer · 5 yrs experience")
+- "skills": string[] — up to 15 technical and soft skills
+- "experience": array of objects with keys: title (string), company (string), startDate (string YYYY-MM or ""), endDate (string YYYY-MM or ""), current (boolean), description (string, max 120 chars)
+- "education": array of objects with keys: institution (string), degree (string), field (string), startDate (string YYYY-MM or ""), endDate (string YYYY-MM or ""), current (boolean)
+
+CV text (anonymised):
+${rawText.slice(0, 3000)}
+
+Respond ONLY with valid JSON. No markdown fences.`
+
+  try {
+    const { GoogleGenerativeAI } = await import('@google/generative-ai')
+    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY)
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const result = await model.generateContent(prompt)
+    const text = result.response.text().trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '')
+    const parsed = JSON.parse(text)
+    return {
+      headline: typeof parsed.headline === 'string' ? parsed.headline : '',
+      skills: Array.isArray(parsed.skills) ? parsed.skills.map(String).slice(0, 20) : fallback.skills,
+      experience: Array.isArray(parsed.experience) ? parsed.experience.slice(0, 8) : fallback.experience,
+      education: Array.isArray(parsed.education) ? parsed.education.slice(0, 5) : fallback.education,
+    }
+  } catch {
+    return fallback
   }
 }
 
