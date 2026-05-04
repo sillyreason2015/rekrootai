@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle,
   Calendar, Video, ArrowRight, Download, Layers, TrendingUp, TrendingDown,
-  Minus, Bot, X, Send, Loader2, Info, FileText,
+  Minus, Bot, X, Send, Loader2, Info, FileText, Eye, Sparkles, ExternalLink,
 } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { applicationService } from '../../services/application.service'
@@ -248,12 +248,113 @@ function AssistantPanel({ appId, name, scores, onClose }: {
   )
 }
 
+/** Inline CV viewer + AI analysis panel */
+function CvViewerPanel({ appId, name, onClose }: { appId: string; name: string; onClose: () => void }) {
+  const { data: cvData, isLoading: cvLoading } = useQuery({
+    queryKey: ['recruiter-cv', appId],
+    queryFn: () => recruiterService.getApplicationCv(appId),
+    retry: false,
+  })
+  const { data: analysis, isLoading: analysisLoading, refetch: runAnalysis, isFetched } = useQuery({
+    queryKey: ['cv-analysis', appId],
+    queryFn: () => recruiterService.getCvAnalysis(appId),
+    enabled: false,
+    retry: false,
+  })
+
+  return (
+    <div className="rounded-xl border border-primary/20 bg-card p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Eye className="h-4 w-4 text-primary" />
+          <p className="text-sm font-semibold">CV Viewer — {name}</p>
+        </div>
+        <button onClick={onClose}><X className="h-4 w-4 text-muted-foreground hover:text-foreground" /></button>
+      </div>
+
+      {/* CV embed */}
+      {cvLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading CV…</div>}
+      {!cvLoading && !cvData?.url && <p className="text-sm text-muted-foreground italic">No CV uploaded by this candidate.</p>}
+      {cvData?.url && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <a href={cvData.url} target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent">
+              <ExternalLink className="h-3.5 w-3.5" /> Open in new tab
+            </a>
+            <a href={cvData.url} download
+              className="flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent">
+              <Download className="h-3.5 w-3.5" /> Download
+            </a>
+          </div>
+          <iframe
+            src={cvData.url}
+            className="w-full rounded-lg border bg-muted"
+            style={{ height: '480px' }}
+            title={`${name} CV`}
+          />
+        </div>
+      )}
+
+      {/* AI Analysis */}
+      <div className="border-t pt-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <p className="text-sm font-semibold">AI CV Analysis</p>
+            <AiBadge size="sm" />
+          </div>
+          {!isFetched && (
+            <Button size="sm" variant="outline" onClick={() => runAnalysis()} disabled={analysisLoading} className="gap-1">
+              {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Analyse CV
+            </Button>
+          )}
+        </div>
+
+        {analysisLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Gemini is analysing the CV…</div>}
+
+        {analysis && (
+          <div className="space-y-3">
+            {analysis.overall && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground/80">{analysis.overall}</div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {analysis.strengths?.length > 0 && (
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20 p-3 space-y-1">
+                  <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Strengths</p>
+                  {analysis.strengths.map((s: string, i: number) => <p key={i} className="text-xs text-emerald-800 dark:text-emerald-300">· {s}</p>)}
+                </div>
+              )}
+              {analysis.gaps?.length > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20 p-3 space-y-1">
+                  <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Gaps</p>
+                  {analysis.gaps.map((g: string, i: number) => <p key={i} className="text-xs text-amber-800 dark:text-amber-300">· {g}</p>)}
+                </div>
+              )}
+            </div>
+            {analysis.suggestedQuestions?.length > 0 && (
+              <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
+                <p className="text-xs font-semibold text-muted-foreground">Suggested Interview Questions</p>
+                {analysis.suggestedQuestions.map((q: string, i: number) => (
+                  <p key={i} className="text-xs text-foreground/70">Q{i + 1}: {q}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Shortlist() {
   const [params] = useSearchParams()
   const jobId = params.get('job') ?? ''
   const [mode, setMode] = useState<Mode>('Assist')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [showExplanation, setShowExplanation] = useState<string | null>(null)
+  const [showCvViewer, setShowCvViewer] = useState<string | null>(null)
   const [scheduleFor, setScheduleFor] = useState<string | null>(null)
   const [scheduledAt, setScheduledAt] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(10, 0, 0, 0)
@@ -515,8 +616,13 @@ export default function Shortlist() {
                       </Button>
 
                       <Button size="sm" variant="outline" className="gap-1"
+                        onClick={() => setShowCvViewer(showCvViewer === app._id ? null : app._id)}>
+                        <Eye className="h-3.5 w-3.5" />
+                        {showCvViewer === app._id ? 'Hide CV' : 'View CV'}
+                      </Button>
+                      <Button size="sm" variant="outline" className="gap-1"
                         onClick={() => downloadCv(app._id)}>
-                        <Download className="h-3.5 w-3.5" /> CV
+                        <Download className="h-3.5 w-3.5" />
                       </Button>
 
                       {mode === 'Assist' && (
@@ -600,6 +706,13 @@ export default function Shortlist() {
                     {isExplaining && (
                       <div className="border-t px-4 pb-4 pt-3">
                         <ExplanationPanel appId={app._id} candidateName={name} />
+                      </div>
+                    )}
+
+                    {/* CV Viewer + AI Analysis panel */}
+                    {showCvViewer === app._id && (
+                      <div className="border-t px-4 pb-4 pt-3">
+                        <CvViewerPanel appId={app._id} name={name} onClose={() => setShowCvViewer(null)} />
                       </div>
                     )}
 

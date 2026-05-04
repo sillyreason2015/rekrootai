@@ -169,7 +169,16 @@ authRouter.patch('/me', requireAuth, async (req, res, next) => {
     ).lean()
     if (!user) throw new HttpError(404, 'User not found')
     const { password: _pw, ...safeUser } = user
-    res.json({ ...safeUser, _id: String(user._id) })
+    let avatarPreviewUrl: string | undefined
+    if (safeUser.avatarDataUrl) avatarPreviewUrl = String(safeUser.avatarDataUrl)
+    else if (safeUser.avatarUrl) {
+      try {
+        avatarPreviewUrl = await presignedDownloadUrl(String(safeUser.avatarUrl), 3600)
+      } catch {
+        avatarPreviewUrl = undefined
+      }
+    }
+    res.json({ ...safeUser, _id: String(user._id), avatarPreviewUrl })
   } catch (err) {
     next(err)
   }

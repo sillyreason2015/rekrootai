@@ -151,7 +151,7 @@ jobsRouter.patch('/:id/thresholds', requireAuth, requireRole('recruiter', 'admin
   } catch (err) { next(err) }
 })
 
-jobsRouter.post('/:id/close', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
+jobsRouter.post('/:id/close', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     await assertCompanyVerifiedForJobActions(req.user!._id, req.user?.role)
     const job = await JobModel.findByIdAndUpdate(String(req.params.id), { status: 'closed' }, { new: true }).lean()
@@ -161,7 +161,7 @@ jobsRouter.post('/:id/close', requireAuth, requireRole('admin', 'super_admin'), 
 })
 
 // DELETE /jobs/:id — permanently removes draft jobs; published/closed jobs are archived instead
-jobsRouter.delete('/:id', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
+jobsRouter.delete('/:id', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     await assertCompanyVerifiedForJobActions(req.user!._id, req.user?.role)
     const job = await JobModel.findById(String(req.params.id)).lean()

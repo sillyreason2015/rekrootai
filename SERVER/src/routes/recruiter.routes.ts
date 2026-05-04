@@ -11,7 +11,7 @@ import { presignedDownloadUrl } from '../lib/blob.js'
 import { UserModel } from '../models/User.model.js'
 
 export const recruiterRouter = Router()
-recruiterRouter.use(requireAuth, requireRole('recruiter'))
+recruiterRouter.use(requireAuth, requireRole('recruiter', 'admin', 'super_admin'))
 
 // Helper: build a plain-English sentence from an audit entry
 async function buildNarrative(entry: {
@@ -150,6 +150,53 @@ recruiterRouter.get('/applications/:id/cv', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+// POST /recruiter/applications/:id/cv-analysis — AI analysis of candidate CV vs job
+recruiterRouter.post('/applications/:id/cv-analysis', async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(String(req.params.id)).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    const candidate = await CandidateModel.findById(String(app.candidate)).lean()
+    const job = await JobModel.findById(String(app.job), { title: 1, requirements: 1, skills: 1, description: 1 }).lean()
+    const cvText = (candidate?.cvParsed as { maskedCV?: string } | undefined)?.maskedCV ?? ''
+    const inferredSkills = (candidate?.cvParsed as { inferredSkills?: string[] } | undefined)?.inferredSkills ?? []
+    const jobSkills = job?.skills ?? []
+    const matchedSkills = inferredSkills.filter((s) => jobSkills.map((j) => j.toLowerCase()).includes(s.toLowerCase()))
+    const missingSkills = jobSkills.filter((s) => !inferredSkills.map((i) => i.toLowerCase()).includes(s.toLowerCase()))
+
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey || !cvText) {
+      return res.json({
+        overall: cvText ? `CV extracted. ${inferredSkills.length} skills identified.` : 'CV text could not be extracted from this file.',
+        strengths: matchedSkills.length ? [`Matched ${matchedSkills.length} required skills: ${matchedSkills.join(', ')}`] : ['No direct skill matches found in CV text.'],
+        gaps: missingSkills.length ? [`Missing required skills: ${missingSkills.join(', ')}`] : ['No obvious skill gaps detected.'],
+        score: app.scores?.resume ?? 0,
+        suggestedQuestions: ['Can you walk me through your most relevant project for this role?', 'How have you applied your technical skills in a real-world setting?'],
+      })
+    }
+
+    const prompt = `You are an expert recruiter AI. Analyse this candidate's CV against the job requirements and return a JSON object with these exact keys:
+- "overall": 1-2 sentence overall impression
+- "strengths": array of 3 bullet strings (what the CV does well for this role)
+- "gaps": array of 2-3 bullet strings (skill or experience gaps vs the job)
+- "suggestedQuestions": array of 3 specific interview questions tailored to this CV
+
+Job: ${job?.title ?? 'Unknown'}
+Required skills: ${jobSkills.join(', ') || 'not specified'}
+CV (excerpt, anonymised):
+${cvText.slice(0, 1500)}
+
+Respond ONLY with valid JSON. No markdown, no code fences.`.trim()
+
+    const { GoogleGenerativeAI } = await import('@google/generative-ai')
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const result = await model.generateContent(prompt)
+    const text = result.response.text().trim()
+    const parsed = JSON.parse(text.replace(/^```json\s*/i, '').replace(/```\s*$/, ''))
+    res.json({ ...parsed, score: app.scores?.resume ?? 0 })
+  } catch (err) { next(err) }
+})
+
 // POST /recruiter/applications/:id/assistant — AI chat about a candidate (Assist mode)
 recruiterRouter.post('/applications/:id/assistant', async (req, res, next) => {
   try {
@@ -216,7 +263,7 @@ Respond in 2–4 concise sentences. Be direct, professional, and evidence-based.
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
     const result = await model.generateContent(context)
     const answer = result.response.text().trim()
     res.json({ answer })

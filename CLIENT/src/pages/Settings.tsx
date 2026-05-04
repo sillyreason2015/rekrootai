@@ -52,6 +52,32 @@ function SaveBanner({ show }: { show: boolean }) {
   )
 }
 
+function CvUploadSection({ onUploaded, candidateProfile }: { onUploaded: () => void; candidateProfile?: { cvParsed?: { fileName?: string } } | null }) {
+  const [uploading, setUploading] = useState(false)
+  const [msg, setMsg] = useState('')
+  const upload = async (file: File) => {
+    setUploading(true); setMsg('')
+    try {
+      await candidateService.uploadCv(file)
+      setMsg('CV uploaded — skills and experience updated from your CV.')
+      onUploaded()
+    } catch { setMsg('Upload failed. Please try again.') }
+    finally { setUploading(false) }
+  }
+  return (
+    <div className="space-y-1.5">
+      <Label>CV / Resume</Label>
+      {candidateProfile?.cvParsed?.fileName && (
+        <p className="text-xs text-muted-foreground">Current: {candidateProfile.cvParsed.fileName}</p>
+      )}
+      <Input type="file" accept=".pdf,.doc,.docx,.txt" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f) }} disabled={uploading} />
+      {uploading && <p className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Uploading and parsing…</p>}
+      {msg && <p className={`text-xs ${msg.includes('failed') ? 'text-destructive' : 'text-emerald-600'}`}>{msg}</p>}
+      <p className="text-xs text-muted-foreground">Re-uploading will automatically update your skills, experience, and education from the CV text.</p>
+    </div>
+  )
+}
+
 function ExperienceForm({ initial, onSave, onCancel }: {
   initial: ExperienceEntry
   onSave: (e: ExperienceEntry) => void
@@ -266,6 +292,8 @@ export default function Settings() {
   const [careerSaved, setCareerSaved] = useState(false)
   const [editingExp, setEditingExp] = useState<number | 'new' | null>(null)
   const [editingEdu, setEditingEdu] = useState<number | 'new' | null>(null)
+  const [cvUploading, setCvUploading] = useState(false)
+  const [cvUploadMessage, setCvUploadMessage] = useState('')
 
   useEffect(() => {
     if (candidateProfile) {
@@ -309,6 +337,20 @@ export default function Settings() {
       await refreshUser()
     } finally {
       setAvatarUploading(false)
+    }
+  }
+
+  const uploadCv = async (file: File) => {
+    setCvUploading(true)
+    setCvUploadMessage('')
+    try {
+      await candidateService.uploadCv(file)
+      await refetchProfile()
+      setCvUploadMessage('CV uploaded and parsed successfully.')
+    } catch {
+      setCvUploadMessage('CV upload failed. Please try again.')
+    } finally {
+      setCvUploading(false)
     }
   }
 
@@ -415,6 +457,9 @@ export default function Settings() {
                   <Label>Role</Label>
                   <Input value={user?.role} disabled className="capitalize text-muted-foreground" />
                 </div>
+                {user?.role === 'candidate' && (
+                  <CvUploadSection onUploaded={() => refetchProfile()} candidateProfile={candidateProfile} />
+                )}
                 <Button type="submit" disabled={profileForm.formState.isSubmitting}>
                   {profileForm.formState.isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   <Save className="h-4 w-4" /> Save Changes
@@ -428,6 +473,32 @@ export default function Settings() {
         {user?.role === 'candidate' && (
           <TabsContent value="career" className="space-y-6">
             <SaveBanner show={careerSaved} />
+
+            <Card>
+              <CardHeader><CardTitle>CV / Resume</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label>Current CV</Label>
+                  <p className="text-sm text-muted-foreground">
+                    {String((candidateProfile?.cvParsed as { fileName?: string } | undefined)?.fileName ?? 'No CV uploaded yet')}
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Upload or re-upload CV</Label>
+                  <Input
+                    type="file"
+                    accept=".pdf,.doc,.docx,.txt"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) void uploadCv(file)
+                    }}
+                  />
+                  <p className="text-xs text-muted-foreground">Parsed CV data is used to refresh skills, work history, and resume scoring.</p>
+                  {cvUploading && <p className="text-xs text-muted-foreground">Uploading CV...</p>}
+                  {!!cvUploadMessage && <p className="text-xs text-muted-foreground">{cvUploadMessage}</p>}
+                </div>
+              </CardContent>
+            </Card>
 
             {/* About Me */}
             <Card>

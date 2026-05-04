@@ -14,6 +14,7 @@ import { AssessmentModel } from '../models/Assessment.model.js'
 import { notify } from '../lib/notify.js'
 import { AuditLogModel } from '../models/AuditLog.model.js'
 import { InterviewModel } from '../models/Interview.model.js'
+import { scoreCandidateForJob } from '../lib/candidate-profile.js'
 
 function buildNarrative(s: {
   resumeScore: number; assessmentScore: number; penaltyApplied: number
@@ -162,11 +163,12 @@ applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin'), asy
       }
     }
 
+    const resumeScore = scoreCandidateForJob(candidate, job)
     const application = await ApplicationModel.create({
       job: String(job._id),
       candidate: String(candidate._id),
       status: 'pending',
-      scores: { resume: 0, assessment: 0, penalty: 0, interview: 0, final: 0 },
+      scores: { resume: resumeScore, assessment: 0, penalty: 0, interview: 0, final: resumeScore },
       stage: 'applied',
       applicationAnswers: safeAnswers,
     })

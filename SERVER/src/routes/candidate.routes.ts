@@ -12,6 +12,7 @@ import { JobModel } from '../models/Job.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { cvKey, presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
+import { buildParsedCvData, mergeCandidateWithCv } from '../lib/candidate-profile.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
 
@@ -45,7 +46,11 @@ candidateRouter.patch('/me', async (req, res, next) => {
   try {
     const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
-    const updated = await CandidateModel.findByIdAndUpdate(candidate._id, req.body, { new: true }).lean()
+    const ALLOWED = ['headline', 'skills', 'experience', 'education', 'linkedIn', 'portfolio', 'location', 'availableFrom']
+    const safeUpdate = Object.fromEntries(
+      Object.entries(req.body as Record<string, unknown>).filter(([key]) => ALLOWED.includes(key)),
+    )
+    const updated = await CandidateModel.findByIdAndUpdate(candidate._id, safeUpdate, { new: true }).lean()
     await logAction({ actor: 'user', action: 'candidate-profile-update', candidateId: String(candidate._id), mode: 'assist' })
     res.json({ ...updated, _id: String(updated!._id) })
   } catch (err) {
@@ -78,14 +83,9 @@ candidateRouter.post('/me/cv', upload.single('cv'), async (req, res, next) => {
       rawText = String(parsed?.value ?? '').slice(0, 12000)
     }
     const masked = rawText ? anonymizeText(rawText) : ''
-    const cvParsed = {
-      fileName,
-      extracted: Boolean(rawText),
-      textPreview: rawText ? masked.slice(0, 350) : 'Uploaded successfully. Parsing pipeline pending.',
-      maskedCV: rawText ? masked : '',
-      anonymization: rawText ? 'applied' : 'pending_non_text_parse',
-    }
-    await CandidateModel.findByIdAndUpdate(candidate._id, { cvUrl: key, cvParsed })
+    const cvParsed = buildParsedCvData(fileName, rawText, masked)
+    const derivedProfile = mergeCandidateWithCv(candidate, cvParsed)
+    await CandidateModel.findByIdAndUpdate(candidate._id, { cvUrl: key, cvParsed, ...derivedProfile })
     await logAction({ actor: 'user', action: 'cv-upload', candidateId: String(candidate._id), mode: 'assist', payload: { fileName } })
     res.json({ cvUrl: key, parsed: cvParsed })
   } catch (err) {

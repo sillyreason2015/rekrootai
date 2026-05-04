@@ -42,6 +42,15 @@ export default function RecruiterDashboard() {
   ]
   const draftCount = jobs?.data.filter((j: Job) => j.status === 'draft').length ?? 0
   const closedCount = jobs?.data.filter((j: Job) => j.status === 'closed').length ?? 0
+  const funnelStages = [
+    { key: 'applied', label: 'Applied' },
+    { key: 'screening', label: 'Screening' },
+    { key: 'assessment', label: 'Assessment' },
+    { key: 'interview', label: 'Interview' },
+    { key: 'decision', label: 'Decision' },
+    { key: 'offered', label: 'Offered' },
+    { key: 'rejected', label: 'Rejected' },
+  ] as const
 
   return (
     <div className="space-y-8">
@@ -72,6 +81,19 @@ export default function RecruiterDashboard() {
             >
               Run Veto Now
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="pb-2"><CardTitle>Pipeline Funnel</CardTitle></CardHeader>
+        <CardContent>
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {funnelStages.map(({ key, label }) => (
+              <Link key={key} to="/recruiter/shortlist" className="rounded-xl border bg-muted/20 px-3 py-3 transition-colors hover:bg-accent">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+                <p className="mt-1 text-2xl font-bold">{Number(pipeline?.[key] ?? 0)}</p>
+              </Link>
+            ))}
           </div>
         </CardContent>
       </Card>
