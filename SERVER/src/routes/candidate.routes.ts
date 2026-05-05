@@ -189,33 +189,45 @@ function anonymizeText(input: string): string {
 
 /**
  * Extract text from a PDF buffer.
- * Uses Gemini's native PDF reading when available (far more accurate),
- * falls back to pdf-parse for offline/no-key scenarios.
+ * Tier 1: Gemini native PDF reading (best — understands document structure)
+ * Tier 2: pdfjs-dist (good — Mozilla's renderer, preserves layout)
+ * Tier 3: pdf-parse (basic fallback)
  */
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  // Try Gemini-native PDF extraction first — it understands document structure
+  // Tier 1: Gemini
   if (env.GEMINI_API_KEY) {
     try {
       const { GoogleGenerativeAI } = await import('@google/generative-ai')
       const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY)
       const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
       const result = await model.generateContent([
-        {
-          inlineData: {
-            mimeType: 'application/pdf',
-            data: buffer.toString('base64'),
-          },
-        },
-        'Extract all text from this CV/resume document. Preserve the structure: output section headers (like Experience, Education, Skills) on their own lines, then the content beneath each. Do not summarize — output the full text verbatim.',
+        { inlineData: { mimeType: 'application/pdf', data: buffer.toString('base64') } },
+        'Extract all text from this CV/resume. Preserve section headers (Experience, Education, Skills) on their own lines with content beneath. Output full text verbatim, no summarising.',
       ])
       const text = result.response.text().trim()
       if (text.length > 100) return text.slice(0, 12000)
-    } catch {
-      // fall through to pdf-parse
-    }
+    } catch { /* fall through */ }
   }
 
-  // Fallback: pdf-parse (import from lib path to avoid test-file crash)
+  // Tier 2: pdfjs-dist (accurate, structure-aware)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs' as string) as any
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) })
+    const pdf = await loadingTask.promise
+    const pages: string[] = []
+    for (let i = 1; i <= Math.min(pdf.numPages, 10); i++) {
+      const page = await pdf.getPage(i)
+      const content = await page.getTextContent()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pageText = content.items.map((item: any) => item.str ?? '').join(' ')
+      pages.push(pageText)
+    }
+    const text = pages.join('\n').trim()
+    if (text.length > 100) return text.slice(0, 12000)
+  } catch { /* fall through */ }
+
+  // Tier 3: pdf-parse (basic)
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const pdfParse = ((await import('pdf-parse/lib/pdf-parse.js' as string)) as any).default as (buf: Buffer) => Promise<{ text?: string }>
