@@ -3,6 +3,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://rekroot-ai-bck.onrender.com/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
