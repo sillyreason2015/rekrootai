@@ -116,10 +116,13 @@ jobsRouter.delete('/:id', requireAuth, requireRole('recruiter', 'admin', 'super_
 })
 
 // ── GET /jobs/:jobId/question-banks/:metric ───────────────────────────────────
-jobsRouter.get('/:jobId/question-banks/:metric', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), (req, res) => {
-  res.json({
-    jobId: req.params.jobId,
-    metric: req.params.metric,
-    items: [{ stem: `Sample ${req.params.metric} question`, type: 'mcq', difficulty: 'medium', tags: [] }],
-  })
+// Delegates to the real question bank — returns questions for this job + module type
+jobsRouter.get('/:jobId/question-banks/:metric', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { QuestionBankModel } = await import('../models/QuestionBank.model.js')
+    const items = await QuestionBankModel.find({
+      category: req.params.metric,
+    }).sort({ createdAt: -1 }).limit(50).lean()
+    res.json({ jobId: req.params.jobId, metric: req.params.metric, items: items.map((q) => ({ ...q, _id: String(q._id) })) })
+  } catch (err) { next(err) }
 })

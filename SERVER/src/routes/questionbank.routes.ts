@@ -209,8 +209,7 @@ questionBankRouter.post('/upload', requireAuth, requireRole('recruiter', 'admin'
 
     if (mime === 'application/pdf' || req.file.originalname.endsWith('.pdf')) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const pdfModule = await import('pdf-parse') as any
-      const pdfParse = pdfModule.default ?? pdfModule
+      const pdfParse = ((await import('pdf-parse/lib/pdf-parse.js' as string)) as any).default as (buf: Buffer) => Promise<{ text: string }>
       const result = await pdfParse(req.file.buffer)
       text = result.text
     } else if (
