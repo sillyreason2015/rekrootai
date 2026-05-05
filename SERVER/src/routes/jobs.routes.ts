@@ -1,114 +1,125 @@
 import { Router } from 'express'
-import { db, getJobById, logAction } from '../data/mockStore.js'
+import { JobModel } from '../models/Job.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
-import { HttpError, paginate, nowIso } from '../lib/http.js'
+import { HttpError, paginate } from '../lib/http.js'
+import { logAction } from '../data/store.js'
 
 export const jobsRouter = Router()
 
-jobsRouter.get('/', (req, res) => {
-  const search = String(req.query.search ?? '').toLowerCase()
-  const type = String(req.query.type ?? '')
-  const remote = String(req.query.remote ?? '')
-  const page = Number(req.query.page ?? 1)
-  const limit = Number(req.query.limit ?? 10)
-  const filtered = db.jobs.filter((job) => {
-    const matchesSearch = !search || [job.title, job.department, job.location].some((value) => value.toLowerCase().includes(search))
-    const matchesType = !type || job.type === type
-    const matchesRemote = !remote || job.remote === remote
-    return matchesSearch && matchesType && matchesRemote && job.status !== 'draft'
-  })
-  res.json(paginate(filtered, page, limit))
-})
-
-jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin'), (req, res) => {
-  const page = Number(req.query.page ?? 1)
-  const limit = Number(req.query.limit ?? 10)
-  const status = String(req.query.status ?? '')
-  const jobs = db.jobs.filter((job) => job.createdBy === req.user?._id && (!status || job.status === status))
-  res.json(paginate(jobs, page, limit))
-})
-
-jobsRouter.get('/:id', (req, res, next) => {
+// ── GET /jobs — public, published only ───────────────────────────────────────
+jobsRouter.get('/', async (req, res, next) => {
   try {
-    const job = getJobById(String(req.params.id))
-    if (!job) throw new HttpError(404, 'Job not found')
-    res.json(job)
-  } catch (error) {
-    next(error)
-  }
+    const search = String(req.query.search ?? '').toLowerCase()
+    const type = String(req.query.type ?? '')
+    const remote = String(req.query.remote ?? '')
+    const page = Number(req.query.page ?? 1)
+    const limit = Number(req.query.limit ?? 10)
+    const filter: Record<string, unknown> = { status: 'published' }
+    if (type) filter.type = type
+    if (remote) filter.remote = remote
+    if (search) filter.$or = [
+      { title: { $regex: search, $options: 'i' } },
+      { department: { $regex: search, $options: 'i' } },
+      { location: { $regex: search, $options: 'i' } },
+    ]
+    const all = await JobModel.find(filter).sort({ createdAt: -1 }).lean()
+    res.json(paginate(all, page, limit))
+  } catch (err) { next(err) }
 })
 
-jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin'), (req, res) => {
-  const job = {
-    _id: `job-${db.jobs.length + 1}`,
-    company: 'company-1',
-    title: req.body.title ?? 'New Role',
-    department: req.body.department ?? 'General',
-    location: req.body.location ?? 'Remote',
-    type: req.body.type ?? 'full-time',
-    remote: req.body.remote ?? 'remote',
-    description: req.body.description ?? '',
-    requirements: req.body.requirements ?? [],
-    responsibilities: req.body.responsibilities ?? [],
-    skills: req.body.skills ?? [],
-    salaryCurrency: req.body.salaryCurrency ?? 'USD',
-    status: 'draft' as const,
-    assessmentModules: req.body.assessmentModules ?? [],
-    thresholds: req.body.thresholds ?? { tau1: 0.5, tau2: 70 },
-    alpha: req.body.alpha ?? 0.4,
-    createdBy: req.user?._id ?? 'mock-recruiter',
-    createdAt: nowIso(),
-  }
-  db.jobs.unshift(job)
-  logAction({ actor: 'user', action: 'job-create', jobId: job._id, mode: 'assist' })
-  res.status(201).json(job)
-})
-
-jobsRouter.patch('/:id', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
+// ── GET /jobs/mine — recruiter's own jobs ─────────────────────────────────────
+jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const job = getJobById(String(req.params.id))
-    if (!job) throw new HttpError(404, 'Job not found')
-    Object.assign(job, req.body)
-    logAction({ actor: 'user', action: 'job-update', jobId: job._id, mode: 'assist' })
-    res.json(job)
-  } catch (error) {
-    next(error)
-  }
+    const page = Number(req.query.page ?? 1)
+    const limit = Number(req.query.limit ?? 10)
+    const status = String(req.query.status ?? '')
+    const filter: Record<string, unknown> = { createdBy: req.user!._id }
+    if (status) filter.status = status
+    const all = await JobModel.find(filter).sort({ createdAt: -1 }).lean()
+    res.json(paginate(all, page, limit))
+  } catch (err) { next(err) }
 })
 
-jobsRouter.post('/:id/publish', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
+// ── GET /jobs/:id ─────────────────────────────────────────────────────────────
+jobsRouter.get('/:id', async (req, res, next) => {
   try {
-    const job = getJobById(String(req.params.id))
+    const job = await JobModel.findById(req.params.id).lean()
     if (!job) throw new HttpError(404, 'Job not found')
-    job.status = 'published'
-    res.json(job)
-  } catch (error) {
-    next(error)
-  }
+    res.json({ ...job, _id: String(job._id) })
+  } catch (err) { next(err) }
 })
 
-jobsRouter.post('/:id/close', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
+// ── POST /jobs ────────────────────────────────────────────────────────────────
+jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const job = getJobById(String(req.params.id))
-    if (!job) throw new HttpError(404, 'Job not found')
-    job.status = 'closed'
-    res.json(job)
-  } catch (error) {
-    next(error)
-  }
+    const body = req.body as Record<string, unknown>
+    const job = await JobModel.create({
+      ...body,
+      status: 'draft',
+      createdBy: req.user!._id,
+    })
+    await logAction({ actor: 'user', action: 'job-created', jobId: String(job._id), mode: 'assist' })
+    res.status(201).json({ ...job.toObject(), _id: String(job._id) })
+  } catch (err) { next(err) }
 })
 
-jobsRouter.get('/:jobId/question-banks/:metric', requireAuth, requireRole('recruiter', 'admin'), (req, res) => {
+// ── PATCH /jobs/:id ───────────────────────────────────────────────────────────
+jobsRouter.patch('/:id', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const job = await JobModel.findOneAndUpdate(
+      { _id: req.params.id, createdBy: req.user!._id },
+      req.body as Record<string, unknown>,
+      { new: true },
+    ).lean()
+    if (!job) throw new HttpError(404, 'Job not found')
+    await logAction({ actor: 'user', action: 'job-updated', jobId: String(job._id), mode: 'assist' })
+    res.json({ ...job, _id: String(job._id) })
+  } catch (err) { next(err) }
+})
+
+// ── POST /jobs/:id/publish ────────────────────────────────────────────────────
+jobsRouter.post('/:id/publish', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const job = await JobModel.findOneAndUpdate(
+      { _id: req.params.id, createdBy: req.user!._id },
+      { status: 'published' },
+      { new: true },
+    ).lean()
+    if (!job) throw new HttpError(404, 'Job not found')
+    await logAction({ actor: 'user', action: 'job-published', jobId: String(job._id), mode: 'assist' })
+    res.json({ ...job, _id: String(job._id) })
+  } catch (err) { next(err) }
+})
+
+// ── POST /jobs/:id/close ──────────────────────────────────────────────────────
+jobsRouter.post('/:id/close', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const job = await JobModel.findOneAndUpdate(
+      { _id: req.params.id, createdBy: req.user!._id },
+      { status: 'closed' },
+      { new: true },
+    ).lean()
+    if (!job) throw new HttpError(404, 'Job not found')
+    res.json({ ...job, _id: String(job._id) })
+  } catch (err) { next(err) }
+})
+
+// ── DELETE /jobs/:id ──────────────────────────────────────────────────────────
+jobsRouter.delete('/:id', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const job = await JobModel.findOne({ _id: req.params.id, createdBy: req.user!._id }).lean()
+    if (!job) throw new HttpError(404, 'Job not found')
+    if (job.status === 'published') throw new HttpError(400, 'Close the job before deleting it')
+    await JobModel.deleteOne({ _id: req.params.id })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// ── GET /jobs/:jobId/question-banks/:metric ───────────────────────────────────
+jobsRouter.get('/:jobId/question-banks/:metric', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), (req, res) => {
   res.json({
     jobId: req.params.jobId,
     metric: req.params.metric,
-    items: [
-      {
-        stem: `Sample ${req.params.metric} question`,
-        type: 'mcq',
-        difficulty: 'medium',
-        tags: ['scaffold'],
-      },
-    ],
+    items: [{ stem: `Sample ${req.params.metric} question`, type: 'mcq', difficulty: 'medium', tags: [] }],
   })
 })

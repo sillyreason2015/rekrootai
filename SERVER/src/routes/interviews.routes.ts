@@ -1,103 +1,121 @@
 import { Router } from 'express'
-import { db, getApplicationById, getInterviewById, logAction } from '../data/mockStore.js'
+import { InterviewModel } from '../models/Interview.model.js'
+import { ApplicationModel } from '../models/Application.model.js'
+import { CandidateModel } from '../models/Candidate.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
-import { HttpError, nowIso } from '../lib/http.js'
+import { HttpError } from '../lib/http.js'
+import { logAction } from '../data/store.js'
+import { notify } from '../lib/notify.js'
 
 export const interviewsRouter = Router()
 
-interviewsRouter.get('/mine', requireAuth, (req, res) => {
-  const interviews = db.interviews.filter((interview) => interview.candidate === req.user?._id || interview.recruiter === req.user?._id)
-  res.json(interviews)
-})
-
-interviewsRouter.get('/:id', requireAuth, (req, res, next) => {
+// ── GET /interviews/mine ──────────────────────────────────────────────────────
+interviewsRouter.get('/mine', requireAuth, async (req, res, next) => {
   try {
-    const interview = getInterviewById(String(req.params.id))
-    if (!interview) throw new HttpError(404, 'Interview not found')
-    res.json(interview)
-  } catch (error) {
-    next(error)
-  }
+    const candidate = await CandidateModel.findOne({ user: req.user!._id }).lean()
+    const filter = candidate
+      ? { $or: [{ candidate: String(candidate._id) }, { recruiter: req.user!._id }] }
+      : { recruiter: req.user!._id }
+    const interviews = await InterviewModel.find(filter as object)
+      .populate('job', 'title department').sort({ scheduledAt: 1 }).lean()
+    res.json(interviews)
+  } catch (err) { next(err) }
 })
 
-interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
+// ── GET /interviews/:id ───────────────────────────────────────────────────────
+interviewsRouter.get('/:id', requireAuth, async (req, res, next) => {
+  try {
+    const interview = await InterviewModel.findById(req.params.id)
+      .populate('job', 'title department').lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    res.json({ ...interview, _id: String(interview._id) })
+  } catch (err) { next(err) }
+})
+
+// ── POST /interviews — schedule ───────────────────────────────────────────────
+interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const { applicationId, scheduledAt, durationMin } = req.body as { applicationId?: string; scheduledAt?: string; durationMin?: number }
-    const application = applicationId ? getApplicationById(String(applicationId)) : null
+    const application = applicationId ? await ApplicationModel.findById(applicationId).lean() : null
     if (!application) throw new HttpError(404, 'Application not found')
-    const interview = {
-      _id: `interview-${db.interviews.length + 1}`,
+    const interview = await InterviewModel.create({
       application: application._id,
       job: application.job,
       candidate: application.candidate,
-      recruiter: req.user?._id ?? 'mock-recruiter',
-      scheduledAt: scheduledAt ?? nowIso(),
+      recruiter: req.user!._id,
+      scheduledAt: scheduledAt ?? new Date().toISOString(),
       durationMin: durationMin ?? 45,
-      roomToken: `room-${db.interviews.length + 1}`,
+      status: 'scheduled',
       transcript: [],
       rubric: [],
-      status: 'scheduled' as const,
-    }
-    db.interviews.unshift(interview)
-    application.status = 'interview_scheduled'
-    application.stage = 'interview'
-    logAction({ actor: 'user', action: 'interview-schedule', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
-    res.status(201).json(interview)
-  } catch (error) {
-    next(error)
-  }
-})
-
-interviewsRouter.get('/:id/token', requireAuth, (req, res, next) => {
-  try {
-    const interview = getInterviewById(String(req.params.id))
-    if (!interview) throw new HttpError(404, 'Interview not found')
-    res.json({ token: interview.roomToken ?? `room-${interview._id}`, roomName: interview.roomToken ?? `room-${interview._id}` })
-  } catch (error) {
-    next(error)
-  }
-})
-
-interviewsRouter.post('/:id/rubric', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
-  try {
-    const interview = getInterviewById(String(req.params.id))
-    if (!interview) throw new HttpError(404, 'Interview not found')
-    interview.rubric = req.body.rubric ?? []
-    logAction({ actor: 'user', action: 'interview-rubric', candidateId: interview.candidate, jobId: interview.job, mode: 'assist' })
-    res.json({ ok: true })
-  } catch (error) {
-    next(error)
-  }
-})
-
-interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
-  try {
-    const interview = getInterviewById(String(req.params.id))
-    if (!interview) throw new HttpError(404, 'Interview not found')
-    interview.status = 'completed'
-    interview.score = Math.round(70 + Math.random() * 20)
-    const application = getApplicationById(interview.application)
-    if (application) {
-      application.status = 'decision_made'
-      application.stage = 'decision'
-      application.scores.interview = interview.score
-    }
-    logAction({ actor: 'ai', action: 'interview-complete', candidateId: interview.candidate, jobId: interview.job, mode: 'assist' })
-    res.json(interview)
-  } catch (error) {
-    next(error)
-  }
-})
-
-interviewsRouter.get('/:id/artifacts', requireAuth, (req, res, next) => {
-  try {
-    const interview = getInterviewById(String(req.params.id))
-    if (!interview) throw new HttpError(404, 'Interview not found')
-    res.json({
-      transcriptUrl: `/artifacts/${interview._id}/transcript`,
-      recordingUrl: `/artifacts/${interview._id}/recording`,
     })
-  } catch (error) {
-    next(error)
-  }
+    await ApplicationModel.findByIdAndUpdate(application._id, { stage: 'interview', status: 'interview_scheduled' })
+    await logAction({ actor: 'user', action: 'interview-scheduled', candidateId: String(application.candidate), jobId: String(application.job), mode: 'assist' })
+    notify(String(application.candidate), { type: 'info', title: 'Interview Scheduled', body: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.` })
+    res.status(201).json({ ...interview.toObject(), _id: String(interview._id) })
+  } catch (err) { next(err) }
+})
+
+// ── GET /interviews/:id/token ─────────────────────────────────────────────────
+interviewsRouter.get('/:id/token', requireAuth, async (req, res, next) => {
+  try {
+    const interview = await InterviewModel.findById(req.params.id).lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    const roomName = `room-${String(interview._id)}`
+    res.json({ token: roomName, roomName })
+  } catch (err) { next(err) }
+})
+
+// ── POST /interviews/:id/rubric ───────────────────────────────────────────────
+interviewsRouter.post('/:id/rubric', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const interview = await InterviewModel.findByIdAndUpdate(
+      req.params.id, { rubric: req.body.rubric ?? [] }, { new: true }
+    ).lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// ── POST /interviews/:id/complete ─────────────────────────────────────────────
+interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const score = Number((req.body as { score?: number }).score ?? Math.round(70 + Math.random() * 20))
+    const interview = await InterviewModel.findByIdAndUpdate(
+      req.params.id, { status: 'completed', score }, { new: true }
+    ).lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    await ApplicationModel.findByIdAndUpdate(interview.application, {
+      stage: 'decision', status: 'decision_made', 'scores.interview': score,
+    })
+    await logAction({ actor: 'ai', action: 'interview-completed', candidateId: String(interview.candidate), jobId: String(interview.job), mode: 'assist', payload: { avgScore: score } })
+    res.json({ ...interview, _id: String(interview._id) })
+  } catch (err) { next(err) }
+})
+
+// ── GET /interviews/:id/artifacts ─────────────────────────────────────────────
+interviewsRouter.get('/:id/artifacts', requireAuth, async (req, res, next) => {
+  try {
+    const interview = await InterviewModel.findById(req.params.id).lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    res.json({ transcriptUrl: null, recordingUrl: null })
+  } catch (err) { next(err) }
+})
+
+// ── POST /interviews/:id/missed-recovery-request ──────────────────────────────
+interviewsRouter.post('/:id/missed-recovery-request', requireAuth, requireRole('candidate', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { reason, proposedAt } = req.body as { reason?: string; proposedAt?: string }
+    const interview = await InterviewModel.findById(req.params.id).lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    await ApplicationModel.findByIdAndUpdate(interview.application, {
+      interviewMissed: true,
+      'missedInterviewRecovery.status': 'pending',
+      'missedInterviewRecovery.reason': reason,
+      'missedInterviewRecovery.proposedAt': proposedAt,
+      'missedInterviewRecovery.requestedAt': new Date().toISOString(),
+    })
+    await logAction({ actor: 'user', action: 'missed-interview-recovery-requested', candidateId: String(interview.candidate), jobId: String(interview.job), mode: 'assist' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
 })

@@ -1,129 +1,164 @@
 import { Router } from 'express'
-import { db, getApplicationById, getCandidateByUserId, getJobById, logAction } from '../data/mockStore.js'
+import { ApplicationModel } from '../models/Application.model.js'
+import { CandidateModel } from '../models/Candidate.model.js'
+import { JobModel } from '../models/Job.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
-import { HttpError, nowIso, paginate } from '../lib/http.js'
+import { HttpError, paginate } from '../lib/http.js'
+import { logAction } from '../data/store.js'
+import { scoreCandidateForJob } from '../lib/candidate-profile.js'
 
 export const applicationsRouter = Router()
 
-applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin'), (req, res, next) => {
+// ── POST /applications — candidate applies ────────────────────────────────────
+applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const { jobId } = req.body as { jobId?: string }
-    const candidate = req.user ? getCandidateByUserId(req.user._id) : null
-    const job = jobId ? getJobById(jobId) : null
+    if (!jobId) throw new HttpError(400, 'jobId is required')
+    const [candidate, job] = await Promise.all([
+      CandidateModel.findOne({ user: req.user!._id }).lean(),
+      JobModel.findById(jobId).lean(),
+    ])
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
     if (!job) throw new HttpError(404, 'Job not found')
-    const application = {
-      _id: `app-${db.applications.length + 1}`,
-      job: job._id,
+    const existing = await ApplicationModel.findOne({ candidate: candidate._id, job: jobId }).lean()
+    if (existing) throw new HttpError(409, 'Already applied to this job')
+
+    const resumeScore = scoreCandidateForJob(candidate as Parameters<typeof scoreCandidateForJob>[0], job as Parameters<typeof scoreCandidateForJob>[1])
+    const application = await ApplicationModel.create({
+      job: jobId,
       candidate: candidate._id,
-      status: 'pending' as const,
-      scores: { resume: 0, assessment: 0, penalty: 0, interview: 0, final: 0 },
-      stage: 'applied' as const,
-      createdAt: nowIso(),
-    }
-    db.applications.unshift(application)
-    logAction({ actor: 'user', action: 'application-create', candidateId: candidate._id, jobId: job._id, mode: 'assist' })
-    res.status(201).json(application)
-  } catch (error) {
-    next(error)
-  }
-})
-
-applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin'), (req, res) => {
-  const candidate = req.user ? getCandidateByUserId(req.user._id) : null
-  const applications = candidate ? db.applications.filter((application) => application.candidate === candidate._id) : []
-  res.json(applications)
-})
-
-applicationsRouter.get('/:id', requireAuth, (req, res, next) => {
-  try {
-    const application = getApplicationById(String(req.params.id))
-    if (!application) throw new HttpError(404, 'Application not found')
-    res.json(application)
-  } catch (error) {
-    next(error)
-  }
-})
-
-applicationsRouter.get('/job/:jobId', requireAuth, requireRole('recruiter', 'admin'), (req, res) => {
-  const page = Number(req.query.page ?? 1)
-  const limit = Number(req.query.limit ?? 10)
-  const stage = String(req.query.stage ?? '')
-  const applications = db.applications.filter((application) => application.job === String(req.params.jobId) && (!stage || application.stage === stage))
-  res.json(paginate(applications, page, limit))
-})
-
-applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
-  try {
-    const application = getApplicationById(String(req.params.id))
-    if (!application) throw new HttpError(404, 'Application not found')
-    application.status = 'shortlisted'
-    application.stage = 'screening'
-    logAction({ actor: 'user', action: 'application-shortlist', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
-    res.json(application)
-  } catch (error) {
-    next(error)
-  }
-})
-
-applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
-  try {
-    const application = getApplicationById(String(req.params.id))
-    if (!application) throw new HttpError(404, 'Application not found')
-    application.status = 'rejected'
-    application.stage = 'rejected'
-    application.recruiterNotes = (req.body as { reason?: string }).reason
-    logAction({ actor: 'user', action: 'application-reject', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
-    res.json(application)
-  } catch (error) {
-    next(error)
-  }
-})
-
-applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
-  try {
-    const application = getApplicationById(String(req.params.id))
-    if (!application) throw new HttpError(404, 'Application not found')
-    const { decision, notes } = req.body as { decision?: 'hire' | 'reject' | 'hold'; notes?: string }
-    application.decision = decision
-    application.recruiterNotes = notes
-    application.decisionBy = req.user?._id
-    application.decisionAt = nowIso()
-    application.status = 'decision_made'
-    application.stage = decision === 'hire' ? 'decision' : 'rejected'
-    logAction({ actor: 'user', action: 'application-decision', candidateId: application.candidate, jobId: application.job, mode: 'assist' })
-    res.json(application)
-  } catch (error) {
-    next(error)
-  }
-})
-
-applicationsRouter.get('/:id/explanation', requireAuth, (req, res, next) => {
-  try {
-    const application = getApplicationById(String(req.params.id))
-    if (!application) throw new HttpError(404, 'Application not found')
-    res.json({
-      explanation: {
-        bullets: [
-          'Strong match on required frontend skills',
-          'Assessment performance is above threshold',
-          'Interview rubric indicates strong communication',
-        ],
-      },
-      scores: application.scores,
+      status: 'pending',
+      stage: 'applied',
+      scores: { resume: resumeScore, assessment: 0, penalty: 0, interview: 0, final: resumeScore },
     })
-  } catch (error) {
-    next(error)
-  }
+    await logAction({ actor: 'user', action: 'apply', candidateId: String(candidate._id), jobId, mode: 'assist' })
+    res.status(201).json({ ...application.toObject(), _id: String(application._id) })
+  } catch (err) { next(err) }
 })
 
-applicationsRouter.post('/:id/correspondence/send', requireAuth, requireRole('recruiter', 'admin'), (req, res, next) => {
+// ── GET /applications/mine ─────────────────────────────────────────────────────
+applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const application = getApplicationById(String(req.params.id))
-    if (!application) throw new HttpError(404, 'Application not found')
-    logAction({ actor: 'user', action: 'correspondence-send', candidateId: application.candidate, jobId: application.job, mode: 'assist', payload: req.body as Record<string, unknown> })
+    const candidate = await CandidateModel.findOne({ user: req.user!._id }).lean()
+    if (!candidate) return res.json([])
+    const apps = await ApplicationModel.find({ candidate: candidate._id })
+      .populate('job', 'title department location type status')
+      .sort({ createdAt: -1 }).lean()
+    res.json(apps)
+  } catch (err) { next(err) }
+})
+
+// ── GET /applications/job/:jobId ──────────────────────────────────────────────
+applicationsRouter.get('/job/:jobId', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const page = Number(req.query.page ?? 1)
+    const limit = Number(req.query.limit ?? 20)
+    const stage = String(req.query.stage ?? '')
+    const filter: Record<string, unknown> = { job: req.params.jobId }
+    if (stage) filter.stage = stage
+    const all = await ApplicationModel.find(filter)
+      .populate('candidate', 'skills experience headline cvUrl')
+      .sort({ createdAt: -1 }).lean()
+    res.json(paginate(all, page, limit))
+  } catch (err) { next(err) }
+})
+
+// ── GET /applications/:id ─────────────────────────────────────────────────────
+applicationsRouter.get('/:id', requireAuth, async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id)
+      .populate('job', 'title department skills requirements')
+      .populate('candidate', 'skills experience education headline cvUrl cvParsed')
+      .lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    res.json({ ...app, _id: String(app._id) })
+  } catch (err) { next(err) }
+})
+
+// ── POST /applications/:id/shortlist ──────────────────────────────────────────
+applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findByIdAndUpdate(
+      req.params.id,
+      { status: 'shortlisted', stage: 'screening' },
+      { new: true },
+    ).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    await logAction({ actor: 'user', action: 'shortlisted', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
+    res.json({ ...app, _id: String(app._id) })
+  } catch (err) { next(err) }
+})
+
+// ── POST /applications/:id/reject ─────────────────────────────────────────────
+applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { reason } = req.body as { reason?: string }
+    const app = await ApplicationModel.findByIdAndUpdate(
+      req.params.id,
+      { status: 'rejected', stage: 'rejected', recruiterNotes: reason },
+      { new: true },
+    ).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    await logAction({ actor: 'user', action: 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { decision: reason } })
+    res.json({ ...app, _id: String(app._id) })
+  } catch (err) { next(err) }
+})
+
+// ── POST /applications/:id/decision ───────────────────────────────────────────
+applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { decision, notes } = req.body as { decision?: 'hire' | 'reject' | 'hold'; notes?: string }
+    if (!decision) throw new HttpError(400, 'decision is required')
+    const app = await ApplicationModel.findByIdAndUpdate(
+      req.params.id,
+      {
+        decision,
+        recruiterNotes: notes,
+        decisionBy: req.user!._id,
+        decisionAt: new Date().toISOString(),
+        status: 'decision_made',
+        stage: decision === 'hire' ? 'decision' : 'rejected',
+      },
+      { new: true },
+    ).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    await logAction({ actor: 'user', action: decision === 'hire' ? 'hired' : 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { decision } })
+    res.json({ ...app, _id: String(app._id) })
+  } catch (err) { next(err) }
+})
+
+// ── POST /applications/:id/ai-decide ─────────────────────────────────────────
+applicationsRouter.post('/:id/ai-decide', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    const score = app.scores?.final ?? app.scores?.resume ?? 0
+    const decision = score >= 65 ? 'shortlist' : score >= 40 ? 'review' : 'reject'
+    const nextStage = decision === 'shortlist' ? 'screening' : decision === 'reject' ? 'rejected' : app.stage
+    await ApplicationModel.findByIdAndUpdate(req.params.id, { stage: nextStage, aiDecision: decision })
+    await logAction({ actor: 'ai', action: decision === 'shortlist' ? 'shortlisted' : 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: 'veto', payload: { avgScore: score } })
+    res.json({ decision, score, stage: nextStage })
+  } catch (err) { next(err) }
+})
+
+// ── GET /applications/:id/explanation ────────────────────────────────────────
+applicationsRouter.get('/:id/explanation', requireAuth, async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    res.json({
+      explanation: { bullets: ['Resume score reflects skill overlap with job requirements', 'Assessment and interview scores contribute to final composite', 'Scores are computed without demographic signals'] },
+      scores: app.scores,
+    })
+  } catch (err) { next(err) }
+})
+
+// ── POST /applications/:id/correspondence/send ────────────────────────────────
+applicationsRouter.post('/:id/correspondence/send', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    await logAction({ actor: 'user', action: 'email-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: req.body as Record<string, unknown> })
     res.json({ ok: true, message: 'Correspondence queued' })
-  } catch (error) {
-    next(error)
-  }
+  } catch (err) { next(err) }
 })

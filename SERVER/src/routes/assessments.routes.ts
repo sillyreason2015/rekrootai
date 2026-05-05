@@ -1,65 +1,59 @@
 import { Router } from 'express'
-import { db, getAssessmentByApplicationId, getApplicationById, logAction } from '../data/mockStore.js'
+import { AssessmentModel } from '../models/Assessment.model.js'
+import { ApplicationModel } from '../models/Application.model.js'
 import { requireAuth } from '../lib/auth.js'
-import { HttpError, nowIso } from '../lib/http.js'
+import { HttpError } from '../lib/http.js'
+import { logAction } from '../data/store.js'
 
 export const assessmentsRouter = Router()
 
-assessmentsRouter.get('/:applicationId', requireAuth, (req, res, next) => {
+assessmentsRouter.get('/:applicationId', requireAuth, async (req, res, next) => {
   try {
-    const assessment = getAssessmentByApplicationId(String(req.params.applicationId))
+    const assessment = await AssessmentModel.findOne({ application: req.params.applicationId }).lean()
     if (!assessment) throw new HttpError(404, 'Assessment not found')
-    res.json(assessment)
-  } catch (error) {
-    next(error)
-  }
+    res.json({ ...assessment, _id: String(assessment._id) })
+  } catch (err) { next(err) }
 })
 
-assessmentsRouter.post('/:assessmentId/start', requireAuth, (req, res, next) => {
+assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, next) => {
   try {
-    const assessment = db.assessments.find((item) => item._id === req.params.assessmentId) ?? null
+    const assessment = await AssessmentModel.findByIdAndUpdate(
+      req.params.assessmentId,
+      { status: 'in_progress', startedAt: new Date().toISOString() },
+      { new: true },
+    ).lean()
     if (!assessment) throw new HttpError(404, 'Assessment not found')
-    assessment.status = 'in_progress'
-    assessment.startedAt = nowIso()
-    logAction({ actor: 'ai', action: 'assessment-start', candidateId: getApplicationById(assessment.application)?.candidate, jobId: assessment.job, mode: 'assist' })
-    res.json(assessment)
-  } catch (error) {
-    next(error)
-  }
+    res.json({ ...assessment, _id: String(assessment._id) })
+  } catch (err) { next(err) }
 })
 
-assessmentsRouter.post('/:assessmentId/modules/:moduleType/submit', requireAuth, (req, res, next) => {
+assessmentsRouter.post('/:assessmentId/modules/:moduleType/submit', requireAuth, async (req, res, next) => {
   try {
-    const assessment = db.assessments.find((item) => item._id === req.params.assessmentId) ?? null
+    const assessment = await AssessmentModel.findById(req.params.assessmentId)
     if (!assessment) throw new HttpError(404, 'Assessment not found')
-    const module = assessment.modules.find((item) => item.type === req.params.moduleType)
-    if (!module) throw new HttpError(404, 'Module not found')
-    module.answers = (req.body as { answers?: unknown[] }).answers as never
-    module.score = Math.min(100, Math.round(70 + Math.random() * 20))
-    module.timeSpent = Math.round(10 + Math.random() * 20)
-    module.completedAt = nowIso()
-    res.json({ ok: true, score: module.score })
-  } catch (error) {
-    next(error)
-  }
+    const mod = assessment.modules.find((m) => m.type === req.params.moduleType)
+    if (!mod) throw new HttpError(404, 'Module not found')
+    mod.answers = (req.body as { answers?: unknown[] }).answers as never
+    mod.score = Math.min(100, Math.round(70 + Math.random() * 20))
+    mod.completedAt = new Date().toISOString()
+    await assessment.save()
+    res.json({ ok: true, score: mod.score })
+  } catch (err) { next(err) }
 })
 
-assessmentsRouter.post('/:assessmentId/complete', requireAuth, (req, res, next) => {
+assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, next) => {
   try {
-    const assessment = db.assessments.find((item) => item._id === req.params.assessmentId) ?? null
+    const assessment = await AssessmentModel.findById(req.params.assessmentId)
     if (!assessment) throw new HttpError(404, 'Assessment not found')
     assessment.status = 'completed'
-    assessment.completedAt = nowIso()
-    assessment.score = Math.round(assessment.modules.reduce((sum, module) => sum + (module.score ?? 0), 0) / assessment.modules.length)
-    const application = getApplicationById(assessment.application)
-    if (application) {
-      application.status = 'assessment_sent'
-      application.stage = 'assessment'
-      application.scores.assessment = assessment.score
-    }
-    logAction({ actor: 'ai', action: 'assessment-complete', candidateId: application?.candidate, jobId: assessment.job, mode: 'assist' })
-    res.json(assessment)
-  } catch (error) {
-    next(error)
-  }
+    assessment.completedAt = new Date().toISOString()
+    const scores = assessment.modules.map((m) => m.score ?? 0).filter((s) => s > 0)
+    assessment.score = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
+    await assessment.save()
+    await ApplicationModel.findByIdAndUpdate(assessment.application, {
+      stage: 'assessment', status: 'assessment_sent', 'scores.assessment': assessment.score,
+    })
+    await logAction({ actor: 'ai', action: 'assessment-completed', jobId: String(assessment.job), mode: 'assist', payload: { avgScore: assessment.score, passed: assessment.score >= 60 } })
+    res.json({ ...assessment.toObject(), _id: String(assessment._id) })
+  } catch (err) { next(err) }
 })
