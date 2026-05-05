@@ -33,8 +33,12 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleType/submit', requireAuth,
     if (!assessment) throw new HttpError(404, 'Assessment not found')
     const mod = assessment.modules.find((m) => m.type === req.params.moduleType)
     if (!mod) throw new HttpError(404, 'Module not found')
-    mod.answers = (req.body as { answers?: unknown[] }).answers as never
-    mod.score = Math.min(100, Math.round(70 + Math.random() * 20))
+    const body = req.body as { answers?: unknown[]; score?: number }
+    mod.answers = body.answers as never
+    // Use submitted score if provided by ML service; otherwise score by answer count correctness
+    mod.score = typeof body.score === 'number'
+      ? Math.min(100, Math.max(0, body.score))
+      : Math.min(100, Math.round(((body.answers?.length ?? 0) / 10) * 100))
     mod.completedAt = new Date().toISOString()
     await assessment.save()
     res.json({ ok: true, score: mod.score })

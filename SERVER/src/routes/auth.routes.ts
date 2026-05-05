@@ -5,7 +5,8 @@ import { CandidateModel } from '../models/Candidate.model.js'
 import { requireAuth, signAccessToken, signRefreshToken, verifyRefreshToken } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { env } from '../config/env.js'
-import { storeRefreshToken, getUserIdFromRefreshToken, rotateRefreshToken, deleteRefreshToken } from '../lib/redis.js'
+import { storeRefreshToken, getUserIdFromRefreshToken, rotateRefreshToken, deleteRefreshToken, storeOtp, verifyAndConsumeOtp } from '../lib/redis.js'
+import { sendOtpEmail } from '../lib/mail.js'
 import type { Role } from '../domain.js'
 
 export const authRouter = Router()
@@ -118,7 +119,45 @@ authRouter.post('/logout', requireAuth, async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// ── Stubs (email verification, password reset) ────────────────────────────────
-authRouter.post('/verify-email', (_req, res) => res.json({ ok: true }))
-authRouter.post('/forgot-password', (_req, res) => res.json({ ok: true }))
-authRouter.post('/reset-password', (_req, res) => res.json({ ok: true }))
+// ── POST /auth/forgot-password ────────────────────────────────────────────────
+authRouter.post('/forgot-password', async (req, res, next) => {
+  try {
+    const { email } = req.body as { email?: string }
+    if (!email) throw new HttpError(400, 'email is required')
+    const user = await UserModel.findOne({ email: email.toLowerCase() }).lean()
+    // Always respond OK to prevent email enumeration
+    if (user) {
+      const otp = Math.floor(100000 + Math.random() * 900000).toString()
+      await storeOtp(String(user._id), otp)
+      await sendOtpEmail(user.email, otp, user.firstName)
+    }
+    res.json({ ok: true, message: 'If that email exists, a reset code has been sent.' })
+  } catch (err) { next(err) }
+})
+
+// ── POST /auth/reset-password ─────────────────────────────────────────────────
+authRouter.post('/reset-password', async (req, res, next) => {
+  try {
+    const { email, otp, password } = req.body as { email?: string; otp?: string; password?: string }
+    if (!email || !otp || !password) throw new HttpError(400, 'email, otp and password are required')
+    const user = await UserModel.findOne({ email: email.toLowerCase() }).lean()
+    if (!user) throw new HttpError(400, 'Invalid request')
+    const valid = await verifyAndConsumeOtp(String(user._id), otp)
+    if (!valid) throw new HttpError(400, 'Invalid or expired code')
+    const hashed = await argon2.hash(password)
+    await UserModel.findByIdAndUpdate(user._id, { password: hashed })
+    res.json({ ok: true, message: 'Password updated. Please log in.' })
+  } catch (err) { next(err) }
+})
+
+// ── POST /auth/verify-email ───────────────────────────────────────────────────
+authRouter.post('/verify-email', async (req, res, next) => {
+  try {
+    const { userId, otp } = req.body as { userId?: string; otp?: string }
+    if (!userId || !otp) throw new HttpError(400, 'userId and otp are required')
+    const valid = await verifyAndConsumeOtp(userId, otp)
+    if (!valid) throw new HttpError(400, 'Invalid or expired code')
+    await UserModel.findByIdAndUpdate(userId, { isVerified: true })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
