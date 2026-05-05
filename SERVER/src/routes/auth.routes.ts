@@ -2,8 +2,15 @@ import { Router } from 'express'
 import { db, createUser, getUserByEmail, getUserById, logAction } from '../data/mockStore.js'
 import { issueMockTokens, requireAuth } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
+import { env } from '../config/env.js'
 
 export const authRouter = Router()
+
+const refreshCookieOptions = {
+  httpOnly: true,
+  sameSite: env.NODE_ENV === 'production' ? ('none' as const) : ('lax' as const),
+  secure: env.NODE_ENV === 'production',
+}
 
 authRouter.post('/login', (req, res, next) => {
   try {
@@ -14,7 +21,7 @@ authRouter.post('/login', (req, res, next) => {
     }
     const tokens = issueMockTokens(user._id)
     db.refreshTokens.set(tokens.refreshToken, user._id)
-    res.cookie('refreshToken', tokens.refreshToken, { httpOnly: true, sameSite: 'lax' })
+    res.cookie('refreshToken', tokens.refreshToken, refreshCookieOptions)
     logAction({ actor: 'user', action: 'login', candidateId: user.role === 'candidate' ? user._id : undefined, mode: 'assist' })
     res.json({ accessToken: tokens.accessToken, user })
   } catch (error) {
@@ -40,7 +47,7 @@ authRouter.post('/register', (req, res, next) => {
     const user = createUser({ email, password, firstName, lastName, role })
     const tokens = issueMockTokens(user._id)
     db.refreshTokens.set(tokens.refreshToken, user._id)
-    res.cookie('refreshToken', tokens.refreshToken, { httpOnly: true, sameSite: 'lax' })
+    res.cookie('refreshToken', tokens.refreshToken, refreshCookieOptions)
     res.status(201).json({ accessToken: tokens.accessToken, user })
   } catch (error) {
     next(error)
@@ -68,7 +75,7 @@ authRouter.post('/refresh', (req, res, next) => {
     }
     const tokens = issueMockTokens(user._id)
     db.refreshTokens.set(tokens.refreshToken, user._id)
-    res.cookie('refreshToken', tokens.refreshToken, { httpOnly: true, sameSite: 'lax' })
+    res.cookie('refreshToken', tokens.refreshToken, refreshCookieOptions)
     res.json({ accessToken: tokens.accessToken })
   } catch (error) {
     next(error)
@@ -76,7 +83,7 @@ authRouter.post('/refresh', (req, res, next) => {
 })
 
 authRouter.post('/logout', requireAuth, (_req, res) => {
-  res.clearCookie('refreshToken')
+  res.clearCookie('refreshToken', refreshCookieOptions)
   res.status(204).send()
 })
 

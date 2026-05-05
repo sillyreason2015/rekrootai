@@ -44,4 +44,11 @@ const schema = z.object({
   EMAIL_FROM: z.string().optional(),
 })
 
-export const env = schema.parse(process.env)
+const parsedEnv = schema.parse(process.env)
+
+export const env = {
+  ...parsedEnv,
+  CORS_ORIGINS: parsedEnv.CORS_ORIGIN.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+}

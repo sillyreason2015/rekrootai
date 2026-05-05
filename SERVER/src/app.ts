@@ -18,7 +18,13 @@ export const app = express()
 app.use(helmet())
 app.use(
   cors({
-    origin: env.CORS_ORIGIN,
+    origin: (origin, callback) => {
+      if (!origin || env.CORS_ORIGINS.includes(origin)) {
+        callback(null, true)
+        return
+      }
+      callback(new Error(`Origin ${origin} is not allowed by CORS`))
+    },
     credentials: true,
   }),
 )

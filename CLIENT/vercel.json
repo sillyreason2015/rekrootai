@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://rekroot-ai-bck.vercel.app/:path*"
+      "destination": "https://rekroot-ai-bck.onrender.com/:path*"
     }
   ]
 }

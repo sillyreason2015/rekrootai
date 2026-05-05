@@ -1,7 +1,11 @@
 import axios from 'axios'
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.PROD ? 'https://rekroot-ai-bck.onrender.com' : '/api')
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: API_BASE_URL,
   withCredentials: true,
 })
 
@@ -34,7 +38,7 @@ api.interceptors.response.use(
     original._retry = true
     refreshing = true
     try {
-      const { data } = await axios.post('/api/auth/refresh', {}, { withCredentials: true })
+      const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
       const newToken: string = data.accessToken
       localStorage.setItem('accessToken', newToken)
       queue.forEach((cb) => cb(newToken))
