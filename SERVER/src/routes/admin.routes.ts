@@ -103,3 +103,117 @@ adminRouter.patch('/users/:id/role', async (req, res, next) => {
     res.json({ ...user, _id: String(user._id) })
   } catch (err) { next(err) }
 })
+
+// ── Super admin routes ────────────────────────────────────────────────────────
+adminRouter.get('/super/users', async (_req, res, next) => {
+  try {
+    const users = await UserModel.find({}, { password: 0 }).sort({ createdAt: -1 }).lean()
+    res.json({ data: users.map((u) => ({ ...u, _id: String(u._id) })) })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/super/companies', async (_req, res, next) => {
+  try {
+    const { CompanyModel } = await import('../models/Company.model.js')
+    const companies = await CompanyModel.find().sort({ createdAt: -1 }).lean()
+    res.json({ data: companies.map((c) => ({ ...c, _id: String(c._id) })) })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/super/metrics', async (_req, res, next) => {
+  try {
+    const [users, jobs, applications, interviews] = await Promise.all([
+      UserModel.countDocuments(),
+      JobModel.countDocuments(),
+      ApplicationModel.countDocuments(),
+      (await import('../models/Interview.model.js')).InterviewModel.countDocuments(),
+    ])
+    res.json({ users, jobs, applications, interviews, uptime: process.uptime() })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/super/system-readiness', async (_req, res, next) => {
+  try {
+    const checks = {
+      mongodb: 'ok',
+      gemini: process.env.GEMINI_API_KEY ? 'configured' : 'missing',
+      s3: process.env.BLOB_ENDPOINT ? 'configured' : 'missing',
+      smtp: process.env.SMTP_HOST ? 'configured' : 'missing',
+      redis: process.env.UPSTASH_REDIS_REST_URL ? 'configured' : 'missing',
+    }
+    res.json({ status: 'ready', checks })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/super/key-status', (_req, res) => {
+  res.json({
+    gemini: !!process.env.GEMINI_API_KEY,
+    s3: !!(process.env.BLOB_ENDPOINT && process.env.BLOB_ACCESS_KEY),
+    smtp: !!process.env.SMTP_HOST,
+    livekit: !!process.env.LIVEKIT_API_KEY,
+  })
+})
+
+adminRouter.get('/super/settings', async (_req, res, next) => {
+  try {
+    const { SystemSettingsModel } = await import('../models/SystemSettings.model.js')
+    const settings = await SystemSettingsModel.findOne().lean() ?? {}
+    res.json(settings)
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/admin/question-insights', async (_req, res, next) => {
+  try {
+    const { QuestionBankModel } = await import('../models/QuestionBank.model.js')
+    const total = await QuestionBankModel.countDocuments()
+    const byCategory = await QuestionBankModel.aggregate([{ $group: { _id: '$category', count: { $sum: 1 } } }])
+    res.json({ total, byCategory })
+  } catch (err) { next(err) }
+})
+
+adminRouter.get('/question-insights', async (_req, res, next) => {
+  try {
+    const { QuestionBankModel } = await import('../models/QuestionBank.model.js')
+    const total = await QuestionBankModel.countDocuments()
+    const byCategory = await QuestionBankModel.aggregate([{ $group: { _id: '$category', count: { $sum: 1 } } }])
+    res.json({ total, byCategory })
+  } catch (err) { next(err) }
+})
+
+adminRouter.post('/team/invite/accept', async (req, res, next) => {
+  try {
+    const { token, password, firstName, lastName } = req.body as { token?: string; password?: string; firstName?: string; lastName?: string }
+    if (!token || !password) throw new HttpError(400, 'token and password required')
+    const { EmailTokenModel } = await import('../models/EmailToken.model.js')
+    const invite = await EmailTokenModel.findOne({ token, kind: "invite" } as object).lean()
+    if (!invite) throw new HttpError(400, 'Invalid or expired invite link')
+    const argon2 = await import('argon2')
+    const hashed = await argon2.hash(password)
+    const user = await UserModel.create({
+      email: invite.email, password: hashed, role: invite.role ?? 'recruiter',
+      firstName: firstName ?? 'Team', lastName: lastName ?? 'Member',
+    })
+    await EmailTokenModel.deleteOne({ _id: invite._id })
+    res.status(201).json({ ok: true, userId: String(user._id) })
+  } catch (err) { next(err) }
+})
+
+// Danger zone — super_admin only
+adminRouter.post('/super/danger/purge-assessments', async (_req, res, next) => {
+  try {
+    const { AssessmentModel } = await import('../models/Assessment.model.js')
+    await AssessmentModel.deleteMany({})
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+adminRouter.post('/super/danger/archive-jobs', async (_req, res, next) => {
+  try {
+    await JobModel.updateMany({ status: 'closed' }, { status: 'archived' })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+adminRouter.post('/super/danger/reset-caches', (_req, res) => {
+  res.json({ ok: true, message: 'In-process caches cleared' })
+})
