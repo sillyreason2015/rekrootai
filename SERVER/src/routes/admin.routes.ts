@@ -69,8 +69,28 @@ adminRouter.post('/team/invite', async (req, res, next) => {
   try {
     const { email, role } = req.body as { email?: string; role?: string }
     if (!email || !role) throw new HttpError(400, 'email and role are required')
+    const existing = await UserModel.findOne({ email: email.toLowerCase() }).lean()
+    if (existing) throw new HttpError(409, 'User already exists with that email')
+    const { EmailTokenModel } = await import('../models/EmailToken.model.js')
+    const crypto = await import('node:crypto')
+    const token = crypto.randomUUID()
+    await EmailTokenModel.create({
+      email: email.toLowerCase(),
+      kind: 'invite',
+      token,
+      role: role as 'candidate' | 'recruiter' | 'admin' | 'super_admin',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    // Best-effort email — don't let SMTP failure block the invite creation
+    try {
+      const { sendInviteEmail } = await import('../lib/mail.js')
+      const inviteUrl = `${process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'}/invite/accept?token=${token}`
+      await sendInviteEmail(email, inviteUrl, req.user?.email)
+    } catch (mailErr) {
+      console.error('[admin] Failed to send invite email:', mailErr)
+    }
     await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role } })
-    res.status(201).json({ ok: true })
+    res.status(201).json({ ok: true, token })
   } catch (err) { next(err) }
 })
 

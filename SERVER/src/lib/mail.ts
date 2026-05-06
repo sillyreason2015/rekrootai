@@ -3,18 +3,60 @@ import { env } from '../config/env.js'
 
 function makeTransport() {
   if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) return null
+
+  const isGmail = env.SMTP_HOST.toLowerCase().includes('gmail')
+  const isOutlook = env.SMTP_HOST.toLowerCase().includes('outlook') || env.SMTP_HOST.toLowerCase().includes('office365')
+
+  // Gmail and Outlook work best with their named service shortcuts
+  if (isGmail) {
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    })
+  }
+
+  if (isOutlook) {
+    return nodemailer.createTransport({
+      service: 'Outlook365',
+      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    })
+  }
+
+  // Generic SMTP
   return nodemailer.createTransport({
     host: env.SMTP_HOST,
     port: env.SMTP_PORT ?? 587,
     secure: (env.SMTP_PORT ?? 587) === 465,
     auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
-    connectionTimeout: 8000,
-    greetingTimeout: 8000,
-    socketTimeout: 10000,
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   })
 }
 
 const transport = makeTransport()
+
+/** Quick connectivity test — call once at startup to log whether SMTP is reachable. */
+export async function verifySmtpConnection(): Promise<boolean> {
+  if (!transport) {
+    console.warn('[mail] SMTP not configured — emails will be logged to console only')
+    return false
+  }
+  try {
+    await transport.verify()
+    console.log('[mail] SMTP connection verified ✓')
+    return true
+  } catch (err) {
+    console.error('[mail] SMTP connection FAILED:', err)
+    return false
+  }
+}
 
 export async function sendOtpEmail(to: string, otp: string, firstName: string): Promise<void> {
   if (!transport) {
