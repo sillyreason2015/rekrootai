@@ -100,7 +100,16 @@ interviewsRouter.get('/:id/artifacts', requireAuth, async (req, res, next) => {
   try {
     const interview = await InterviewModel.findById(req.params.id).lean()
     if (!interview) throw new HttpError(404, 'Interview not found')
-    res.json({ transcriptUrl: null, recordingUrl: null })
+    const hasTranscript = Array.isArray(interview.transcript) && interview.transcript.length > 0
+    res.json({
+      transcriptUrl: null,
+      recordingUrl: null,
+      transcript: hasTranscript ? interview.transcript : [],
+      rubric: interview.rubric ?? [],
+      score: interview.score ?? null,
+      aiAnalysis: interview.aiAnalysis ?? null,
+      hasTranscript,
+    })
   } catch (err) { next(err) }
 })
 

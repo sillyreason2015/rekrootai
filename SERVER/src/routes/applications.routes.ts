@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { ApplicationModel } from '../models/Application.model.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { JobModel } from '../models/Job.model.js'
+import { UserModel } from '../models/User.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError, paginate } from '../lib/http.js'
 import { logAction } from '../data/store.js'
@@ -158,8 +159,43 @@ applicationsRouter.post('/:id/correspondence/send', requireAuth, requireRole('re
   try {
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
-    await logAction({ actor: 'user', action: 'email-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: req.body as Record<string, unknown> })
-    res.json({ ok: true, message: 'Correspondence queued' })
+    const { subject, message } = req.body as { subject?: string; message?: string }
+    if (!subject || !message) throw new HttpError(400, 'subject and message are required')
+
+    // Resolve candidate email
+    const candidate = await CandidateModel.findById(String(app.candidate)).lean()
+    const user = candidate ? await UserModel.findById(String(candidate.user), { email: 1, firstName: 1 }).lean() : null
+    if (!user?.email) throw new HttpError(422, 'Candidate email not found')
+
+    const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
+
+    // Send the email — reuse mail transport
+    const nodemailer = await import('nodemailer')
+    const { env } = await import('../config/env.js')
+    if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) {
+      const isGmail = env.SMTP_HOST.toLowerCase().includes('gmail')
+      const transport = nodemailer.createTransport(
+        isGmail
+          ? { service: 'gmail', auth: { user: env.SMTP_USER, pass: env.SMTP_PASS }, connectionTimeout: 10000, socketTimeout: 15000 }
+          : { host: env.SMTP_HOST, port: env.SMTP_PORT ?? 587, secure: (env.SMTP_PORT ?? 587) === 465, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS }, connectionTimeout: 10000, socketTimeout: 15000 },
+      )
+      try {
+        await transport.sendMail({
+          from: `"RekrootAI" <${env.EMAIL_FROM ?? env.SMTP_USER}>`,
+          to: user.email,
+          subject: `[${job?.title ?? 'Your Application'}] ${subject}`,
+          text: `Hi ${user.firstName},\n\n${message}\n\nBest regards,\nRekrootAI Hiring Team`,
+          html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${user.firstName},</p><p>${message.replace(/\n/g, '<br/>')}</p><p>Best regards,<br/>RekrootAI Hiring Team</p></div>`,
+        })
+      } catch (mailErr) {
+        console.error('[correspondence] Email send failed:', mailErr)
+      }
+    } else {
+      console.warn(`[correspondence] SMTP not configured — message to ${user.email}: ${message}`)
+    }
+
+    await logAction({ actor: 'user', action: 'email-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { subject, message } })
+    res.json({ ok: true, message: 'Correspondence sent' })
   } catch (err) { next(err) }
 })
 
@@ -187,7 +223,49 @@ applicationsRouter.post('/:id/fairness-gate', requireAuth, requireRole('recruite
   try {
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
-    res.json({ passed: true, score: app.scores?.final ?? 0, flags: [], message: 'No fairness concerns detected.' })
+
+    const flags: string[] = []
+    const scores = app.scores ?? {}
+    const final = scores.final ?? scores.resume ?? 0
+    const penalty = scores.penalty ?? 0
+    const resume = scores.resume ?? 0
+    const assessment = scores.assessment ?? 0
+    const interview = scores.interview ?? 0
+
+    // Check 1: significant penalty applied to score
+    if (penalty > 15) flags.push(`High penalty score (${penalty}) detected — review scoring criteria for bias.`)
+
+    // Check 2: large gap between resume and assessment scores suggests inconsistency
+    if (resume > 0 && assessment > 0 && Math.abs(resume - assessment) > 40)
+      flags.push(`Score inconsistency: resume ${resume} vs assessment ${assessment} — gap exceeds 40 points.`)
+
+    // Check 3: interview score much lower than assessment (possible interviewer bias)
+    if (assessment > 0 && interview > 0 && assessment - interview > 30)
+      flags.push(`Interview score (${interview}) significantly lower than assessment (${assessment}) — check for interviewer bias.`)
+
+    // Check 4: final score rejected but resume was strong (possible process bias)
+    if (resume >= 70 && final < 40 && app.stage === 'rejected')
+      flags.push(`Candidate rejected with strong resume score (${resume}) but low final score (${final}) — review rejection rationale.`)
+
+    // Compare against same-job peers
+    const peers = await ApplicationModel.find({ job: app.job, _id: { $ne: app._id } }, { scores: 1 }).lean()
+    if (peers.length >= 3) {
+      const peerFinals = peers.map((p) => p.scores?.final ?? 0).filter((s) => s > 0)
+      if (peerFinals.length >= 3) {
+        const avg = peerFinals.reduce((a, b) => a + b, 0) / peerFinals.length
+        if (final > 0 && final < avg - 25 && app.stage !== 'rejected')
+          flags.push(`Score (${final}) is 25+ points below peer average (${Math.round(avg)}) — verify scoring consistency.`)
+      }
+    }
+
+    const passed = flags.length === 0
+    res.json({
+      passed,
+      score: final,
+      flags,
+      message: passed ? 'No fairness concerns detected.' : `${flags.length} concern(s) flagged — review before making a decision.`,
+      breakdown: { resume, assessment, interview, penalty, final },
+    })
   } catch (err) { next(err) }
 })
 
@@ -222,6 +300,34 @@ applicationsRouter.post('/:id/correspondence/reply', requireAuth, async (req, re
   try {
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    const { subject, message } = req.body as { subject?: string; message?: string }
+
+    if (subject && message) {
+      const candidate = await CandidateModel.findById(String(app.candidate)).lean()
+      const user = candidate ? await UserModel.findById(String(candidate.user), { email: 1, firstName: 1 }).lean() : null
+      if (user?.email) {
+        const { env } = await import('../config/env.js')
+        const nodemailer = await import('nodemailer')
+        if (env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS) {
+          const isGmail = env.SMTP_HOST.toLowerCase().includes('gmail')
+          const transport = nodemailer.createTransport(
+            isGmail
+              ? { service: 'gmail', auth: { user: env.SMTP_USER, pass: env.SMTP_PASS }, connectionTimeout: 10000, socketTimeout: 15000 }
+              : { host: env.SMTP_HOST, port: env.SMTP_PORT ?? 587, secure: (env.SMTP_PORT ?? 587) === 465, auth: { user: env.SMTP_USER, pass: env.SMTP_PASS }, connectionTimeout: 10000, socketTimeout: 15000 },
+          )
+          try {
+            await transport.sendMail({
+              from: `"RekrootAI" <${env.EMAIL_FROM ?? env.SMTP_USER}>`,
+              to: user.email,
+              subject,
+              text: `Hi ${user.firstName},\n\n${message}\n\nBest regards,\nRekrootAI Hiring Team`,
+              html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Hi ${user.firstName},</p><p>${message.replace(/\n/g, '<br/>')}</p><p>Best regards,<br/>RekrootAI Hiring Team</p></div>`,
+            })
+          } catch (mailErr) { console.error('[reply] Email failed:', mailErr) }
+        }
+      }
+    }
+
     await logAction({ actor: 'user', action: 'email-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: req.body as Record<string, unknown> })
     res.json({ ok: true })
   } catch (err) { next(err) }
