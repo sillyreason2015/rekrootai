@@ -41,6 +41,13 @@ authRouter.post('/register', async (req, res, next) => {
       await CandidateModel.create({ user: user._id, skills: [], experience: [], education: [] })
     }
 
+    // Send verification OTP
+    try {
+      const otp = Math.floor(100000 + Math.random() * 900000).toString()
+      await storeOtp(String(user._id), otp)
+      await sendOtpEmail(user.email, otp, user.firstName)
+    } catch { /* non-fatal — user can resend */ }
+
     const payload = { sub: String(user._id), role: user.role as Role, email: user.email }
     const accessToken = signAccessToken(payload)
     const refreshToken = signRefreshToken(payload)
@@ -151,13 +158,27 @@ authRouter.post('/reset-password', async (req, res, next) => {
 })
 
 // ── POST /auth/verify-email ───────────────────────────────────────────────────
-authRouter.post('/verify-email', async (req, res, next) => {
+authRouter.post('/verify-email', requireAuth, async (req, res, next) => {
   try {
-    const { userId, otp } = req.body as { userId?: string; otp?: string }
-    if (!userId || !otp) throw new HttpError(400, 'userId and otp are required')
+    const { otp } = req.body as { otp?: string }
+    if (!otp) throw new HttpError(400, 'otp is required')
+    const userId = req.user!._id
     const valid = await verifyAndConsumeOtp(userId, otp)
     if (!valid) throw new HttpError(400, 'Invalid or expired code')
     await UserModel.findByIdAndUpdate(userId, { isVerified: true })
     res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// ── POST /auth/resend-verification ───────────────────────────────────────────
+authRouter.post('/resend-verification', requireAuth, async (req, res, next) => {
+  try {
+    const user = await UserModel.findById(req.user!._id).lean()
+    if (!user) throw new HttpError(404, 'User not found')
+    if (user.isVerified) return res.json({ ok: true, message: 'Already verified' })
+    const otp = Math.floor(100000 + Math.random() * 900000).toString()
+    await storeOtp(String(user._id), otp)
+    await sendOtpEmail(user.email, otp, user.firstName)
+    res.json({ ok: true, message: 'Verification code sent' })
   } catch (err) { next(err) }
 })
