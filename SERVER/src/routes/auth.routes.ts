@@ -46,7 +46,10 @@ authRouter.post('/register', async (req, res, next) => {
       const otp = Math.floor(100000 + Math.random() * 900000).toString()
       await storeOtp(String(user._id), otp)
       await sendOtpEmail(user.email, otp, user.firstName)
-    } catch { /* non-fatal — user can resend */ }
+      console.log(`[auth] OTP for ${user.email}: ${otp}`)
+    } catch (otpErr) {
+      console.error('[auth] Failed to send verification OTP:', otpErr)
+    }
 
     const payload = { sub: String(user._id), role: user.role as Role, email: user.email }
     const accessToken = signAccessToken(payload)
@@ -179,6 +182,7 @@ authRouter.post('/resend-verification', requireAuth, async (req, res, next) => {
     const otp = Math.floor(100000 + Math.random() * 900000).toString()
     await storeOtp(String(user._id), otp)
     await sendOtpEmail(user.email, otp, user.firstName)
+    console.log(`[auth] Resend OTP for ${user.email}: ${otp}`)
     res.json({ ok: true, message: 'Verification code sent' })
   } catch (err) { next(err) }
 })
