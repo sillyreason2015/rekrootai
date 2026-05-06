@@ -162,6 +162,18 @@ adminRouter.get('/super/settings', async (_req, res, next) => {
   } catch (err) { next(err) }
 })
 
+adminRouter.put('/super/settings', async (req, res, next) => {
+  try {
+    const { SystemSettingsModel } = await import('../models/SystemSettings.model.js')
+    const settings = await SystemSettingsModel.findOneAndUpdate(
+      {},
+      { $set: req.body as Record<string, unknown> },
+      { new: true, upsert: true },
+    ).lean()
+    res.json(settings)
+  } catch (err) { next(err) }
+})
+
 adminRouter.get('/admin/question-insights', async (_req, res, next) => {
   try {
     const { QuestionBankModel } = await import('../models/QuestionBank.model.js')
