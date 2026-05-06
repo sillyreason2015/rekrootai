@@ -126,3 +126,16 @@ jobsRouter.get('/:jobId/question-banks/:metric', requireAuth, requireRole('recru
     res.json({ jobId: req.params.jobId, metric: req.params.metric, items: items.map((q) => ({ ...q, _id: String(q._id) })) })
   } catch (err) { next(err) }
 })
+
+// ── PATCH /jobs/:id/thresholds ────────────────────────────────────────────────
+jobsRouter.patch('/:id/thresholds', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const job = await JobModel.findOneAndUpdate(
+      { _id: req.params.id, createdBy: req.user!._id },
+      { thresholds: req.body },
+      { new: true }
+    ).lean()
+    if (!job) throw new HttpError(404, 'Job not found')
+    res.json({ ...job, _id: String(job._id) })
+  } catch (err) { next(err) }
+})

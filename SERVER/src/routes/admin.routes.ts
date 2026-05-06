@@ -229,3 +229,19 @@ adminRouter.post('/super/danger/archive-jobs', async (_req, res, next) => {
 adminRouter.post('/super/danger/reset-caches', (_req, res) => {
   res.json({ ok: true, message: 'In-process caches cleared' })
 })
+
+adminRouter.delete('/super/users/:id', async (req, res, next) => {
+  try {
+    await UserModel.findByIdAndDelete(req.params.id)
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+adminRouter.post('/super/companies/:id/verify', async (req, res, next) => {
+  try {
+    const { CompanyModel } = await import('../models/Company.model.js')
+    const company = await CompanyModel.findByIdAndUpdate(req.params.id, { verified: true }, { new: true }).lean()
+    if (!company) throw new HttpError(404, 'Company not found')
+    res.json({ ...company, _id: String(company._id) })
+  } catch (err) { next(err) }
+})

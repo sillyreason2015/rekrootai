@@ -288,3 +288,28 @@ Respond ONLY with valid JSON. No markdown fences.`
     // Silent — initial sync data already saved
   }
 }
+
+// ── GET /candidates/recommendations ──────────────────────────────────────────
+candidateRouter.get('/recommendations', async (req, res, next) => {
+  try {
+    const candidate = await getCandidateByUserId(req.user!._id)
+    if (!candidate) return res.json({ recommendations: [], matchNote: 'Complete your profile to get recommendations.' })
+    const jobs = await JobModel.find({ status: 'published' }).sort({ createdAt: -1 }).limit(100).lean()
+    const existingApps = await ApplicationModel.find({ candidate: candidate._id }, { job: 1 }).lean()
+    const appliedIds = new Set(existingApps.map((a) => String(a.job)))
+    const { scoreCandidateForJob, inferSkillsFromCv } = await import('../lib/candidate-profile.js')
+    const cvText = String((candidate.cvParsed as Record<string, unknown> | undefined)?.maskedCV ?? '')
+    const cvKeywords = cvText ? inferSkillsFromCv(cvText) : []
+    const scored = jobs
+      .filter((j) => !appliedIds.has(String(j._id)))
+      .map((job) => {
+        const score = scoreCandidateForJob(candidate as Parameters<typeof scoreCandidateForJob>[0], job as Parameters<typeof scoreCandidateForJob>[1])
+        const matchedSkills = (candidate.skills ?? []).filter((s: string) => (job.skills ?? []).map((js: string) => js.toLowerCase()).includes(s.toLowerCase())).length
+        return { ...job, _id: String(job._id), matchScore: score, matchedSkills, cvKeywordHits: cvKeywords.length, totalSkills: job.skills?.length ?? 0, reasons: score >= 60 ? ['Strong skill match'] : ['Expand your skills to improve match'], matchSources: { profileSkills: matchedSkills > 0, cvContent: cvKeywords.length > 0, experience: (candidate.experience?.length ?? 0) > 0 } }
+      })
+      .filter((j) => j.matchScore > 0)
+      .sort((a, b) => b.matchScore - a.matchScore)
+      .slice(0, 10)
+    res.json({ recommendations: scored, candidateSkillCount: candidate.skills?.length ?? 0, cvAnalysed: !!cvText, cvKeywordCount: cvKeywords.length, matchNote: scored.length ? `${scored.length} jobs match your profile` : 'Upload your CV and add skills to get personalised recommendations.' })
+  } catch (err) { next(err) }
+})

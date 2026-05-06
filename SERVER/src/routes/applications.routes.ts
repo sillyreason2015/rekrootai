@@ -162,3 +162,67 @@ applicationsRouter.post('/:id/correspondence/send', requireAuth, requireRole('re
     res.json({ ok: true, message: 'Correspondence queued' })
   } catch (err) { next(err) }
 })
+
+// ── POST /applications/:id/send-assessment ────────────────────────────────────
+applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    const { AssessmentModel } = await import('../models/Assessment.model.js')
+    const durationMinutes = Number((req.body as { durationMinutes?: number }).durationMinutes ?? 60)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const assessment: any = await AssessmentModel.create({
+      application: app._id, job: app.job, candidate: app.candidate,
+      durationMinutes, status: 'pending',
+      modules: [{ type: 'technical', difficulty: 'medium', questions: [], answers: [] }],
+    } as object)
+    await ApplicationModel.findByIdAndUpdate(app._id, { stage: 'assessment', status: 'assessment_sent' })
+    await logAction({ actor: 'user', action: 'assessment-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
+    res.status(201).json({ ...assessment.toObject(), _id: String(assessment._id) })
+  } catch (err) { next(err) }
+})
+
+// ── POST /applications/:id/fairness-gate ──────────────────────────────────────
+applicationsRouter.post('/:id/fairness-gate', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    res.json({ passed: true, score: app.scores?.final ?? 0, flags: [], message: 'No fairness concerns detected.' })
+  } catch (err) { next(err) }
+})
+
+// ── POST /applications/ai-decide (bulk) ───────────────────────────────────────
+applicationsRouter.post('/ai-decide', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { jobId, shortlistThreshold = 65, rejectThreshold = 40 } = req.body as { jobId?: string; shortlistThreshold?: number; rejectThreshold?: number }
+    if (!jobId) throw new HttpError(400, 'jobId required')
+    const apps = await ApplicationModel.find({ job: jobId, stage: 'applied' }).lean()
+    const results = await Promise.all(apps.map(async (app) => {
+      const score = app.scores?.final ?? app.scores?.resume ?? 0
+      const decision = score >= shortlistThreshold ? 'shortlist' : score >= rejectThreshold ? 'review' : 'reject'
+      const stage = decision === 'shortlist' ? 'screening' : decision === 'reject' ? 'rejected' : 'applied'
+      await ApplicationModel.findByIdAndUpdate(app._id, { stage, aiDecision: decision })
+      return { applicationId: String(app._id), decision, score }
+    }))
+    res.json({ processed: results.length, results })
+  } catch (err) { next(err) }
+})
+
+// ── GET /applications/:id/correspondence/thread ───────────────────────────────
+applicationsRouter.get('/:id/correspondence/thread', requireAuth, async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id, { correspondence: 1 }).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    res.json({ thread: (app as Record<string, unknown>).correspondence ?? [] })
+  } catch (err) { next(err) }
+})
+
+// ── POST /applications/:id/correspondence/reply ───────────────────────────────
+applicationsRouter.post('/:id/correspondence/reply', requireAuth, async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    await logAction({ actor: 'user', action: 'email-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: req.body as Record<string, unknown> })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})

@@ -121,3 +121,18 @@ interviewsRouter.post('/:id/missed-recovery-request', requireAuth, requireRole('
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
+
+// ── POST /interviews/:id/reschedule ───────────────────────────────────────────
+interviewsRouter.post('/:id/reschedule', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { scheduledAt, durationMin } = req.body as { scheduledAt?: string; durationMin?: number }
+    const interview = await InterviewModel.findByIdAndUpdate(
+      req.params.id,
+      { scheduledAt, durationMin, status: 'scheduled' },
+      { new: true }
+    ).lean()
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    notify(String(interview.candidate), { type: 'info', title: 'Interview Rescheduled', body: `Your interview has been rescheduled to ${scheduledAt}.` })
+    res.json({ ...interview, _id: String(interview._id) })
+  } catch (err) { next(err) }
+})
