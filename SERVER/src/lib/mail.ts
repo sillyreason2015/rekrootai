@@ -8,6 +8,9 @@ function makeTransport() {
     port: env.SMTP_PORT ?? 587,
     secure: (env.SMTP_PORT ?? 587) === 465,
     auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
+    connectionTimeout: 8000,
+    greetingTimeout: 8000,
+    socketTimeout: 10000,
   })
 }
 

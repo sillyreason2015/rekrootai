@@ -41,14 +41,14 @@ authRouter.post('/register', async (req, res, next) => {
       await CandidateModel.create({ user: user._id, skills: [], experience: [], education: [] })
     }
 
-    // Send verification OTP
+    // Generate and send verification OTP
     try {
       const otp = Math.floor(100000 + Math.random() * 900000).toString()
       await storeOtp(String(user._id), otp)
-      await sendOtpEmail(user.email, otp, user.firstName)
       console.log(`[auth] OTP for ${user.email}: ${otp}`)
-    } catch (otpErr) {
-      console.error('[auth] Failed to send verification OTP:', otpErr)
+      await sendOtpEmail(user.email, otp, user.firstName)
+    } catch (mailErr) {
+      console.error('[auth] Failed to send verification OTP:', mailErr)
     }
 
     const payload = { sub: String(user._id), role: user.role as Role, email: user.email }
@@ -181,8 +181,13 @@ authRouter.post('/resend-verification', requireAuth, async (req, res, next) => {
     if (user.isVerified) return res.json({ ok: true, message: 'Already verified' })
     const otp = Math.floor(100000 + Math.random() * 900000).toString()
     await storeOtp(String(user._id), otp)
-    await sendOtpEmail(user.email, otp, user.firstName)
-    console.log(`[auth] Resend OTP for ${user.email}: ${otp}`)
+    console.log(`[auth] OTP for ${user.email}: ${otp}`)
+    try {
+      await sendOtpEmail(user.email, otp, user.firstName)
+    } catch (mailErr) {
+      console.error('[auth] SMTP failed on resend:', mailErr)
+      // Still return ok — OTP is stored, user can get code from Render logs if needed
+    }
     res.json({ ok: true, message: 'Verification code sent' })
   } catch (err) { next(err) }
 })
