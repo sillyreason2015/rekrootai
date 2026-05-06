@@ -70,6 +70,26 @@ export default function AuditLog() {
 
   const entries = ((data as { data?: Entry[] })?.data ?? []) as Entry[]
 
+  function exportCsv() {
+    if (!entries.length) return
+    const headers = ['Action', 'Actor', 'Mode', 'Narrative', 'Date']
+    const rows = entries.map((e) => [
+      e.action,
+      e.actor ?? '',
+      e.mode ?? '',
+      (e.narrative ?? '').replace(/,/g, ';'),
+      e.createdAt ? new Date(e.createdAt).toISOString() : '',
+    ])
+    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -77,7 +97,7 @@ export default function AuditLog() {
           <h1 className="font-serif text-2xl font-semibold">Audit Log</h1>
           <p className="text-sm text-muted-foreground">Plain-English record of every action on the platform — AI and human.</p>
         </div>
-        <button className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-accent">
+        <button onClick={exportCsv} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-accent">
           <Download className="h-4 w-4" /> Export CSV
         </button>
       </div>
