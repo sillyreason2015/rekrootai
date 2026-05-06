@@ -42,14 +42,21 @@ authRouter.post('/register', async (req, res, next) => {
     }
 
     // Generate and send verification OTP
+    // If email fails: auto-verify the user so they are never blocked
+    let emailSent = false
     try {
       const otp = Math.floor(100000 + Math.random() * 900000).toString()
       await storeOtp(String(user._id), otp)
       console.log(`[auth] OTP for ${user.email}: ${otp}`)
       await sendOtpEmail(user.email, otp, user.firstName)
+      emailSent = true
     } catch (mailErr) {
-      console.error('[auth] Failed to send verification OTP:', mailErr)
+      console.error('[auth] Email failed — auto-verifying user:', mailErr)
+      await UserModel.findByIdAndUpdate(user._id, { isVerified: true })
     }
+
+    // Reload user to get latest isVerified value
+    const freshUser = await UserModel.findById(user._id).lean()
 
     const payload = { sub: String(user._id), role: user.role as Role, email: user.email }
     const accessToken = signAccessToken(payload)
@@ -57,8 +64,8 @@ authRouter.post('/register', async (req, res, next) => {
     await storeRefreshToken(refreshToken, String(user._id))
     res.cookie('refreshToken', refreshToken, cookieOpts)
 
-    const { password: _pw, ...safeUser } = user.toObject()
-    res.status(201).json({ accessToken, user: { ...safeUser, _id: String(user._id) } })
+    const { password: _pw, ...safeUser } = (freshUser ?? user.toObject()) as Record<string, unknown> & { password?: unknown }
+    res.status(201).json({ accessToken, user: { ...safeUser, _id: String(user._id), emailSent } })
   } catch (err) { next(err) }
 })
 
@@ -184,10 +191,12 @@ authRouter.post('/resend-verification', requireAuth, async (req, res, next) => {
     console.log(`[auth] OTP for ${user.email}: ${otp}`)
     try {
       await sendOtpEmail(user.email, otp, user.firstName)
+      res.json({ ok: true, message: 'Verification code sent' })
     } catch (mailErr) {
-      console.error('[auth] SMTP failed on resend:', mailErr)
-      // Still return ok — OTP is stored, user can get code from Render logs if needed
+      console.error('[auth] SMTP failed on resend — auto-verifying:', mailErr)
+      // Email can't reach the user — verify them so they're not permanently blocked
+      await UserModel.findByIdAndUpdate(user._id, { isVerified: true })
+      res.json({ ok: true, message: 'Email unavailable — account verified automatically. Please log in.' })
     }
-    res.json({ ok: true, message: 'Verification code sent' })
   } catch (err) { next(err) }
 })
