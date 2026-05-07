@@ -54,7 +54,12 @@ export default function RecruiterInterviewRoom() {
 
   const saveMutation = useMutation({ mutationFn: () => interviewService.submitRubric(id!, rubric) })
   const completeMutation = useMutation({
-    mutationFn: () => interviewService.complete(id!),
+    mutationFn: () => {
+      const total = rubric.reduce((sum, r) => sum + r.score, 0)
+      const max = rubric.length * 5
+      const score = max > 0 ? Math.round((total / max) * 100) : 0
+      return interviewService.complete(id!, score)
+    },
     onSuccess: () => navigate('/recruiter/final-selection'),
   })
 

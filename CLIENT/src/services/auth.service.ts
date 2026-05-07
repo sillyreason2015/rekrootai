@@ -5,8 +5,8 @@ export const authService = {
   me: () => api.get<User>('/auth/me').then((r) => r.data),
   oauthGoogleUrl: () => `${api.defaults.baseURL}/auth/google`,
   oauthMicrosoftUrl: () => `${api.defaults.baseURL}/auth/microsoft`,
-  verifyEmail: (token: string) => api.post('/auth/verify-email', { token }),
+  verifyEmail: (otp: string) => api.post('/auth/verify-email', { otp }),
   forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
-  resetPassword: (token: string, password: string) =>
-    api.post('/auth/reset-password', { token, password }),
+  resetPassword: (email: string, otp: string, password: string) =>
+    api.post('/auth/reset-password', { email, otp, password }),
 }

@@ -34,11 +34,13 @@ export default function RecruiterDashboard() {
   })
   if (isLoading) return <LoadingSpinner />
   const published = jobs?.data.filter((j: Job) => j.status === 'published').length ?? 0
+  const shortlistReviews = (pipeline?.screening ?? 0) + (pipeline?.applied ?? 0)
+  const interviewsToday = pipeline?.interview ?? 0
   const stats = [
     { label: 'Active Jobs', value: published, icon: Briefcase, href: '/recruiter/jobs' },
     { label: 'Total Roles', value: jobs?.total ?? 0, icon: TrendingUp, href: '/recruiter/jobs' },
-    { label: 'Shortlist Reviews', value: '-', icon: Users, href: '/recruiter/shortlist' },
-    { label: 'Interviews Today', value: '-', icon: Video, href: '/recruiter/interviews' },
+    { label: 'Shortlist Reviews', value: shortlistReviews, icon: Users, href: '/recruiter/shortlist' },
+    { label: 'In Interview Stage', value: interviewsToday, icon: Video, href: '/recruiter/interviews' },
   ]
   const draftCount = jobs?.data.filter((j: Job) => j.status === 'draft').length ?? 0
   const closedCount = jobs?.data.filter((j: Job) => j.status === 'closed').length ?? 0
@@ -77,7 +79,10 @@ export default function RecruiterDashboard() {
               size="sm"
               variant="outline"
               disabled={!firstPublished?._id || vetoMutation.isPending}
-              onClick={() => vetoMutation.mutate()}
+              onClick={() => {
+                if (!window.confirm(`Run AI Veto on all applied candidates for "${firstPublished?.title}"? This will automatically shortlist or reject candidates based on their scores.`)) return
+                vetoMutation.mutate()
+              }}
             >
               Run Veto Now
             </Button>

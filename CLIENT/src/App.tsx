@@ -115,6 +115,8 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
               <Route path="/recruiter/jobs" element={<RecruiterJobs />} />
+              <Route path="/recruiter/jobs/create" element={<CreateJob />} />
+              <Route path="/recruiter/jobs/:id/edit" element={<EditJob />} />
               <Route path="/recruiter/shortlist" element={<Shortlist />} />
               <Route path="/recruiter/audit-log" element={<RecruiterAuditLog />} />
               <Route path="/recruiter/question-bank" element={<QuestionBank />} />

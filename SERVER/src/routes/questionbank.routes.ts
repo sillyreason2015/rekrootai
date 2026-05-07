@@ -126,6 +126,8 @@ const COOLDOWN_MS = 30_000                  // 30 seconds per user
 // POST /question-bank/generate — AI generation (Gemini if jobId provided, else templates)
 questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
+    const { getSettings } = await import('../lib/settings.js')
+    const settings = await getSettings()
     const me = await UserModel.findById(req.user!._id).lean()
     const { moduleType, difficulty, count, category, jobId } = req.body as {
       moduleType?: string
@@ -145,7 +147,7 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
     let generated: Array<{ text: string; type: 'mcq' | 'open'; options?: string[]; correctIndex?: number; points: number; category: string; difficulty: string; tags: string[] }>
 
     let source = 'templates'
-    if (jobId && env.GEMINI_API_KEY) {
+    if (jobId && env.GEMINI_API_KEY && settings.geminiGen) {
       const job = await JobModel.findById(jobId).lean()
       if (!job) throw new HttpError(404, 'Job not found')
 

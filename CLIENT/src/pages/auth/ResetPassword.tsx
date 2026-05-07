@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useSearchParams, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -10,15 +10,15 @@ import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 
 const schema = z.object({
+  email: z.string().email('Enter a valid email'),
+  otp: z.string().length(6, 'Code must be 6 digits').regex(/^\d+$/, 'Digits only'),
   password: z.string().min(8, 'At least 8 characters'),
   confirm: z.string(),
 }).refine((d) => d.password === d.confirm, { message: 'Passwords do not match', path: ['confirm'] })
 type FormData = z.infer<typeof schema>
 
 export default function ResetPassword() {
-  const [params] = useSearchParams()
   const navigate = useNavigate()
-  const token = params.get('token') ?? ''
   const [showPw, setShowPw] = useState(false)
   const [done, setDone] = useState(false)
   const [serverError, setServerError] = useState('')
@@ -27,29 +27,16 @@ export default function ResetPassword() {
     resolver: zodResolver(schema),
   })
 
-  const onSubmit = async ({ password }: FormData) => {
+  const onSubmit = async ({ email, otp, password }: FormData) => {
     setServerError('')
     try {
-      await authService.resetPassword(token, password)
+      await authService.resetPassword(email, otp, password)
       setDone(true)
       setTimeout(() => navigate('/login'), 3000)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setServerError(msg ?? 'Reset failed. The link may have expired.')
+      setServerError(msg ?? 'Reset failed. The code may have expired.')
     }
-  }
-
-  if (!token) {
-    return (
-      <div className="auth-doodle-bg flex min-h-screen items-center justify-center px-4">
-        <div className="w-full max-w-sm text-center space-y-4">
-          <AlertTriangle className="mx-auto h-10 w-10 text-destructive" />
-          <p className="font-medium">Invalid reset link</p>
-          <p className="text-sm text-muted-foreground">This link is missing a token. Please request a new reset link.</p>
-          <Link to="/forgot-password" className="text-sm text-primary hover:underline">Request new link</Link>
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -69,9 +56,27 @@ export default function ResetPassword() {
         ) : (
           <>
             <h1 className="font-serif text-3xl font-semibold">Set new password</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Choose a strong password of at least 8 characters.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Enter the 6-digit code we sent to your email, then choose a new password.</p>
 
             <form onSubmit={handleSubmit(onSubmit)} className="mt-6 space-y-4">
+              <div className="space-y-1.5">
+                <Label>Email address</Label>
+                <Input type="email" placeholder="you@example.com" {...register('email')} />
+                {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Reset code</Label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="6-digit code"
+                  maxLength={6}
+                  {...register('otp')}
+                />
+                {errors.otp && <p className="text-xs text-destructive">{errors.otp.message}</p>}
+              </div>
+
               <div className="space-y-1.5">
                 <Label>New password</Label>
                 <div className="relative">
@@ -109,6 +114,11 @@ export default function ResetPassword() {
                 Update password
               </Button>
             </form>
+
+            <p className="mt-4 text-center text-sm text-muted-foreground">
+              Need a new code?{' '}
+              <Link to="/forgot-password" className="text-primary hover:underline">Resend reset code</Link>
+            </p>
           </>
         )}
       </div>

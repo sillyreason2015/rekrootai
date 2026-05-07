@@ -17,6 +17,7 @@ import { questionBankRouter } from './routes/questionbank.routes.js'
 import { anonymizeRouter } from './routes/anonymize.routes.js'
 import { HttpError } from './lib/http.js'
 import { env } from './config/env.js'
+import { maintenanceGuard } from './lib/settings.js'
 
 export const app = express()
 
@@ -37,6 +38,7 @@ app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true }))
 app.use(cookieParser())
 app.use(morgan('dev'))
+app.use(maintenanceGuard)
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true, service: 'rekroot-server', now: new Date().toISOString() })

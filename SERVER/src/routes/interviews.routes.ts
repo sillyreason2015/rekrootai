@@ -81,8 +81,7 @@ interviewsRouter.post('/:id/rubric', requireAuth, requireRole('recruiter', 'admi
 interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const body = req.body as { score?: number }
-    if (body.score === undefined) throw new HttpError(400, 'score is required to complete an interview')
-    const score = Math.min(100, Math.max(0, Number(body.score)))
+    const score = Math.min(100, Math.max(0, Number(body.score ?? 0)))
     const interview = await InterviewModel.findByIdAndUpdate(
       req.params.id, { status: 'completed', score }, { new: true }
     ).lean()

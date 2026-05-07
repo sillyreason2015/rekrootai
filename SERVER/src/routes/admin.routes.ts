@@ -13,15 +13,22 @@ adminRouter.use(requireAuth, requireRole('admin', 'super_admin'))
 
 adminRouter.get('/dashboard', async (_req, res, next) => {
   try {
-    const [totalUsers, totalJobs, totalApplications, pipeline] = await Promise.all([
+    const [totalUsers, totalJobs, totalApplications, pipeline, recentLogs] = await Promise.all([
       UserModel.countDocuments(),
       JobModel.countDocuments(),
       ApplicationModel.countDocuments(),
       ApplicationModel.aggregate([{ $group: { _id: '$stage', count: { $sum: 1 } } }]),
+      AuditLogModel.find().sort({ timestamp: -1 }).limit(8).lean(),
     ])
     const pipelineStats: Record<string, number> = {}
     for (const p of pipeline) pipelineStats[String(p._id)] = Number(p.count)
-    res.json({ totalUsers, totalJobs, totalApplications, pipelineStats })
+    const recentActivity = recentLogs.map((l) => ({
+      action: l.action,
+      user: l.actor,
+      resource: l.jobId ? `job:${String(l.jobId)}` : undefined,
+      createdAt: (l as Record<string, unknown>).timestamp as string,
+    }))
+    res.json({ totalUsers, totalJobs, totalApplications, pipelineStats, recentActivity })
   } catch (err) { next(err) }
 })
 
@@ -61,7 +68,8 @@ adminRouter.post('/bias-audits/run', async (req, res, next) => {
 adminRouter.get('/team', async (_req, res, next) => {
   try {
     const users = await UserModel.find({ role: { $ne: 'candidate' } }, { password: 0 }).lean()
-    res.json({ data: users.map((u) => ({ ...u, _id: String(u._id) })) })
+    const members = users.map((u) => ({ ...u, _id: String(u._id) }))
+    res.json({ members, data: members })
   } catch (err) { next(err) }
 })
 
@@ -84,13 +92,13 @@ adminRouter.post('/team/invite', async (req, res, next) => {
     // Best-effort email — don't let SMTP failure block the invite creation
     try {
       const { sendInviteEmail } = await import('../lib/mail.js')
-      const inviteUrl = `${process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'}/invite/accept?token=${token}`
+      const inviteUrl = `${process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'}/accept-invite?token=${token}`
       await sendInviteEmail(email, inviteUrl, req.user?.email)
     } catch (mailErr) {
       console.error('[admin] Failed to send invite email:', mailErr)
     }
     await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role } })
-    res.status(201).json({ ok: true, token })
+    res.status(201).json({ ok: true, token, inviteToken: token })
   } catch (err) { next(err) }
 })
 
@@ -142,13 +150,19 @@ adminRouter.get('/super/companies', async (_req, res, next) => {
 
 adminRouter.get('/super/metrics', async (_req, res, next) => {
   try {
-    const [users, jobs, applications, interviews] = await Promise.all([
+    const { InterviewModel } = await import('../models/Interview.model.js')
+    const { AssessmentModel } = await import('../models/Assessment.model.js')
+    const { CompanyModel } = await import('../models/Company.model.js')
+    const [users, jobs, applications, interviews, assessments, companies, verifiedCompanies] = await Promise.all([
       UserModel.countDocuments(),
       JobModel.countDocuments(),
       ApplicationModel.countDocuments(),
-      (await import('../models/Interview.model.js')).InterviewModel.countDocuments(),
+      InterviewModel.countDocuments(),
+      AssessmentModel.countDocuments(),
+      CompanyModel.countDocuments(),
+      CompanyModel.countDocuments({ isVerified: true }),
     ])
-    res.json({ users, jobs, applications, interviews, uptime: process.uptime() })
+    res.json({ users, jobs, applications, interviews, assessments, companies, verifiedCompanies, aiOutputs: assessments + interviews, uptime: process.uptime() })
   } catch (err) { next(err) }
 })
 
@@ -161,7 +175,8 @@ adminRouter.get('/super/system-readiness', async (_req, res, next) => {
       smtp: process.env.SMTP_HOST ? 'configured' : 'missing',
       redis: process.env.UPSTASH_REDIS_REST_URL ? 'configured' : 'missing',
     }
-    res.json({ status: 'ready', checks })
+    const allGreen = Object.values(checks).every((v) => v === 'ok' || v === 'configured')
+    res.json({ status: 'ready', checks, allGreen })
   } catch (err) { next(err) }
 })
 
@@ -184,12 +199,14 @@ adminRouter.get('/super/settings', async (_req, res, next) => {
 
 adminRouter.put('/super/settings', async (req, res, next) => {
   try {
+    const { invalidateSettingsCache } = await import('../lib/settings.js')
     const { SystemSettingsModel } = await import('../models/SystemSettings.model.js')
     const settings = await SystemSettingsModel.findOneAndUpdate(
       {},
       { $set: req.body as Record<string, unknown> },
       { new: true, upsert: true },
     ).lean()
+    invalidateSettingsCache()
     res.json(settings)
   } catch (err) { next(err) }
 })
@@ -208,7 +225,15 @@ adminRouter.get('/question-insights', async (_req, res, next) => {
     const { QuestionBankModel } = await import('../models/QuestionBank.model.js')
     const total = await QuestionBankModel.countDocuments()
     const byCategory = await QuestionBankModel.aggregate([{ $group: { _id: '$category', count: { $sum: 1 } } }])
-    res.json({ total, byCategory })
+    const insights = [
+      { metric: 'Total Questions', value: total, hint: 'Questions available in the bank across all categories.' },
+      ...byCategory.slice(0, 3).map((c) => ({
+        metric: String(c._id || 'Uncategorized'),
+        value: Number(c.count),
+        hint: `Questions in the ${c._id || 'uncategorized'} category.`,
+      })),
+    ]
+    res.json({ total, byCategory, insights })
   } catch (err) { next(err) }
 })
 

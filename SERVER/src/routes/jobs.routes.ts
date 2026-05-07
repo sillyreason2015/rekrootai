@@ -27,13 +27,15 @@ jobsRouter.get('/', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// ── GET /jobs/mine — recruiter's own jobs ─────────────────────────────────────
+// ── GET /jobs/mine — recruiter's own jobs (admins see all) ────────────────────
 jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const page = Number(req.query.page ?? 1)
     const limit = Number(req.query.limit ?? 10)
     const status = String(req.query.status ?? '')
-    const filter: Record<string, unknown> = { createdBy: req.user!._id }
+    const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin'
+    // Admins see ALL company jobs; recruiters see only their own
+    const filter: Record<string, unknown> = isAdmin ? {} : { createdBy: req.user!._id }
     if (status) filter.status = status
     const all = await JobModel.find(filter).sort({ createdAt: -1 }).lean()
     res.json(paginate(all, page, limit))

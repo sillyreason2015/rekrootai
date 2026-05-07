@@ -145,11 +145,46 @@ applicationsRouter.post('/:id/ai-decide', requireAuth, requireRole('recruiter', 
 // ── GET /applications/:id/explanation ────────────────────────────────────────
 applicationsRouter.get('/:id/explanation', requireAuth, async (req, res, next) => {
   try {
-    const app = await ApplicationModel.findById(req.params.id).lean()
+    const { getSettings } = await import('../lib/settings.js')
+    const settings = await getSettings()
+    if (!settings.candidateExplain && req.user!.role === 'candidate') {
+      return res.json({ explanation: { bullets: ['Detailed score explanations are not available at this time.'] }, scores: {} })
+    }
+    const app = await ApplicationModel.findById(req.params.id)
+      .populate('job', 'title thresholds')
+      .lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    const s = app.scores ?? {}
+    const resume = s.resume ?? 0
+    const assessment = s.assessment ?? 0
+    const penalty = s.penalty ?? 0
+    const interview = s.interview ?? 0
+    const final = s.final ?? resume
+
+    // Build human-readable explanation narrative
+    const parts: string[] = []
+    if (resume > 0) parts.push(`Your CV matched ${resume.toFixed(0)}% of the role's required skills.`)
+    if (assessment > 0) parts.push(`Assessment score: ${assessment.toFixed(0)}%.`)
+    if (interview > 0) parts.push(`Interview evaluation: ${interview.toFixed(0)}%.`)
+    if (penalty > 0) parts.push(`A fairness adjustment of ${penalty.toFixed(0)} points was applied to correct for scoring imbalances.`)
+    if (final > 0) parts.push(`Overall composite score: ${final.toFixed(0)}%.`)
+    const narrative = parts.length ? parts.join(' ') : 'Your application is still being evaluated.'
+
     res.json({
-      explanation: { bullets: ['Resume score reflects skill overlap with job requirements', 'Assessment and interview scores contribute to final composite', 'Scores are computed without demographic signals'] },
-      scores: app.scores,
+      explanation: { bullets: parts.length ? parts : ['Your application is still being reviewed.'] },
+      scores: {
+        resumeScore: resume,
+        assessmentScore: assessment,
+        penaltyApplied: penalty,
+        interviewScore: interview,
+        finalScore: final,
+        weights: { w1: 0.3, w2: 0.3, w3: 0.1, w4: 0.3 },
+        explanation: narrative,
+        stage: app.stage,
+        decision: (app as Record<string, unknown>).decision as string | undefined,
+        recruiterNote: (app as Record<string, unknown>).recruiterNotes as string | undefined,
+        shapValues: null,
+      },
     })
   } catch (err) { next(err) }
 })
@@ -208,8 +243,9 @@ applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recrui
     const durationMinutes = Number((req.body as { durationMinutes?: number }).durationMinutes ?? 60)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const assessment: any = await AssessmentModel.create({
-      application: app._id, job: app.job, candidate: app.candidate,
+      application: app._id, job: app.job,
       durationMinutes, status: 'pending',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       modules: [{ type: 'technical', difficulty: 'medium', questions: [], answers: [] }],
     } as object)
     await ApplicationModel.findByIdAndUpdate(app._id, { stage: 'assessment', status: 'assessment_sent' })

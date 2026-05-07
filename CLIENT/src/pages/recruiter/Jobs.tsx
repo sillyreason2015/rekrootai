@@ -87,7 +87,7 @@ export default function RecruiterJobs() {
           <p className="text-sm text-muted-foreground">{data?.total ?? 0} total roles</p>
         </div>
         {isAdmin && (
-          <Link to="/admin/jobs/create">
+          <Link to="/recruiter/jobs/create">
             <Button size="sm">+ Post a Job</Button>
           </Link>
         )}
@@ -117,7 +117,7 @@ export default function RecruiterJobs() {
             <Briefcase className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
             <p className="font-medium">No jobs yet</p>
             {isAdmin && (
-              <Link to="/admin/jobs/create" className="mt-3 inline-block text-sm text-primary hover:underline">
+              <Link to="/recruiter/jobs/create" className="mt-3 inline-block text-sm text-primary hover:underline">
                 Create your first job →
               </Link>
             )}
@@ -153,7 +153,7 @@ export default function RecruiterJobs() {
                         </Link>
                       )}
                       {isAdmin && (
-                        <Link to={`/admin/jobs/${job._id}/edit`}>
+                        <Link to={`/recruiter/jobs/${job._id}/edit`}>
                           <Button size="sm" variant="outline" className="gap-1">
                             <Pencil className="h-3.5 w-3.5" /> Edit
                           </Button>

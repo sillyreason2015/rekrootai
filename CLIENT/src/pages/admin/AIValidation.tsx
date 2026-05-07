@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Shield, Brain, BarChart3, CheckCircle2, XCircle, Loader2, RefreshCw, Info } from 'lucide-react'
+import { Shield, BarChart3, CheckCircle2, XCircle, Loader2, RefreshCw, Info } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import api from '../../lib/axios'
 import { jobService } from '../../services/job.service'
@@ -12,16 +12,16 @@ import { scoreBg, cn } from '../../lib/utils'
 import type { Application, Candidate, User } from '../../types'
 
 interface FairnessResult {
-  ok: boolean
-  gate: {
-    decision: 'pass' | 'fail'
-    delta: number
-    disparateImpact?: number
-    details?: Record<string, unknown>
-  }
-  explain: {
-    topFeatures?: Array<{ name: string; value: number }>
-    explanation?: string
+  passed: boolean
+  score: number
+  flags: string[]
+  message: string
+  breakdown: {
+    resume: number
+    assessment: number
+    interview: number
+    penalty: number
+    final: number
   }
 }
 
@@ -31,17 +31,11 @@ export default function AIValidation() {
   const [result, setResult] = useState<FairnessResult | null>(null)
   const [error, setError] = useState('')
 
-  const { data: jobs } = useQuery({ queryKey: ['ai-validation-jobs'], queryFn: () => jobService.list({ limit: 200 }) })
+  const { data: jobs } = useQuery({ queryKey: ['ai-validation-jobs'], queryFn: () => jobService.myJobs({ page: 1 }) })
   const { data: appsData } = useQuery({
     queryKey: ['apps-for-validation', selectedJob],
     queryFn: () => applicationService.listForJob(selectedJob),
     enabled: !!selectedJob,
-  })
-
-  const { data: explanation } = useQuery({
-    queryKey: ['explanation', selectedApp],
-    queryFn: () => applicationService.getExplanation(selectedApp),
-    enabled: !!selectedApp && !!result,
   })
 
   const runMutation = useMutation({
@@ -58,8 +52,6 @@ export default function AIValidation() {
     const user = typeof cand?.user === 'object' ? cand.user as User : null
     return user ? `${user.firstName} ${user.lastName}` : `Application ${app._id.slice(-6)}`
   }
-
-  const scores = (explanation?.scores as Record<string, number> | undefined)
 
   return (
     <div className="space-y-6">
@@ -126,12 +118,12 @@ export default function AIValidation() {
       {result && (
         <div className="space-y-4">
           {/* Fairness Gate Result */}
-          <Card className={cn('border-2', result.gate.decision === 'pass' ? 'border-emerald-300' : 'border-red-300')}>
+          <Card className={cn('border-2', result.passed ? 'border-emerald-300' : 'border-red-300')}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Shield className={cn('h-5 w-5', result.gate.decision === 'pass' ? 'text-emerald-500' : 'text-red-500')} />
+                <Shield className={cn('h-5 w-5', result.passed ? 'text-emerald-500' : 'text-red-500')} />
                 Fairness Gate
-                {result.gate.decision === 'pass'
+                {result.passed
                   ? <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> PASS</span>
                   : <span className="flex items-center gap-1 rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700"><XCircle className="h-3.5 w-3.5" /> FLAGGED</span>}
               </CardTitle>
@@ -139,117 +131,71 @@ export default function AIValidation() {
             <CardContent className="space-y-3">
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <div className="rounded-lg border bg-muted/30 p-3 text-center">
-                  <p className="text-xs text-muted-foreground">Decision</p>
-                  <p className={cn('mt-1 font-bold uppercase text-lg', result.gate.decision === 'pass' ? 'text-emerald-600' : 'text-red-600')}>
-                    {result.gate.decision}
+                  <p className="text-xs text-muted-foreground">Final Score</p>
+                  <p className="mt-1 font-bold text-lg">{result.score.toFixed(1)}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/30 p-3 text-center">
+                  <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                    Penalty
+                    <InfoTip content="Score penalty applied when scoring anomalies or bias signals are detected. A value of 0 means no issues found." />
+                  </p>
+                  <p className={cn('mt-1 font-bold text-lg', result.breakdown.penalty > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
+                    {result.breakdown.penalty > 0 ? `−${result.breakdown.penalty}` : '0'}
                   </p>
                 </div>
                 <div className="rounded-lg border bg-muted/30 p-3 text-center">
                   <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                    Bias Correction δ
-                    <InfoTip content="Delta (δ) is the score penalty applied to correct for detected demographic bias. A value of 0 means no correction was needed. A positive δ means the system reduced the candidate's score to account for an over-representation advantage." />
+                    Flags
+                    <InfoTip content="Number of fairness concerns detected. 0 means the candidate passed all checks." />
                   </p>
-                  <p className={cn('mt-1 font-bold text-lg', result.gate.delta > 0 ? 'text-amber-600' : 'text-muted-foreground')}>
-                    {result.gate.delta > 0 ? `−${result.gate.delta.toFixed(2)}` : '0.00'}
+                  <p className={cn('mt-1 font-bold text-lg', result.flags.length > 0 ? 'text-red-600' : 'text-emerald-600')}>
+                    {result.flags.length}
                   </p>
                 </div>
-                {result.gate.disparateImpact !== undefined && (
-                  <div className="rounded-lg border bg-muted/30 p-3 text-center">
-                    <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-                      Disparate Impact
-                      <InfoTip content="The ratio of selection rates between the least-selected and most-selected demographic group. A value ≥ 0.80 passes the 4/5ths rule (legal standard). Below 0.80 indicates potential unlawful adverse impact and triggers a recruiter review." />
-                    </p>
-                    <p className={cn('mt-1 font-bold text-lg', result.gate.disparateImpact >= 0.8 ? 'text-emerald-600' : 'text-amber-600')}>
-                      {result.gate.disparateImpact.toFixed(2)}
-                    </p>
-                  </div>
-                )}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {result.gate.decision === 'pass'
-                  ? 'No demographic bias detected. Candidate advances to next stage.'
-                  : 'Potential bias signal detected. Score adjusted by δ. Recruiter review required before advancing.'}
-              </p>
+              {result.flags.length > 0 && (
+                <ul className="space-y-1">
+                  {result.flags.map((flag, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                      <XCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> {flag}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="text-xs text-muted-foreground">{result.message}</p>
             </CardContent>
           </Card>
 
-          {/* SHAP Explanation */}
-          {result.explain?.topFeatures?.length ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Brain className="h-5 w-5 text-primary" />
-                  SHAP Feature Importance
-                  <AiBadge label="XGBoost" />
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {result.explain.topFeatures
-                  .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
-                  .slice(0, 8)
-                  .map((feat) => (
-                    <div key={feat.name} className="flex items-center gap-3 text-sm">
-                      <span className="w-36 shrink-0 text-xs text-muted-foreground capitalize">{feat.name.replace(/_/g, ' ')}</span>
-                      <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                        <div className={cn('h-full rounded-full', feat.value >= 0 ? 'bg-emerald-400' : 'bg-red-400')}
-                          style={{ width: `${Math.min(100, Math.abs(feat.value) * 200)}%` }} />
-                      </div>
-                      <span className={cn('w-12 text-right font-mono text-xs', feat.value >= 0 ? 'text-emerald-600' : 'text-red-600')}>
-                        {feat.value >= 0 ? '+' : ''}{feat.value.toFixed(3)}
-                      </span>
-                    </div>
-                  ))}
-                <p className="text-xs text-muted-foreground pt-1">
-                  Positive values increase the predicted score; negative values decrease it. This output is deterministic for a given candidate.
-                </p>
-              </CardContent>
-            </Card>
-          ) : null}
-
           {/* Composite scores after pipeline */}
-          {scores && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-primary" /> Composite Score After Pipeline
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {[
-                  { label: 'Resume',     key: 'resumeScore' },
-                  { label: 'Assessment', key: 'assessmentScore' },
-                  { label: 'Interview',  key: 'interviewScore' },
-                  { label: 'Penalty',    key: 'penaltyApplied' },
-                  { label: 'Final',      key: 'finalScore' },
-                ].map(({ label, key }) => {
-                  const val = scores[key] ?? 0
-                  return (
-                    <div key={key} className="flex items-center gap-3">
-                      <span className="w-24 shrink-0 text-xs text-muted-foreground">{label}</span>
-                      <div className="flex-1 h-2 overflow-hidden rounded-full bg-muted">
-                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(100, val)}%` }} />
-                      </div>
-                      <span className={cn('w-14 text-right text-xs font-bold', scoreBg(val).split(' ').find(c => c.startsWith('text-')) ?? '')}>
-                        {val.toFixed(1)}%
-                      </span>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-primary" /> Score Breakdown
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {([
+                { label: 'Resume',     key: 'resume' as const },
+                { label: 'Assessment', key: 'assessment' as const },
+                { label: 'Interview',  key: 'interview' as const },
+                { label: 'Penalty',    key: 'penalty' as const },
+                { label: 'Final',      key: 'final' as const },
+              ] as const).map(({ label, key }) => {
+                const val = result.breakdown[key] ?? 0
+                return (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="w-24 shrink-0 text-xs text-muted-foreground">{label}</span>
+                    <div className="flex-1 h-2 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(100, val)}%` }} />
                     </div>
-                  )
-                })}
-              </CardContent>
-            </Card>
-          )}
-
-          {result.explain?.explanation && (
-            <Card className="border-primary/20 bg-primary/5">
-              <CardContent className="flex gap-3 p-5">
-                <Info className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
-                <div>
-                  <p className="text-sm font-semibold text-primary">Generated AI Narrative</p>
-                  <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{result.explain.explanation}</p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                    <span className={cn('w-14 text-right text-xs font-bold', scoreBg(val).split(' ').find(c => c.startsWith('text-')) ?? '')}>
+                      {val.toFixed(1)}
+                    </span>
+                  </div>
+                )
+              })}
+            </CardContent>
+          </Card>
         </div>
       )}
     </div>
