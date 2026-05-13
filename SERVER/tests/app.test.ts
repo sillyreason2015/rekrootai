@@ -49,3 +49,12 @@ test('Protected route GET /admin/dashboard requires auth', async () => {
   const res = await request(app).get('/admin/dashboard')
   assert.equal(res.status, 401)
 })
+
+test('POST /admin/team/invite/accept does not require prior auth', async () => {
+  const res = await request(app)
+    .post('/admin/team/invite/accept')
+    .send({ token: 'invalid-token', password: 'Password123', firstName: 'John', lastName: 'Tester' })
+
+  assert.notEqual(res.status, 401, 'invite acceptance should be public')
+  assert.notEqual(res.status, 403, 'invite acceptance should not require admin role')
+})

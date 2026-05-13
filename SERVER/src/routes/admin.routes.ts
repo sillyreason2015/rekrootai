@@ -9,8 +9,123 @@ import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError, paginate } from '../lib/http.js'
 import { logAction } from '../data/store.js'
 import { computeJobBiasAudit } from '../lib/fairness.js'
+import { env } from '../config/env.js'
 
 export const adminRouter = Router()
+
+async function buildAuditNarrative(entry: {
+  actor?: string
+  action: string
+  candidateId?: string
+  jobId?: string
+  mode?: string
+  payload?: Record<string, unknown>
+}) {
+  const who = entry.actor === 'ai' ? 'The AI system' : 'A recruiter'
+  let candidateName = 'a candidate'
+  let jobTitle = 'a job'
+
+  if (entry.candidateId) {
+    const candidate = await UserModel.findById(entry.candidateId, { firstName: 1, lastName: 1 }).lean()
+    if (candidate) candidateName = `${candidate.firstName} ${candidate.lastName}`.trim()
+  }
+  if (entry.jobId) {
+    const job = await JobModel.findById(entry.jobId, { title: 1 }).lean()
+    if (job) jobTitle = `"${job.title}"`
+  }
+
+  const payload = entry.payload ?? {}
+  const score = typeof payload.avgScore === 'number' ? `${payload.avgScore}%` : null
+  const threshold = typeof payload.threshold === 'number' ? `${payload.threshold}%` : null
+  const passed = typeof payload.passed === 'boolean' ? payload.passed : null
+  const stage = payload.stage ? String(payload.stage) : null
+  const decision = payload.decision ? String(payload.decision) : null
+  const modeLabel = entry.mode ? ` (${entry.mode} mode)` : ''
+
+  switch (entry.action) {
+    case 'screening-passed':
+      return `${who}${modeLabel} screened ${candidateName} for ${jobTitle} - they passed${score ? ` with a score of ${score}` : ''}${threshold ? ` (threshold: ${threshold})` : ''}.`
+    case 'screening-failed':
+      return `${who}${modeLabel} screened ${candidateName} for ${jobTitle} - they did not meet the criteria${score ? ` (score: ${score}` + (threshold ? `, threshold: ${threshold})` : ')') : ''}.`
+    case 'shortlist':
+    case 'shortlisted':
+      return `${who}${modeLabel} shortlisted ${candidateName} for ${jobTitle}.`
+    case 'reject':
+    case 'rejected':
+      return `${who}${modeLabel} rejected ${candidateName} from ${jobTitle}${decision ? ` - reason: ${decision}` : ''}.`
+    case 'hire':
+    case 'hired':
+      return `${who} marked ${candidateName} as hired for ${jobTitle}.`
+    case 'interview-scheduled':
+      return `An interview was scheduled for ${candidateName} for the ${jobTitle} role.`
+    case 'interview-completed':
+      return `${candidateName}'s interview for ${jobTitle} was completed${score ? ` - interview score: ${score}` : ''}.`
+    case 'assessment-sent':
+      return `${who} sent an assessment to ${candidateName} for ${jobTitle}${stage ? ` (${stage} stage)` : ''}.`
+    case 'assessment-completed':
+      return `${candidateName} completed their assessment for ${jobTitle}${score ? ` - score: ${score}` : ''}${passed !== null ? `, result: ${passed ? 'passed' : 'failed'}` : ''}.`
+    case 'decision-override':
+      return `A recruiter manually overrode the AI decision${modeLabel} for ${candidateName} on ${jobTitle}${decision ? ` - new decision: ${decision}` : ''}.`
+    case 'bias-audit-run':
+      return `A fairness/bias audit was run on ${jobTitle} by ${who.toLowerCase()}.`
+    case 'email-sent':
+    case 'email_sent':
+      return `A correspondence email was sent to ${candidateName} regarding ${jobTitle}.`
+    case 'team-invite':
+      return `A team invitation was created${payload.email ? ` for ${String(payload.email)}` : ''}${payload.role ? ` with ${String(payload.role)} access` : ''}.`
+    case 'job-created':
+      return `The job posting ${jobTitle} was created.`
+    case 'job-published':
+      return `${jobTitle} was published and is now accepting applications.`
+    case 'apply':
+    case 'applied':
+      return `${candidateName} submitted an application for ${jobTitle}.`
+    default:
+      return `${who}${modeLabel} performed "${entry.action.replace(/[-_]/g, ' ')}" involving ${candidateName} on ${jobTitle}.`
+  }
+}
+
+adminRouter.post('/team/invite/accept', async (req, res, next) => {
+  try {
+    const { token, password, firstName, lastName } = req.body as { token?: string; password?: string; firstName?: string; lastName?: string }
+    if (!token || !password) throw new HttpError(400, 'token and password required')
+
+    const { EmailTokenModel } = await import('../models/EmailToken.model.js')
+    const invite = await EmailTokenModel.findOne({ token, kind: 'invite' } as object).lean()
+    if (!invite) throw new HttpError(400, 'Invalid or expired invite link')
+    if (invite.usedAt) throw new HttpError(400, 'Invite link has already been used')
+    if (new Date(invite.expiresAt).getTime() <= Date.now()) {
+      await EmailTokenModel.deleteOne({ _id: invite._id })
+      throw new HttpError(400, 'Invite link has expired')
+    }
+
+    const existing = await UserModel.findOne({ email: invite.email.toLowerCase() }).lean()
+    if (existing) throw new HttpError(409, 'A user with this email already exists')
+
+    const argon2 = await import('argon2')
+    const hashed = await argon2.hash(password)
+    const user = await UserModel.create({
+      email: invite.email,
+      password: hashed,
+      role: invite.role ?? 'recruiter',
+      firstName: firstName?.trim() || 'Team',
+      lastName: lastName?.trim() || 'Member',
+      companyName: invite.companyName,
+      isVerified: true,
+      onboardingComplete: Boolean(invite.companyName),
+    })
+
+    await EmailTokenModel.deleteOne({ _id: invite._id })
+    await logAction({
+      actor: 'user',
+      action: 'team-invite-accepted',
+      mode: 'assist',
+      payload: { email: invite.email, role: invite.role ?? 'recruiter', companyName: invite.companyName ?? '' },
+    })
+    res.status(201).json({ ok: true, userId: String(user._id) })
+  } catch (err) { next(err) }
+})
+
 adminRouter.use(requireAuth, requireRole('admin', 'super_admin'))
 
 adminRouter.get('/dashboard', async (_req, res, next) => {
@@ -42,7 +157,22 @@ adminRouter.get('/audit-log', async (req, res, next) => {
     const filter: Record<string, unknown> = {}
     if (action) filter.action = { $regex: action, $options: 'i' }
     const all = await AuditLogModel.find(filter).sort({ timestamp: -1 }).lean()
-    res.json(paginate(all, page, limit))
+    const candidateIds = [...new Set(all
+      .map((entry) => entry.candidateId)
+      .filter((candidateId): candidateId is string => typeof candidateId === 'string' && candidateId.length > 0))]
+    const users = candidateIds.length
+      ? await UserModel.find({ _id: { $in: candidateIds } }, { firstName: 1, lastName: 1, email: 1 }).lean()
+      : []
+    const userMap = new Map(users.map((user) => [String(user._id), user]))
+    const enriched = await Promise.all(all.map(async (entry) => ({
+      ...entry,
+      _id: String(entry._id),
+      createdAt: (entry as { timestamp?: string }).timestamp,
+      narrative: await buildAuditNarrative(entry as Parameters<typeof buildAuditNarrative>[0]),
+      metadata: entry.payload,
+      user: entry.candidateId ? userMap.get(String(entry.candidateId)) ?? {} : {},
+    })))
+    res.json(paginate(enriched, page, limit))
   } catch (err) { next(err) }
 })
 
@@ -93,6 +223,14 @@ adminRouter.post('/team/invite', async (req, res, next) => {
     if (!email || !role) throw new HttpError(400, 'email and role are required')
     const existing = await UserModel.findOne({ email: email.toLowerCase() }).lean()
     if (existing) throw new HttpError(409, 'User already exists with that email')
+    const me = await UserModel.findById(req.user!._id, { companyName: 1 }).lean()
+    const company = await CompanyModel.findOne({
+      $or: [
+        { createdBy: req.user!._id },
+        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+      ],
+    }).lean()
+    const companyName = company?.name ?? company?.legalName ?? me?.companyName
     const { EmailTokenModel } = await import('../models/EmailToken.model.js')
     const crypto = await import('node:crypto')
     const token = crypto.randomUUID()
@@ -101,12 +239,15 @@ adminRouter.post('/team/invite', async (req, res, next) => {
       kind: 'invite',
       token,
       role: role as 'candidate' | 'recruiter' | 'admin' | 'super_admin',
+      companyName,
+      invitedBy: req.user!._id,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     })
     // Best-effort email — don't let SMTP failure block the invite creation
     try {
       const { sendInviteEmail } = await import('../lib/mail.js')
-      const inviteUrl = `${process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'}/accept-invite?token=${token}`
+      const inviteBase = env.CORS_ORIGINS[0] ?? process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'
+      const inviteUrl = `${inviteBase}/accept-invite?token=${encodeURIComponent(token)}`
       await sendInviteEmail(email, inviteUrl, req.user?.email)
     } catch (mailErr) {
       console.error('[admin] Failed to send invite email:', mailErr)
@@ -263,24 +404,6 @@ adminRouter.get('/question-insights', async (_req, res, next) => {
       })),
     ]
     res.json({ total, byCategory, insights })
-  } catch (err) { next(err) }
-})
-
-adminRouter.post('/team/invite/accept', async (req, res, next) => {
-  try {
-    const { token, password, firstName, lastName } = req.body as { token?: string; password?: string; firstName?: string; lastName?: string }
-    if (!token || !password) throw new HttpError(400, 'token and password required')
-    const { EmailTokenModel } = await import('../models/EmailToken.model.js')
-    const invite = await EmailTokenModel.findOne({ token, kind: "invite" } as object).lean()
-    if (!invite) throw new HttpError(400, 'Invalid or expired invite link')
-    const argon2 = await import('argon2')
-    const hashed = await argon2.hash(password)
-    const user = await UserModel.create({
-      email: invite.email, password: hashed, role: invite.role ?? 'recruiter',
-      firstName: firstName ?? 'Team', lastName: lastName ?? 'Member',
-    })
-    await EmailTokenModel.deleteOne({ _id: invite._id })
-    res.status(201).json({ ok: true, userId: String(user._id) })
   } catch (err) { next(err) }
 })
 

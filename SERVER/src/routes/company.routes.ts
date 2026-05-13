@@ -122,10 +122,25 @@ companyRouter.post('/invite', async (req, res, next) => {
     const { email } = req.body as { email?: string }
     if (!email) throw new HttpError(400, 'email is required')
     const me = await UserModel.findById(req.user!._id).lean()
+    const company = await CompanyModel.findOne({
+      $or: [
+        { createdBy: req.user!._id },
+        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+      ],
+    }).lean()
+    const companyName = company?.name ?? company?.legalName ?? me?.companyName
     const token = crypto.randomBytes(24).toString('hex')
     const expiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString()
-    await EmailTokenModel.create({ email: email.toLowerCase(), kind: 'invite', role: 'recruiter', token, expiresAt })
-    const frontendBase = env.CORS_ORIGIN ?? 'http://localhost:3000'
+    await EmailTokenModel.create({
+      email: email.toLowerCase(),
+      kind: 'invite',
+      role: 'recruiter',
+      token,
+      companyName,
+      invitedBy: req.user!._id,
+      expiresAt,
+    })
+    const frontendBase = env.CORS_ORIGINS[0] ?? 'http://localhost:3000'
     const inviteUrl = `${frontendBase}/accept-invite?token=${encodeURIComponent(token)}`
     sendInviteEmail(email.toLowerCase(), inviteUrl, me ? `${me.firstName} ${me.lastName}` : 'A RekrootAI recruiter').catch(console.error)
     res.status(201).json({ ok: true, inviteUrl, expiresAt })
