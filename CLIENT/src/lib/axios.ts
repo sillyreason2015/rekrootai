@@ -18,21 +18,38 @@ api.interceptors.request.use((config) => {
 
 // silent refresh on 401
 let refreshing = false
-let queue: Array<(token: string) => void> = []
+type errConfig = {
+  _retry?: boolean
+  url?: string
+  headers: Record<string, string>
+}
+
+type QueueItem = {
+  resolve: (value: unknown) => void
+  reject: (reason?: unknown) => void
+  original: errConfig
+}
+
+let queue: QueueItem[] = []
 
 api.interceptors.response.use(
   (res) => res,
   async (err) => {
-    const original = err.config
-    if (err.response?.status !== 401 || original._retry) {
+    const original = (err.config ?? {}) as errConfig
+    const url = String(original.url ?? '')
+    const isAuthEndpoint =
+      url.includes('/auth/login') ||
+      url.includes('/auth/register') ||
+      url.includes('/auth/refresh') ||
+      url.includes('/auth/forgot-password') ||
+      url.includes('/auth/reset-password')
+
+    if (err.response?.status !== 401 || original._retry || isAuthEndpoint) {
       return Promise.reject(err)
     }
     if (refreshing) {
-      return new Promise((resolve) => {
-        queue.push((token) => {
-          original.headers.Authorization = `Bearer ${token}`
-          resolve(api(original))
-        })
+      return new Promise((resolve, reject) => {
+        queue.push({ resolve, reject, original })
       })
     }
     original._retry = true
@@ -41,11 +58,18 @@ api.interceptors.response.use(
       const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, { withCredentials: true })
       const newToken: string = data.accessToken
       localStorage.setItem('accessToken', newToken)
-      queue.forEach((cb) => cb(newToken))
+      queue.forEach(({ resolve, original: queuedOriginal }) => {
+        queuedOriginal.headers = queuedOriginal.headers ?? {}
+        queuedOriginal.headers.Authorization = `Bearer ${newToken}`
+        resolve(api(queuedOriginal))
+      })
       queue = []
+      original.headers = original.headers ?? {}
       original.headers.Authorization = `Bearer ${newToken}`
       return api(original)
-    } catch {
+    } catch (refreshError) {
+      queue.forEach(({ reject }) => reject(refreshError))
+      queue = []
       localStorage.removeItem('accessToken')
       window.location.href = '/login'
       return Promise.reject(err)

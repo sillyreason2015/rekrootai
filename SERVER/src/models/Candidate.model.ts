@@ -28,7 +28,7 @@ const educationSchema = new Schema<EducationEntry>(
 
 const candidateSchema = new Schema<Candidate>(
   {
-    user: { type: String, ref: 'User', required: true, index: true },
+    user: { type: String, ref: 'User', required: true },
     headline: { type: String, default: '' },
     skills: { type: [String], default: [] },
     experience: { type: [experienceSchema], default: [] },
@@ -42,5 +42,7 @@ const candidateSchema = new Schema<Candidate>(
   },
   baseSchemaOptions,
 )
+
+candidateSchema.index({ user: 1 }, { unique: true })
 
 export const CandidateModel = model<Candidate>('Candidate', candidateSchema)

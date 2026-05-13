@@ -22,4 +22,7 @@ const notificationSchema = new Schema<NotificationDoc>(
   baseSchemaOptions,
 )
 
+notificationSchema.index({ user: 1, createdAt: -1 })
+notificationSchema.index({ user: 1, read: 1, createdAt: -1 })
+
 export const NotificationModel = model<NotificationDoc>('Notification', notificationSchema)

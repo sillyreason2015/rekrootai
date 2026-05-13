@@ -18,6 +18,7 @@ const userSchema = new Schema<UserDoc>(
     phone: { type: String, trim: true },
     avatarUrl: { type: String, trim: true },
     avatarDataUrl: { type: String },
+    oauthProviders: { type: [String], enum: ['google', 'microsoft'], default: [] },
   },
   baseSchemaOptions,
 )

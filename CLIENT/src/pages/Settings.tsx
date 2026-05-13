@@ -7,13 +7,14 @@ import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send, 
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/axios'
 import { candidateService } from '../services/candidate.service'
+import { authService } from '../services/auth.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import type { ExperienceEntry, EducationEntry } from '../types'
+import type { ExperienceEntry, EducationEntry, LinkedProvider } from '../types'
 
 const profileSchema = z.object({
   firstName: z.string().min(2),
@@ -177,6 +178,9 @@ export default function Settings() {
   const qc = useQueryClient()
   const [searchParams] = useSearchParams()
   const tabParam = searchParams.get('tab')
+  const providerStatusParam = searchParams.get('providerStatus')
+  const providerParam = searchParams.get('provider')
+  const providerMessage = searchParams.get('providerMessage')
   const isCompanyAdmin = user?.role === 'admin'
   const isRecruiter = user?.role === 'recruiter'
   const canManageCompany = isRecruiter || isCompanyAdmin
@@ -206,6 +210,18 @@ export default function Settings() {
     enabled: canManageCompany,
     retry: false,
   })
+  const { data: providerStatus } = useQuery({
+    queryKey: ['auth-provider-status'],
+    queryFn: authService.providerStatus,
+    retry: false,
+  })
+  const { data: linkedProviderData } = useQuery<{ providers: LinkedProvider[] }>({
+    queryKey: ['linked-providers'],
+    queryFn: authService.linkedProviders,
+    retry: false,
+  })
+  const linkedProviders = linkedProviderData?.providers ?? []
+  const linkedProviderSet = new Set(linkedProviders.map((item) => item.provider))
 
   const companyForm = useForm<CompanyForm>({
     resolver: zodResolver(companySchema),
@@ -242,6 +258,13 @@ export default function Settings() {
       qc.invalidateQueries({ queryKey: ['my-company'] })
       setCompanySaved(true)
       setTimeout(() => setCompanySaved(false), 3000)
+    },
+  })
+  const unlinkProvider = useMutation({
+    mutationFn: (provider: 'google' | 'microsoft') => authService.unlinkProvider(provider),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['linked-providers'] })
+      await refreshUser()
     },
   })
 
@@ -386,6 +409,23 @@ export default function Settings() {
       <div>
         <h1 className="font-serif text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground">Manage your account and preferences.</p>
+        {providerStatusParam && providerParam && (
+          <p className={`mt-2 rounded-md border px-3 py-2 text-xs ${
+            providerStatusParam === 'linked'
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+              : providerStatusParam === 'unlinked'
+                ? 'border-blue-300 bg-blue-50 text-blue-800'
+                : 'border-amber-300 bg-amber-50 text-amber-800'
+          }`}>
+            {providerMessage ?? (
+              providerStatusParam === 'linked'
+                ? `${providerParam} sign-in was linked successfully.`
+                : providerStatusParam === 'unlinked'
+                  ? `${providerParam} sign-in was removed successfully.`
+                  : `We couldn't complete the ${providerParam} provider action.`
+            )}
+          </p>
+        )}
         {recruiterPendingReview && (
           <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             Pending super-admin review: your company profile is awaiting verification. Until verified, recruiter company/team settings are read-only.
@@ -460,6 +500,57 @@ export default function Settings() {
                 {user?.role === 'candidate' && (
                   <CvUploadSection onUploaded={() => refetchProfile()} candidateProfile={candidateProfile} />
                 )}
+                <div className="space-y-2 rounded-lg border p-4">
+                  <div>
+                    <Label>Linked sign-in providers</Label>
+                    <p className="text-xs text-muted-foreground">Connect Google or Microsoft to sign in faster without changing your main account.</p>
+                  </div>
+                  <div className="space-y-2">
+                    {linkedProviders.length === 0 ? (
+                      <p className="text-xs text-muted-foreground">No external providers linked yet.</p>
+                    ) : (
+                      linkedProviders.map((item) => (
+                        <div key={item.provider} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                          <div>
+                            <span className="capitalize">{item.provider}</span>
+                            <span className="ml-2 text-muted-foreground">{item.email}</span>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={unlinkProvider.isPending}
+                            onClick={() => unlinkProvider.mutate(item.provider)}
+                          >
+                            Unlink
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    {providerStatus?.googleEnabled && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={linkedProviderSet.has('google')}
+                        onClick={() => { window.location.href = authService.linkGoogleUrl() }}
+                      >
+                        {linkedProviderSet.has('google') ? 'Google Linked' : 'Link Google'}
+                      </Button>
+                    )}
+                    {providerStatus?.microsoftEnabled && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={linkedProviderSet.has('microsoft')}
+                        onClick={() => { window.location.href = authService.linkMicrosoftUrl() }}
+                      >
+                        {linkedProviderSet.has('microsoft') ? 'Microsoft Linked' : 'Link Microsoft'}
+                      </Button>
+                    )}
+                  </div>
+                </div>
                 <Button type="submit" disabled={profileForm.formState.isSubmitting}>
                   {profileForm.formState.isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
                   <Save className="h-4 w-4" /> Save Changes

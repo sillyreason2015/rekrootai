@@ -20,11 +20,18 @@ import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { Card } from '../../components/ui/card'
 import { cn } from '../../lib/utils'
 import api from '../../lib/axios'
+import { startInterviewRecording } from '../../lib/interviewRecording'
 
 interface TranscriptLine {
   speaker: string
   text: string
   ts: string
+}
+
+function mapTranscriptSpeaker(speaker: string) {
+  if (speaker === 'candidate') return 'You'
+  if (speaker === 'recruiter') return 'Recruiter'
+  return speaker
 }
 
 export default function CandidateInterviewRoom() {
@@ -38,16 +45,20 @@ export default function CandidateInterviewRoom() {
   const [errorMsg, setErrorMsg] = useState('')
   const [remoteConnected, setRemoteConnected] = useState(false)
   const [proctoringAccepted, setProctoringAccepted] = useState(false)
+  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'uploading'>('idle')
+  const [recordingError, setRecordingError] = useState('')
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement>(null)
 
   const roomRef = useRef<Room | null>(null)
   const localVideoTrackRef = useRef<LocalVideoTrack | null>(null)
   const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null)
+  const recordingControllerRef = useRef<{ stop: () => Promise<Blob | null> } | null>(null)
 
   const { data: interview, isLoading, error } = useQuery({
     queryKey: ['interview', id],
@@ -64,10 +75,49 @@ export default function CandidateInterviewRoom() {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' })
   }, [transcript])
 
+  useEffect(() => {
+    if (!Array.isArray(interview?.transcript) || interview.transcript.length === 0) return
+    setTranscript((prev) => {
+      if (prev.length > 0) return prev
+      return interview.transcript!.map((line) => ({
+        speaker: mapTranscriptSpeaker(line.speaker),
+        text: line.text,
+        ts: line.timestamp,
+      }))
+    })
+  }, [interview?.transcript])
+
+  useEffect(() => {
+    if (!id || transcript.length === 0) return
+    const timer = window.setTimeout(() => {
+      const payload = transcript
+        .filter((line) => line.speaker === 'You')
+        .map((line) => ({ speaker: 'candidate', text: line.text, timestamp: line.ts }))
+      if (payload.length) void api.post(`/interviews/${id}/transcript`, { transcript: payload })
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [id, transcript])
+
   const addTranscriptLine = useCallback((speaker: string, text: string) => {
     if (!text.trim()) return
     setTranscript((prev) => [...prev, { speaker, text, ts: new Date().toISOString() }])
   }, [])
+
+  const stopAndUploadRecording = useCallback(async () => {
+    const controller = recordingControllerRef.current
+    recordingControllerRef.current = null
+    if (!controller || !id) return
+
+    const blob = await controller.stop()
+    if (!blob || blob.size === 0) return
+
+    try {
+      await interviewService.uploadRecording(id, blob, `candidate-interview-${id}.webm`)
+      setRecordingError('')
+    } catch {
+      setRecordingError('Recording upload failed. The session ended, but the recording could not be saved.')
+    }
+  }, [id])
 
   const startSpeechRecognition = useCallback(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -113,7 +163,10 @@ export default function CandidateInterviewRoom() {
             track.attach(remoteVideoRef.current)
             setRemoteConnected(true)
           }
-          if (track.kind === Track.Kind.Audio) track.attach()
+          if (track.kind === Track.Kind.Audio) {
+            if (remoteAudioRef.current) track.attach(remoteAudioRef.current)
+            else track.attach()
+          }
           addTranscriptLine('System', `${participant.name ?? 'Recruiter'} joined`)
         })
 
@@ -174,6 +227,14 @@ export default function CandidateInterviewRoom() {
 
         setConnState('connected')
         startSpeechRecognition()
+
+        recordingControllerRef.current = startInterviewRecording({
+          localVideoEl: localVideoRef.current,
+          remoteVideoEl: remoteVideoRef.current,
+          remoteAudioEl: remoteAudioRef.current,
+          localAudioTrack: localAudioTrackRef.current?.mediaStreamTrack,
+          onStateChange: setRecordingState,
+        })
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to connect to interview room'
         console.error('[InterviewRoom] connect error:', err)
@@ -185,10 +246,11 @@ export default function CandidateInterviewRoom() {
     connect()
     return () => {
       recognitionRef.current?.stop()
+      void stopAndUploadRecording()
       room?.disconnect()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, proctoringAccepted])
+  }, [id, proctoringAccepted, stopAndUploadRecording])
 
   const toggleMic = () => {
     const track = localAudioTrackRef.current
@@ -207,6 +269,7 @@ export default function CandidateInterviewRoom() {
 
   const hangUp = () => {
     recognitionRef.current?.stop()
+    void stopAndUploadRecording()
     roomRef.current?.disconnect()
     navigate(-1)
   }
@@ -237,6 +300,8 @@ export default function CandidateInterviewRoom() {
           <p className="text-xs text-white/50">
             {typeof interview.job === 'object' ? interview.job.title : 'Interview'}
           </p>
+          {recordingState !== 'idle' && <p className="text-[11px] text-emerald-300">Recording: {recordingState}</p>}
+          {recordingError && <p className="text-[11px] text-amber-300">{recordingError}</p>}
         </div>
         <div className="flex items-center gap-3">
           {connState === 'connecting' && (
@@ -270,6 +335,7 @@ export default function CandidateInterviewRoom() {
           </div>
         </div>
       </div>
+      <audio ref={remoteAudioRef} autoPlay className="hidden" />
 
       {/* Proctoring violation banner */}
       {showWarning && (

@@ -78,5 +78,7 @@ const jobSchema = new Schema<Omit<Job, 'createdAt'>>(
 
 jobSchema.index({ status: 1 })
 jobSchema.index({ createdBy: 1 })
+jobSchema.index({ status: 1, createdAt: -1 })
+jobSchema.index({ createdBy: 1, createdAt: -1 })
 
 export const JobModel = model<Omit<Job, 'createdAt'>>('Job', jobSchema)

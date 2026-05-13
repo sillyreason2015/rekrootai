@@ -1,14 +1,15 @@
-import mongoose from 'mongoose'
 import { app } from './app.js'
 import { env } from './config/env.js'
+import { connectDB } from './db/mongoose.js'
 import { verifySmtpConnection } from './lib/mail.js'
+import { startSchedulers } from './lib/scheduler.js'
 
 async function start() {
-  await mongoose.connect(env.MONGODB_URI)
-  console.log('MongoDB connected')
+  await connectDB()
 
-  // Non-blocking SMTP check — logs result so you can see if email works
+  // Non-blocking SMTP check so local startup is not delayed by mail transport health.
   verifySmtpConnection().catch(() => {})
+  startSchedulers()
 
   app.listen(env.PORT, () => {
     console.log(`RekrootAI server running on port ${env.PORT}`)

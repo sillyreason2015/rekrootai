@@ -12,6 +12,7 @@ const companySchema = new Schema<Company>(
     website: String,
     logoUrl: String,
     description: String,
+    tone: String,
     mission: String,
     vision: String,
     values: [String],

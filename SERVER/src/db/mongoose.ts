@@ -6,8 +6,14 @@ export async function connectDB(): Promise<void> {
   mongoose.connection.on('error', (err) => console.error('[mongo] error', err))
   mongoose.connection.on('disconnected', () => console.warn('[mongo] disconnected'))
 
+  mongoose.set('bufferCommands', false)
+
   await mongoose.connect(env.MONGODB_URI, {
-    serverSelectionTimeoutMS: 10_000,
+    serverSelectionTimeoutMS: 5_000,
+    connectTimeoutMS: 5_000,
+    socketTimeoutMS: 15_000,
+    maxPoolSize: 20,
+    minPoolSize: 2,
   })
 }
 

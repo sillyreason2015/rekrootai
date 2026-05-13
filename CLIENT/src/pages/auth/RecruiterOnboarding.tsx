@@ -147,14 +147,12 @@ export default function RecruiterOnboarding() {
       if (inviteEmails.length) {
         await Promise.all(
           inviteEmails.map((email) =>
-            api.post('/admin/team/invite', { email, role: 'recruiter' }),
+            api.post('/companies/invite', { email }),
           ),
         )
       }
       await refreshUser()
-      const me = await api.get<{ role: 'candidate' | 'recruiter' | 'admin' }>('/auth/me')
-      const role = me.data?.role
-      navigate(role === 'admin' ? '/admin/dashboard' : '/recruiter/dashboard')
+      navigate('/recruiter/dashboard')
     } catch {
       setSaveError('Something went wrong. Please try again.')
     } finally {

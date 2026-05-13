@@ -29,10 +29,13 @@ const interviewSchema = new Schema<Interview>(
     recruiter: { type: String, ref: 'User', required: true },
     scheduledAt: { type: String, required: true },
     durationMin: { type: Number, default: 45 },
+    collaborationMode: { type: String, enum: ['veto', 'assist', 'override'], default: 'assist' },
+    aiRecommendation: { type: String, enum: ['advance', 'hold', 'reject'] },
     roomToken: String,
     transcript: { type: [transcriptEntrySchema], default: [] },
     rubric: { type: [rubricScoreSchema], default: [] },
     aiAnalysis: { type: Schema.Types.Mixed },
+    aiAnalysisStatus: { type: String, enum: ['idle', 'pending', 'completed', 'failed'], default: 'idle' },
     score: Number,
     status: {
       type: String,
@@ -42,5 +45,10 @@ const interviewSchema = new Schema<Interview>(
   },
   baseSchemaOptions,
 )
+
+interviewSchema.index({ status: 1, scheduledAt: 1 })
+interviewSchema.index({ recruiter: 1, scheduledAt: 1 })
+interviewSchema.index({ application: 1, createdAt: -1 })
+interviewSchema.index({ candidate: 1, status: 1 })
 
 export const InterviewModel = model<Interview>('Interview', interviewSchema)

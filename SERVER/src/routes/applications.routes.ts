@@ -3,8 +3,9 @@ import { ApplicationModel } from '../models/Application.model.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { JobModel } from '../models/Job.model.js'
 import { UserModel } from '../models/User.model.js'
+import { InterviewModel } from '../models/Interview.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
-import { HttpError, paginate } from '../lib/http.js'
+import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
 import { scoreCandidateForJob } from '../lib/candidate-profile.js'
 
@@ -45,22 +46,54 @@ applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin', '
     const apps = await ApplicationModel.find({ candidate: candidate._id })
       .populate('job', 'title department location type status')
       .sort({ createdAt: -1 }).lean()
-    res.json(apps)
+    const interviews = await InterviewModel.find({ application: { $in: apps.map((app) => String(app._id)) } }, { application: 1, status: 1, scheduledAt: 1 }).lean()
+    const interviewMap = Object.fromEntries(interviews.map((item) => [String(item.application), item]))
+    res.json(apps.map((app) => ({
+      ...app,
+      interviewId: interviewMap[String(app._id)]?._id ? String(interviewMap[String(app._id)]._id) : undefined,
+      interviewStatus: interviewMap[String(app._id)]?.status,
+      interviewScheduledAt: interviewMap[String(app._id)]?.scheduledAt,
+    })))
   } catch (err) { next(err) }
 })
 
 // ── GET /applications/job/:jobId ──────────────────────────────────────────────
 applicationsRouter.get('/job/:jobId', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const page = Number(req.query.page ?? 1)
-    const limit = Number(req.query.limit ?? 20)
+    const page = Math.max(1, Number(req.query.page ?? 1) || 1)
+    const limit = Math.max(1, Number(req.query.limit ?? 20) || 20)
+    const skip = (page - 1) * limit
     const stage = String(req.query.stage ?? '')
     const filter: Record<string, unknown> = { job: req.params.jobId }
     if (stage) filter.stage = stage
-    const all = await ApplicationModel.find(filter)
-      .populate('candidate', 'skills experience headline cvUrl')
-      .sort({ createdAt: -1 }).lean()
-    res.json(paginate(all, page, limit))
+    const [apps, total] = await Promise.all([
+      ApplicationModel.find(filter)
+        .populate('candidate', 'skills experience headline cvUrl')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      ApplicationModel.countDocuments(filter),
+    ])
+    const interviews = await InterviewModel.find(
+      { application: { $in: apps.map((app) => String(app._id)) } },
+      { application: 1, status: 1, scheduledAt: 1, collaborationMode: 1 }
+    ).lean()
+    const interviewMap = Object.fromEntries(interviews.map((item) => [String(item.application), item]))
+    const enriched = apps.map((app) => ({
+      ...app,
+      interviewId: interviewMap[String(app._id)]?._id ? String(interviewMap[String(app._id)]._id) : undefined,
+      interviewStatus: interviewMap[String(app._id)]?.status,
+      interviewScheduledAt: interviewMap[String(app._id)]?.scheduledAt,
+      interviewMode: interviewMap[String(app._id)]?.collaborationMode,
+    }))
+    res.json({
+      data: enriched,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    })
   } catch (err) { next(err) }
 })
 
@@ -110,6 +143,8 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
   try {
     const { decision, notes } = req.body as { decision?: 'hire' | 'reject' | 'hold'; notes?: string }
     if (!decision) throw new HttpError(400, 'decision is required')
+    const linkedInterview = await InterviewModel.findOne({ application: req.params.id }, { collaborationMode: 1 }).sort({ createdAt: -1 }).lean()
+    const mode = linkedInterview?.collaborationMode ?? 'assist'
     const app = await ApplicationModel.findByIdAndUpdate(
       req.params.id,
       {
@@ -117,13 +152,20 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
         recruiterNotes: notes,
         decisionBy: req.user!._id,
         decisionAt: new Date().toISOString(),
-        status: 'decision_made',
-        stage: decision === 'hire' ? 'decision' : 'rejected',
+        status: decision === 'hire' ? 'hired' : decision === 'reject' ? 'rejected' : 'decision_made',
+        stage: decision === 'reject' ? 'rejected' : decision === 'hire' ? 'offered' : 'decision',
       },
       { new: true },
     ).lean()
     if (!app) throw new HttpError(404, 'Application not found')
-    await logAction({ actor: 'user', action: decision === 'hire' ? 'hired' : 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { decision } })
+    await logAction({
+      actor: 'user',
+      action: decision === 'hire' ? 'hired' : decision === 'reject' ? 'rejected' : 'decision-held',
+      candidateId: String(app.candidate),
+      jobId: String(app.job),
+      mode,
+      payload: { decision },
+    })
     res.json({ ...app, _id: String(app._id) })
   } catch (err) { next(err) }
 })
@@ -244,6 +286,7 @@ applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recrui
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const assessment: any = await AssessmentModel.create({
       application: app._id, job: app.job,
+      candidate: app.candidate,
       durationMinutes, status: 'pending',
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       modules: [{ type: 'technical', difficulty: 'medium', questions: [], answers: [] }],

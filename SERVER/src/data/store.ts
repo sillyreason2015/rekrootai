@@ -104,10 +104,12 @@ export async function ensureCandidateProfile(userId: string) {
 export async function ensureAssessment(applicationId: string, jobId: string) {
   const existing = await AssessmentModel.findOne({ application: applicationId }).lean()
   if (existing) return existing
+  const application = await ApplicationModel.findById(applicationId, { candidate: 1 }).lean()
   const expiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString()
   const created = await AssessmentModel.create({
     application: applicationId,
     job: jobId,
+    candidate: application?.candidate,
     modules: [
       { type: 'aptitude', questions: [] },
       { type: 'technical', questions: [] },

@@ -26,8 +26,7 @@ export default function FinalSelection() {
   })
 
   const selectedJobRecord = jobs?.data.find((job: Job) => job._id === selectedJob) as (Job & { aiMode?: string; mode?: string }) | undefined
-  const aiMode = selectedJobRecord?.aiMode ?? selectedJobRecord?.mode ?? params.get('mode') ?? 'assist'
-  const isOverrideMode = aiMode === 'override'
+  const fallbackMode = selectedJobRecord?.aiMode ?? selectedJobRecord?.mode ?? params.get('mode') ?? 'assist'
 
   const { data: decisionData, isLoading } = useQuery({
     queryKey: ['final-apps-decision', selectedJob],
@@ -74,10 +73,10 @@ export default function FinalSelection() {
           <h1 className="font-serif text-2xl font-semibold">Final Selection</h1>
           <p className="text-sm text-muted-foreground">Decision-stage candidates ready for final recruiter action.</p>
         </div>
-        <AiBadge label={isOverrideMode ? 'AI Advisory Only' : 'Human Decision Required'} size="md" />
+        <AiBadge label={fallbackMode === 'override' ? 'AI Advisory Only' : 'Human Decision Required'} size="md" />
       </div>
 
-      {isOverrideMode && (
+      {fallbackMode === 'override' && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           AI scores are advisory only. Final decisions are fully manual for this role.
         </div>
@@ -102,6 +101,8 @@ export default function FinalSelection() {
             const currentIntent = pendingDecision[app._id]
             const note = notes[app._id] ?? ''
             const canConfirm = note.trim().length >= 10
+            const appMode = app.interviewMode ?? fallbackMode
+            const isOverrideMode = appMode === 'override'
 
             return (
               <Card key={app._id} className="border-emerald-200">

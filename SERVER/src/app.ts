@@ -1,4 +1,5 @@
 import express from 'express'
+import mongoose from 'mongoose'
 import cors from 'cors'
 import helmet from 'helmet'
 import morgan from 'morgan'
@@ -21,6 +22,8 @@ import { maintenanceGuard } from './lib/settings.js'
 
 export const app = express()
 
+mongoose.set('bufferTimeoutMS', 3000)
+
 app.use(helmet())
 app.use(
   cors({
@@ -38,11 +41,28 @@ app.use(express.json({ limit: '2mb' }))
 app.use(express.urlencoded({ extended: true }))
 app.use(cookieParser())
 app.use(morgan('dev'))
-app.use(maintenanceGuard)
+app.use((req, res, next) => {
+  const startedAt = Date.now()
+  res.setHeader('X-Request-Started-At', String(startedAt))
+  res.on('finish', () => {
+    const durationMs = Date.now() - startedAt
+    if (durationMs >= 1000) {
+      console.warn(`[perf] slow request ${req.method} ${req.originalUrl} -> ${res.statusCode} in ${durationMs}ms`)
+    }
+  })
+  next()
+})
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'rekroot-server', now: new Date().toISOString() })
+  res.json({
+    ok: true,
+    service: 'rekroot-server',
+    now: new Date().toISOString(),
+    mongoState: mongoose.connection.readyState,
+  })
 })
+
+app.use(maintenanceGuard)
 
 app.use('/auth', authRouter)
 app.use('/candidates', candidateRouter)

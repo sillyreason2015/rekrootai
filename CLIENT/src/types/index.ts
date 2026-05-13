@@ -14,6 +14,7 @@ export interface User {
   phone?: string
   avatarUrl?: string
   avatarPreviewUrl?: string
+  oauthProviders?: Array<'google' | 'microsoft'>
 }
 
 // ─── Candidate ───────────────────────────────────────────────────────────────
@@ -117,6 +118,9 @@ export interface Application {
   decisionAt?: string
   createdAt: string
   interviewId?: string
+  interviewStatus?: 'scheduled' | 'live' | 'completed' | 'cancelled'
+  interviewScheduledAt?: string
+  interviewMode?: 'veto' | 'assist' | 'override'
   interviewMissed?: boolean
   assessmentExpiresAt?: string
   assessmentStatus?: 'pending' | 'in_progress' | 'completed' | 'expired'
@@ -180,10 +184,14 @@ export interface Interview {
   recruiter: string | User
   scheduledAt: string
   durationMin: number
+  collaborationMode?: 'veto' | 'assist' | 'override'
+  aiRecommendation?: 'advance' | 'hold' | 'reject'
   roomToken?: string
   transcript?: TranscriptEntry[]
   rubric?: RubricScore[]
   aiAnalysis?: Record<string, unknown>
+  aiAnalysisStatus?: 'idle' | 'pending' | 'completed' | 'failed'
+  artifacts?: InterviewArtifact[]
   score?: number
   status: 'scheduled' | 'live' | 'completed' | 'cancelled'
 }
@@ -199,6 +207,30 @@ export interface RubricScore {
   score: number
   maxScore: number
   notes?: string
+}
+
+export interface InterviewArtifact {
+  _id: string
+  interview: string
+  application: string
+  job: string
+  candidate: string
+  kind: 'recording' | 'transcript' | 'analysis'
+  status: 'pending' | 'uploaded' | 'processing' | 'completed' | 'failed'
+  storageKey?: string
+  mimeType?: string
+  sizeBytes?: number
+  uploadedBy?: string
+  startedAt?: string
+  completedAt?: string
+  metadata?: Record<string, unknown>
+  downloadUrl?: string | null
+  createdAt?: string
+}
+
+export interface LinkedProvider {
+  provider: 'google' | 'microsoft'
+  email: string
 }
 
 // ─── AI Output ───────────────────────────────────────────────────────────────

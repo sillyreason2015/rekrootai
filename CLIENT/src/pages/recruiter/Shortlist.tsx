@@ -390,7 +390,7 @@ export default function Shortlist() {
   const fairnessMutation   = useMutation({ mutationFn: (id: string) => applicationService.runFairnessGate(id), ...mutOpts })
   const scheduleMutation   = useMutation({
     mutationFn: ({ appId, scheduledAt, durationMin }: { appId: string; scheduledAt: string; durationMin: number }) =>
-      api.post('/interviews', { applicationId: appId, scheduledAt: new Date(scheduledAt).toISOString(), durationMin }),
+      api.post('/interviews', { applicationId: appId, scheduledAt: new Date(scheduledAt).toISOString(), durationMin, mode: mode.toLowerCase() }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['applications', selectedJob] }); setScheduleFor(null) },
   })
   const completeMutation = useMutation({
@@ -670,7 +670,7 @@ export default function Shortlist() {
                         {app.stage === 'interview' && extApp.interviewId && extApp.interviewStatus !== 'completed' && (
                           <>
                             <Button size="sm" variant="outline" className="text-purple-600 border-purple-200"
-                              onClick={() => window.open(`/recruiter/interview/${extApp.interviewId}`, '_blank')}>
+                              onClick={() => window.open(`/recruiter/interview/${extApp.interviewId}?mode=${mode.toLowerCase()}`, '_blank')}>
                               <Video className="h-3.5 w-3.5" /> Join
                             </Button>
                             <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200"

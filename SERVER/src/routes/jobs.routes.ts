@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { JobModel } from '../models/Job.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
-import { HttpError, paginate } from '../lib/http.js'
+import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
 
 export const jobsRouter = Router()
@@ -12,8 +12,9 @@ jobsRouter.get('/', async (req, res, next) => {
     const search = String(req.query.search ?? '').toLowerCase()
     const type = String(req.query.type ?? '')
     const remote = String(req.query.remote ?? '')
-    const page = Number(req.query.page ?? 1)
-    const limit = Number(req.query.limit ?? 10)
+    const page = Math.max(1, Number(req.query.page ?? 1) || 1)
+    const limit = Math.max(1, Number(req.query.limit ?? 10) || 10)
+    const skip = (page - 1) * limit
     const filter: Record<string, unknown> = { status: 'published' }
     if (type) filter.type = type
     if (remote) filter.remote = remote
@@ -22,23 +23,42 @@ jobsRouter.get('/', async (req, res, next) => {
       { department: { $regex: search, $options: 'i' } },
       { location: { $regex: search, $options: 'i' } },
     ]
-    const all = await JobModel.find(filter).sort({ createdAt: -1 }).lean()
-    res.json(paginate(all, page, limit))
+    const [jobs, total] = await Promise.all([
+      JobModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      JobModel.countDocuments(filter),
+    ])
+    res.json({
+      data: jobs,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    })
   } catch (err) { next(err) }
 })
 
 // ── GET /jobs/mine — recruiter's own jobs (admins see all) ────────────────────
 jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const page = Number(req.query.page ?? 1)
-    const limit = Number(req.query.limit ?? 10)
+    const page = Math.max(1, Number(req.query.page ?? 1) || 1)
+    const limit = Math.max(1, Number(req.query.limit ?? 10) || 10)
+    const skip = (page - 1) * limit
     const status = String(req.query.status ?? '')
     const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin'
     // Admins see ALL company jobs; recruiters see only their own
     const filter: Record<string, unknown> = isAdmin ? {} : { createdBy: req.user!._id }
     if (status) filter.status = status
-    const all = await JobModel.find(filter).sort({ createdAt: -1 }).lean()
-    res.json(paginate(all, page, limit))
+    const [jobs, total] = await Promise.all([
+      JobModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      JobModel.countDocuments(filter),
+    ])
+    res.json({
+      data: jobs,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    })
   } catch (err) { next(err) }
 })
 

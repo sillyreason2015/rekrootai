@@ -124,16 +124,21 @@ candidateRouter.get('/me/dashboard', async (req, res, next) => {
   try {
     const candidate = await getCandidateByUserId(req.user!._id)
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
-    const [applications, interviews, assessments] = await Promise.all([
-      ApplicationModel.find({ candidate: candidate._id }).populate('job', 'title department').lean(),
-      InterviewModel.find({ candidate: String(candidate._id), status: 'scheduled' } as object).lean(),
-      AssessmentModel.find({ candidate: String(candidate._id), status: 'pending' } as object).lean(),
+    const [applicationsCount, interviewsCount, assessmentsCount, recentApplications] = await Promise.all([
+      ApplicationModel.countDocuments({ candidate: candidate._id }),
+      InterviewModel.countDocuments({ candidate: String(candidate._id), status: 'scheduled' } as object),
+      AssessmentModel.countDocuments({ candidate: String(candidate._id), status: 'pending' } as object),
+      ApplicationModel.find({ candidate: candidate._id })
+        .populate('job', 'title department')
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .lean(),
     ])
     res.json({
-      applications: applications.length,
-      assessmentsPending: assessments.length,
-      interviewsScheduled: interviews.length,
-      recentApplications: applications.slice(0, 5),
+      applications: applicationsCount,
+      assessmentsPending: assessmentsCount,
+      interviewsScheduled: interviewsCount,
+      recentApplications,
     })
   } catch (err) { next(err) }
 })

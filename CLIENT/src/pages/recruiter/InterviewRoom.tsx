@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Mic, MicOff, Video, VideoOff, PhoneOff, Save, MessageSquare } from 'lucide-react'
 import {
@@ -19,38 +19,73 @@ import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { cn } from '../../lib/utils'
 import api from '../../lib/axios'
+import { startInterviewRecording } from '../../lib/interviewRecording'
 
 const DEFAULT_CRITERIA = ['Communication', 'Technical Knowledge', 'Problem Solving', 'Culture Fit', 'Motivation']
 
 interface RubricEntry { criterion: string; score: number; notes: string }
 interface TranscriptLine { speaker: string; text: string; ts: string }
 
+function mapTranscriptSpeaker(speaker: string) {
+  if (speaker === 'recruiter') return 'You'
+  if (speaker === 'candidate') return 'Candidate'
+  return speaker
+}
+
 export default function RecruiterInterviewRoom() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [micOn, setMicOn] = useState(true)
   const [camOn, setCamOn] = useState(true)
   const [elapsed, setElapsed] = useState(0)
   const [connState, setConnState] = useState<'connecting' | 'connected' | 'error'>('connecting')
   const [errorMsg, setErrorMsg] = useState('')
   const [remoteConnected, setRemoteConnected] = useState(false)
+  const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'uploading'>('idle')
+  const [recordingError, setRecordingError] = useState('')
   const [rubric, setRubric] = useState<RubricEntry[]>(DEFAULT_CRITERIA.map((c) => ({ criterion: c, score: 0, notes: '' })))
   const [transcript, setTranscript] = useState<TranscriptLine[]>([])
   const transcriptRef = useRef<HTMLDivElement>(null)
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement>(null)
   const roomRef = useRef<Room | null>(null)
   const localVideoTrackRef = useRef<LocalVideoTrack | null>(null)
   const localAudioTrackRef = useRef<LocalAudioTrack | null>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null)
+  const recordingControllerRef = useRef<{ stop: () => Promise<Blob | null> } | null>(null)
 
   const { data: interview, isLoading } = useQuery({
     queryKey: ['interview', id],
     queryFn: () => interviewService.get(id!),
     enabled: !!id,
   })
+  const collaborationMode = (searchParams.get('mode') ?? interview?.collaborationMode ?? 'assist') as 'veto' | 'assist' | 'override'
+
+  useEffect(() => {
+    if (Array.isArray(interview?.rubric) && interview.rubric.length > 0) {
+      setRubric(interview.rubric.map((item) => ({
+        criterion: item.criterion,
+        score: item.score,
+        notes: item.notes ?? '',
+      })))
+    }
+  }, [interview?.rubric])
+
+  useEffect(() => {
+    if (!Array.isArray(interview?.transcript) || interview.transcript.length === 0) return
+    setTranscript((prev) => {
+      if (prev.length > 0) return prev
+      return interview.transcript!.map((line) => ({
+        speaker: mapTranscriptSpeaker(line.speaker),
+        text: line.text,
+        ts: line.timestamp,
+      }))
+    })
+  }, [interview?.transcript])
 
   const saveMutation = useMutation({ mutationFn: () => interviewService.submitRubric(id!, rubric) })
   const completeMutation = useMutation({
@@ -58,7 +93,7 @@ export default function RecruiterInterviewRoom() {
       const total = rubric.reduce((sum, r) => sum + r.score, 0)
       const max = rubric.length * 5
       const score = max > 0 ? Math.round((total / max) * 100) : 0
-      return interviewService.complete(id!, score)
+      return interviewService.complete(id!, score, collaborationMode)
     },
     onSuccess: () => navigate('/recruiter/final-selection'),
   })
@@ -72,10 +107,37 @@ export default function RecruiterInterviewRoom() {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: 'smooth' })
   }, [transcript])
 
+  useEffect(() => {
+    if (!id || transcript.length === 0) return
+    const timer = window.setTimeout(() => {
+      const payload = transcript
+        .filter((line) => line.speaker === 'You')
+        .map((line) => ({ speaker: 'recruiter', text: line.text, timestamp: line.ts }))
+      if (payload.length) void api.post(`/interviews/${id}/transcript`, { transcript: payload })
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [id, transcript])
+
   const addTranscriptLine = useCallback((speaker: string, text: string) => {
     if (!text.trim()) return
     setTranscript((prev) => [...prev, { speaker, text, ts: new Date().toISOString() }])
   }, [])
+
+  const stopAndUploadRecording = useCallback(async () => {
+    const controller = recordingControllerRef.current
+    recordingControllerRef.current = null
+    if (!controller || !id) return
+
+    const blob = await controller.stop()
+    if (!blob || blob.size === 0) return
+
+    try {
+      await interviewService.uploadRecording(id, blob, `recruiter-interview-${id}.webm`)
+      setRecordingError('')
+    } catch {
+      setRecordingError('Recording upload failed. The interview ended, but the recording could not be saved.')
+    }
+  }, [id])
 
   const startSpeechRecognition = useCallback(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -116,7 +178,10 @@ export default function RecruiterInterviewRoom() {
             track.attach(remoteVideoRef.current)
             setRemoteConnected(true)
           }
-          if (track.kind === Track.Kind.Audio) track.attach()
+          if (track.kind === Track.Kind.Audio) {
+            if (remoteAudioRef.current) track.attach(remoteAudioRef.current)
+            else track.attach()
+          }
           addTranscriptLine('System', `${participant.name ?? 'Candidate'} joined`)
         })
 
@@ -176,6 +241,14 @@ export default function RecruiterInterviewRoom() {
 
         setConnState('connected')
         startSpeechRecognition()
+
+        recordingControllerRef.current = startInterviewRecording({
+          localVideoEl: localVideoRef.current,
+          remoteVideoEl: remoteVideoRef.current,
+          remoteAudioEl: remoteAudioRef.current,
+          localAudioTrack: localAudioTrackRef.current?.mediaStreamTrack,
+          onStateChange: setRecordingState,
+        })
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Failed to connect'
         console.error('[RecruiterInterviewRoom] connect error:', err)
@@ -187,10 +260,11 @@ export default function RecruiterInterviewRoom() {
     connect()
     return () => {
       recognitionRef.current?.stop()
+      void stopAndUploadRecording()
       room?.disconnect()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id])
+  }, [id, stopAndUploadRecording])
 
   const toggleMic = () => {
     const track = localAudioTrackRef.current
@@ -209,6 +283,7 @@ export default function RecruiterInterviewRoom() {
 
   const hangUp = () => {
     recognitionRef.current?.stop()
+    void stopAndUploadRecording()
     roomRef.current?.disconnect()
     navigate('/recruiter/final-selection')
   }
@@ -222,6 +297,7 @@ export default function RecruiterInterviewRoom() {
 
   return (
     <div className="flex h-screen flex-col gap-3 overflow-hidden bg-gray-950 p-4">
+      <audio ref={remoteAudioRef} autoPlay className="hidden" />
       {/* Header */}
       <div className="flex items-center justify-between shrink-0">
         <div>
@@ -229,6 +305,8 @@ export default function RecruiterInterviewRoom() {
             {typeof interview.job === 'object' ? interview.job.title : 'Interview'}
           </h1>
           <p className="text-xs text-white/50">Live Interview</p>
+          {recordingState !== 'idle' && <p className="text-[11px] text-emerald-300">Recording: {recordingState}</p>}
+          {recordingError && <p className="text-[11px] text-amber-300">{recordingError}</p>}
         </div>
         <div className="flex items-center gap-3">
           {connState === 'connecting' && <span className="text-xs text-white/50 animate-pulse">Connecting…</span>}

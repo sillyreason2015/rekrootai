@@ -54,5 +54,9 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
 )
 
 applicationSchema.index({ job: 1, stage: 1 })
+applicationSchema.index({ candidate: 1, createdAt: -1 })
+applicationSchema.index({ job: 1, createdAt: -1 })
+applicationSchema.index({ candidate: 1, job: 1 }, { unique: true })
+applicationSchema.index({ interviewMissed: 1, stage: 1 })
 
 export const ApplicationModel = model<Omit<Application, 'createdAt'>>('Application', applicationSchema)

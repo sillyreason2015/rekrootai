@@ -14,6 +14,7 @@ export interface User {
   phone?: string
   avatarUrl?: string
   avatarDataUrl?: string
+  oauthProviders?: Array<'google' | 'microsoft'>
 }
 
 export interface Candidate {
@@ -59,6 +60,7 @@ export interface Company {
   website?: string
   logoUrl?: string
   description?: string
+  tone?: string
   mission?: string
   vision?: string
   values?: string[]
@@ -187,6 +189,7 @@ export interface Assessment {
   _id: string
   application: string
   job: string
+  candidate?: string
   modules: AssessmentModule[]
   status: 'pending' | 'in_progress' | 'completed' | 'expired'
   startedAt?: string
@@ -216,12 +219,42 @@ export interface Interview {
   recruiter: string
   scheduledAt: string
   durationMin: number
+  collaborationMode?: 'veto' | 'assist' | 'override'
+  aiRecommendation?: 'advance' | 'hold' | 'reject'
   roomToken?: string
   transcript?: TranscriptEntry[]
   rubric?: RubricScore[]
   aiAnalysis?: Record<string, unknown>
+  aiAnalysisStatus?: 'idle' | 'pending' | 'completed' | 'failed'
   score?: number
   status: 'scheduled' | 'live' | 'completed' | 'cancelled'
+}
+
+export interface OAuthIdentity {
+  _id: string
+  user: string
+  provider: 'google' | 'microsoft'
+  providerUserId: string
+  email: string
+  linkedAt: string
+}
+
+export interface InterviewArtifact {
+  _id: string
+  interview: string
+  application: string
+  job: string
+  candidate: string
+  kind: 'recording' | 'transcript' | 'analysis'
+  status: 'pending' | 'uploaded' | 'processing' | 'completed' | 'failed'
+  storageKey?: string
+  mimeType?: string
+  sizeBytes?: number
+  uploadedBy?: string
+  startedAt?: string
+  completedAt?: string
+  metadata?: Record<string, unknown>
+  createdAt: string
 }
 
 export interface AiOutput {

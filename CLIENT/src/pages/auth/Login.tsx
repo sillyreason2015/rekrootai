@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { authService } from '../../services/auth.service'
+import { useQuery } from '@tanstack/react-query'
 
 const schema = z.object({
   email: z.string().email('Enter a valid email'),
@@ -23,6 +24,11 @@ export default function Login() {
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
   const [unverified, setUnverified] = useState(false)
+  const { data: providerStatus } = useQuery({
+    queryKey: ['auth-provider-status'],
+    queryFn: authService.providerStatus,
+    retry: false,
+  })
 
   const {
     register,
@@ -156,14 +162,20 @@ export default function Login() {
             </Button>
           </form>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <Button type="button" variant="outline" onClick={() => oauthLogin('google')}>
-              Google
-            </Button>
-            <Button type="button" variant="outline" onClick={() => oauthLogin('microsoft')}>
-              Microsoft
-            </Button>
-          </div>
+          {(providerStatus?.googleEnabled || providerStatus?.microsoftEnabled) && (
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {providerStatus?.googleEnabled ? (
+                <Button type="button" variant="outline" onClick={() => oauthLogin('google')}>
+                  Google
+                </Button>
+              ) : <div />}
+              {providerStatus?.microsoftEnabled ? (
+                <Button type="button" variant="outline" onClick={() => oauthLogin('microsoft')}>
+                  Microsoft
+                </Button>
+              ) : <div />}
+            </div>
+          )}
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             Don't have an account?{' '}

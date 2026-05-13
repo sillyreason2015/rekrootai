@@ -1,13 +1,49 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { InterviewModel } from '../models/Interview.model.js'
 import { ApplicationModel } from '../models/Application.model.js'
 import { CandidateModel } from '../models/Candidate.model.js'
+import { InterviewArtifactModel } from '../models/InterviewArtifact.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
 import { notify } from '../lib/notify.js'
+import { env } from '../config/env.js'
+import { ensureInterviewAccess, mergeTranscriptEntries, reconcileInterviewState, type PersistedTranscriptLine } from '../lib/interview-automation.js'
+import { enqueueInterviewAnalysis } from '../lib/interview-analysis-queue.js'
+import { presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
 
 export const interviewsRouter = Router()
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } })
+
+function buildSpeakerSegments(lines: PersistedTranscriptLine[]) {
+  const sorted = [...lines].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  const segments: Array<{
+    speaker: 'candidate' | 'recruiter'
+    startedAt: string
+    endedAt: string
+    text: string
+    lineCount: number
+  }> = []
+
+  for (const line of sorted) {
+    const prev = segments[segments.length - 1]
+    if (prev && prev.speaker === line.speaker) {
+      prev.endedAt = line.timestamp
+      prev.text = `${prev.text} ${line.text}`.trim()
+      prev.lineCount += 1
+      continue
+    }
+    segments.push({
+      speaker: line.speaker,
+      startedAt: line.timestamp,
+      endedAt: line.timestamp,
+      text: line.text,
+      lineCount: 1,
+    })
+  }
+  return segments
+}
 
 // ── GET /interviews/mine ──────────────────────────────────────────────────────
 interviewsRouter.get('/mine', requireAuth, async (req, res, next) => {
@@ -18,14 +54,18 @@ interviewsRouter.get('/mine', requireAuth, async (req, res, next) => {
       : { recruiter: req.user!._id }
     const interviews = await InterviewModel.find(filter as object)
       .populate('job', 'title department').sort({ scheduledAt: 1 }).lean()
-    res.json(interviews)
+    const reconciled = await Promise.all(interviews.map((item) => reconcileInterviewState(String(item._id))))
+    res.json(reconciled.filter(Boolean))
   } catch (err) { next(err) }
 })
 
 // ── GET /interviews/:id ───────────────────────────────────────────────────────
 interviewsRouter.get('/:id', requireAuth, async (req, res, next) => {
   try {
-    const interview = await InterviewModel.findById(req.params.id)
+    const base = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
+    if (!base) throw new HttpError(404, 'Interview not found')
+    await reconcileInterviewState(String(base._id))
+    const interview = await InterviewModel.findById(base._id)
       .populate('job', 'title department').lean()
     if (!interview) throw new HttpError(404, 'Interview not found')
     res.json({ ...interview, _id: String(interview._id) })
@@ -35,7 +75,9 @@ interviewsRouter.get('/:id', requireAuth, async (req, res, next) => {
 // ── POST /interviews — schedule ───────────────────────────────────────────────
 interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const { applicationId, scheduledAt, durationMin } = req.body as { applicationId?: string; scheduledAt?: string; durationMin?: number }
+    const { applicationId, scheduledAt, durationMin, mode } = req.body as {
+      applicationId?: string; scheduledAt?: string; durationMin?: number; mode?: 'veto' | 'assist' | 'override'
+    }
     const application = applicationId ? await ApplicationModel.findById(applicationId).lean() : null
     if (!application) throw new HttpError(404, 'Application not found')
     const interview = await InterviewModel.create({
@@ -45,12 +87,13 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
       recruiter: req.user!._id,
       scheduledAt: scheduledAt ?? new Date().toISOString(),
       durationMin: durationMin ?? 45,
+      collaborationMode: mode ?? 'assist',
       status: 'scheduled',
       transcript: [],
       rubric: [],
     })
     await ApplicationModel.findByIdAndUpdate(application._id, { stage: 'interview', status: 'interview_scheduled' })
-    await logAction({ actor: 'user', action: 'interview-scheduled', candidateId: String(application.candidate), jobId: String(application.job), mode: 'assist' })
+    await logAction({ actor: 'user', action: 'interview-scheduled', candidateId: String(application.candidate), jobId: String(application.job), mode: mode ?? 'assist' })
     notify(String(application.candidate), { type: 'info', title: 'Interview Scheduled', body: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.` })
     res.status(201).json({ ...interview.toObject(), _id: String(interview._id) })
   } catch (err) { next(err) }
@@ -59,16 +102,118 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
 // ── GET /interviews/:id/token ─────────────────────────────────────────────────
 interviewsRouter.get('/:id/token', requireAuth, async (req, res, next) => {
   try {
-    const interview = await InterviewModel.findById(req.params.id).lean()
+    const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
     if (!interview) throw new HttpError(404, 'Interview not found')
+    const fresh = await reconcileInterviewState(String(interview._id))
+    if (fresh?.status === 'cancelled') throw new HttpError(409, 'Interview session has expired')
     const roomName = `room-${String(interview._id)}`
-    res.json({ token: roomName, roomName })
+    const wsUrl = env.LIVEKIT_HOST
+    let token = roomName
+
+    if (env.LIVEKIT_API_KEY && env.LIVEKIT_API_SECRET && wsUrl) {
+      const { AccessToken } = await import('livekit-server-sdk')
+      const participantIdentity = `${req.user!.role}-${req.user!._id}`
+      const participantName = req.user!.email ?? participantIdentity
+      const accessToken = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
+        identity: participantIdentity,
+        name: participantName,
+        ttl: '2h',
+      })
+      accessToken.addGrant({ roomJoin: true, room: roomName, canPublish: true, canSubscribe: true })
+      token = await accessToken.toJwt()
+    }
+
+    res.json({ token, roomName, wsUrl })
+  } catch (err) { next(err) }
+})
+
+interviewsRouter.post('/:id/transcript', requireAuth, async (req, res, next) => {
+  try {
+    const accessInterview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
+    if (!accessInterview) throw new HttpError(404, 'Interview not found')
+    const current = await InterviewModel.findById(accessInterview._id).lean()
+    if (!current) throw new HttpError(404, 'Interview not found')
+    const transcript = Array.isArray((req.body as { transcript?: unknown[] }).transcript)
+      ? ((req.body as { transcript: Array<{ speaker?: string; text?: string; timestamp?: string }> }).transcript
+        .filter((line) => line.text?.trim() && (line.speaker === 'candidate' || line.speaker === 'recruiter'))
+        .map((line) => ({
+          speaker: line.speaker as 'candidate' | 'recruiter',
+          text: String(line.text).trim(),
+          timestamp: line.timestamp ?? new Date().toISOString(),
+        })))
+      : []
+    const speakers = [...new Set(transcript.map((line) => line.speaker))]
+    let mergedTranscript = Array.isArray(current.transcript) ? [...current.transcript] as PersistedTranscriptLine[] : []
+    for (const speaker of speakers) {
+      const speakerEntries = transcript.filter((line) => line.speaker === speaker)
+      mergedTranscript = mergeTranscriptEntries(mergedTranscript, speakerEntries, speaker)
+    }
+    const speakerSegments = buildSpeakerSegments(mergedTranscript)
+    await Promise.all([
+      InterviewModel.findByIdAndUpdate(accessInterview._id, { transcript: mergedTranscript }),
+      InterviewArtifactModel.findOneAndUpdate(
+        { interview: String(accessInterview._id), kind: 'transcript' },
+        {
+          $set: {
+            application: String(current.application),
+            job: String(current.job),
+            candidate: String(current.candidate),
+            status: 'completed',
+            uploadedBy: String(req.user!._id),
+            completedAt: new Date().toISOString(),
+            metadata: { entryCount: mergedTranscript.length, speakerSegments },
+          },
+          $setOnInsert: { startedAt: new Date().toISOString() },
+        },
+        { upsert: true, new: true }
+      ),
+    ])
+    res.json({ ok: true, count: mergedTranscript.length })
+  } catch (err) { next(err) }
+})
+
+interviewsRouter.post('/:id/artifacts/recording', requireAuth, upload.single('recording'), async (req, res, next) => {
+  try {
+    const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    if (!req.file) throw new HttpError(400, 'No recording file uploaded')
+
+    let storageKey: string | undefined
+    try {
+      storageKey = `interviews/${String(interview._id)}/recordings/${Date.now()}-${req.file.originalname}`
+      await uploadBlob(storageKey, req.file.buffer, req.file.mimetype || 'application/octet-stream')
+    } catch {
+      storageKey = undefined
+    }
+
+    const artifact = await InterviewArtifactModel.create({
+      interview: String(interview._id),
+      application: String(interview.application),
+      job: String(interview.job),
+      candidate: String(interview.candidate),
+      kind: 'recording',
+      status: storageKey ? 'uploaded' : 'failed',
+      storageKey,
+      mimeType: req.file.mimetype || 'application/octet-stream',
+      sizeBytes: req.file.size,
+      uploadedBy: String(req.user!._id),
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      metadata: { originalName: req.file.originalname },
+    })
+
+    res.status(storageKey ? 201 : 503).json({ ...artifact.toJSON(), _id: String(artifact._id), uploaded: Boolean(storageKey) })
   } catch (err) { next(err) }
 })
 
 // ── POST /interviews/:id/rubric ───────────────────────────────────────────────
 interviewsRouter.post('/:id/rubric', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
+    const current = await InterviewModel.findById(req.params.id).lean()
+    if (!current) throw new HttpError(404, 'Interview not found')
+    if (!['admin', 'super_admin'].includes(req.user!.role) && String(current.recruiter) !== String(req.user!._id)) {
+      throw new HttpError(403, 'Forbidden')
+    }
     const interview = await InterviewModel.findByIdAndUpdate(
       req.params.id, { rubric: req.body.rubric ?? [] }, { new: true }
     ).lean()
@@ -80,16 +225,47 @@ interviewsRouter.post('/:id/rubric', requireAuth, requireRole('recruiter', 'admi
 // ── POST /interviews/:id/complete ─────────────────────────────────────────────
 interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const body = req.body as { score?: number }
-    const score = Math.min(100, Math.max(0, Number(body.score ?? 0)))
+    const current = await InterviewModel.findById(req.params.id).lean()
+    if (!current) throw new HttpError(404, 'Interview not found')
+    if (!['admin', 'super_admin'].includes(req.user!.role) && String(current.recruiter) !== String(req.user!._id)) {
+      throw new HttpError(403, 'Forbidden')
+    }
+    const body = req.body as {
+      score?: number
+      mode?: 'veto' | 'assist' | 'override'
+      aiRecommendation?: 'advance' | 'hold' | 'reject'
+    }
+    const rubric = Array.isArray(current.rubric) ? current.rubric : []
+    const rubricScore = rubric.length
+      ? Math.round((rubric.reduce((sum, item) => sum + Number(item.score ?? 0), 0) / (rubric.length * 5)) * 100)
+      : 0
+    const requestedScore = body.score ?? rubricScore
+    const score = Math.min(100, Math.max(0, Number(requestedScore ?? 0)))
+    const aiRecommendation = body.aiRecommendation ?? current.aiRecommendation
     const interview = await InterviewModel.findByIdAndUpdate(
-      req.params.id, { status: 'completed', score }, { new: true }
+      req.params.id,
+      {
+        status: 'completed',
+        score,
+        collaborationMode: body.mode ?? current.collaborationMode ?? 'assist',
+        aiRecommendation,
+        aiAnalysisStatus: 'pending',
+      },
+      { new: true }
     ).lean()
     if (!interview) throw new HttpError(404, 'Interview not found')
     await ApplicationModel.findByIdAndUpdate(interview.application, {
       stage: 'decision', status: 'decision_made', 'scores.interview': score,
     })
-    await logAction({ actor: 'ai', action: 'interview-completed', candidateId: String(interview.candidate), jobId: String(interview.job), mode: 'assist', payload: { avgScore: score } })
+    await logAction({
+      actor: 'ai',
+      action: 'interview-completed',
+      candidateId: String(interview.candidate),
+      jobId: String(interview.job),
+      mode: interview.collaborationMode ?? 'assist',
+      payload: { avgScore: score, aiRecommendation: interview.aiRecommendation ?? null },
+    })
+    await enqueueInterviewAnalysis(String(interview._id))
     res.json({ ...interview, _id: String(interview._id) })
   } catch (err) { next(err) }
 })
@@ -97,17 +273,27 @@ interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'ad
 // ── GET /interviews/:id/artifacts ─────────────────────────────────────────────
 interviewsRouter.get('/:id/artifacts', requireAuth, async (req, res, next) => {
   try {
-    const interview = await InterviewModel.findById(req.params.id).lean()
+    const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
     if (!interview) throw new HttpError(404, 'Interview not found')
-    const hasTranscript = Array.isArray(interview.transcript) && interview.transcript.length > 0
+    const fresh = await reconcileInterviewState(String(interview._id))
+    const activeInterview = fresh ?? interview
+    const hasTranscript = Array.isArray(activeInterview.transcript) && activeInterview.transcript.length > 0
+    const artifacts = await InterviewArtifactModel.find({ interview: String(activeInterview._id) }).sort({ createdAt: -1 }).lean()
+    const serializedArtifacts = await Promise.all(artifacts.map(async (artifact) => ({
+      ...artifact,
+      _id: String(artifact._id),
+      downloadUrl: artifact.storageKey ? await presignedDownloadUrl(artifact.storageKey, 3600).catch(() => null) : null,
+    })))
     res.json({
       transcriptUrl: null,
-      recordingUrl: null,
-      transcript: hasTranscript ? interview.transcript : [],
-      rubric: interview.rubric ?? [],
-      score: interview.score ?? null,
-      aiAnalysis: interview.aiAnalysis ?? null,
+      recordingUrl: serializedArtifacts.find((artifact) => artifact.kind === 'recording')?.downloadUrl ?? null,
+      transcript: hasTranscript ? activeInterview.transcript : [],
+      rubric: activeInterview.rubric ?? [],
+      score: activeInterview.score ?? null,
+      aiAnalysis: activeInterview.aiAnalysis ?? null,
+      aiAnalysisStatus: activeInterview.aiAnalysisStatus ?? 'idle',
       hasTranscript,
+      artifacts: serializedArtifacts,
     })
   } catch (err) { next(err) }
 })
@@ -133,6 +319,11 @@ interviewsRouter.post('/:id/missed-recovery-request', requireAuth, requireRole('
 // ── POST /interviews/:id/reschedule ───────────────────────────────────────────
 interviewsRouter.post('/:id/reschedule', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
+    const current = await InterviewModel.findById(req.params.id).lean()
+    if (!current) throw new HttpError(404, 'Interview not found')
+    if (!['admin', 'super_admin'].includes(req.user!.role) && String(current.recruiter) !== String(req.user!._id)) {
+      throw new HttpError(403, 'Forbidden')
+    }
     const { scheduledAt, durationMin } = req.body as { scheduledAt?: string; durationMin?: number }
     const interview = await InterviewModel.findByIdAndUpdate(
       req.params.id,

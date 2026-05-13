@@ -39,6 +39,7 @@ const assessmentSchema = new Schema<Omit<Assessment, '_id'>>(
   {
     application: { type: String, ref: 'Application', required: true, index: true },
     job: { type: String, ref: 'Job', required: true },
+    candidate: { type: String, ref: 'Candidate', index: true },
     modules: { type: [moduleSchema], default: [] },
     status: {
       type: String,
@@ -52,5 +53,9 @@ const assessmentSchema = new Schema<Omit<Assessment, '_id'>>(
   },
   baseSchemaOptions,
 )
+
+assessmentSchema.index({ candidate: 1, status: 1 })
+assessmentSchema.index({ application: 1, status: 1 })
+assessmentSchema.index({ status: 1, expiresAt: 1 })
 
 export const AssessmentModel = model<Omit<Assessment, '_id'>>('Assessment', assessmentSchema)
