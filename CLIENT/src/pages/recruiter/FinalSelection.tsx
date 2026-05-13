@@ -156,7 +156,10 @@ export default function FinalSelection() {
                       />
                       {!canConfirm && note.length > 0 && <p className="text-[11px] text-destructive">Please provide at least 10 characters before confirming.</p>}
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => decideMutation.mutate({ id: app._id, decision: currentIntent })} disabled={decideMutation.isPending || !canConfirm}>
+                        <Button size="sm" onClick={() => {
+                          if (!window.confirm(`Confirm final decision: ${currentIntent} for ${getName(app.candidate)}?`)) return
+                          decideMutation.mutate({ id: app._id, decision: currentIntent })
+                        }} disabled={decideMutation.isPending || !canConfirm}>
                           {decideMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                           Confirm {currentIntent}
                         </Button>

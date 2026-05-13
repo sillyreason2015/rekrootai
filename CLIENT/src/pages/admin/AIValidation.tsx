@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Shield, BarChart3, CheckCircle2, XCircle, Loader2, RefreshCw, Info } from 'lucide-react'
+import { Shield, BarChart3, CheckCircle2, XCircle, Loader2, RefreshCw, Info, Sparkles, Scale, FileSearch } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import api from '../../lib/axios'
 import { jobService } from '../../services/job.service'
 import { applicationService } from '../../services/application.service'
+import { adminService } from '../../services/admin.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import AiBadge from '../../components/shared/AiBadge'
 import { scoreBg, cn } from '../../lib/utils'
-import type { Application, Candidate, User } from '../../types'
+import type { Application, BiasAudit, Candidate, User } from '../../types'
 
 interface FairnessResult {
   passed: boolean
@@ -30,8 +31,10 @@ export default function AIValidation() {
   const [selectedApp, setSelectedApp] = useState('')
   const [result, setResult] = useState<FairnessResult | null>(null)
   const [error, setError] = useState('')
+  const [explanationPreview, setExplanationPreview] = useState('')
 
   const { data: jobs } = useQuery({ queryKey: ['ai-validation-jobs'], queryFn: () => jobService.myJobs({ page: 1 }) })
+  const { data: audits } = useQuery({ queryKey: ['admin-ai-validation-audits'], queryFn: adminService.getBiasAudits })
   const { data: appsData } = useQuery({
     queryKey: ['apps-for-validation', selectedJob],
     queryFn: () => applicationService.listForJob(selectedJob),
@@ -40,7 +43,13 @@ export default function AIValidation() {
 
   const runMutation = useMutation({
     mutationFn: () => api.post(`/applications/${selectedApp}/fairness-gate`).then(r => r.data as FairnessResult),
-    onSuccess: (data) => { setResult(data); setError('') },
+    onSuccess: async (data) => {
+      setResult(data); setError('')
+      if (selectedApp) {
+        const explanation = await applicationService.getExplanation(selectedApp)
+        setExplanationPreview(explanation?.scores?.explanation ?? '')
+      }
+    },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setError(msg ?? 'Pipeline run failed.')
@@ -74,6 +83,30 @@ export default function AIValidation() {
           <li>Recruiter retains full override authority — all AI outputs are advisory</li>
           <li>Every run is logged in the audit trail with actor, timestamp, and model version</li>
         </ul>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardContent className="p-5 space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium"><Scale className="h-4 w-4 text-primary" /> Recruiter control</div>
+            <p className="text-2xl font-bold">{jobs?.data?.length ?? 0}</p>
+            <p className="text-xs text-muted-foreground">Jobs where recruiters can act on fairness without waiting for admin.</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5 space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium"><FileSearch className="h-4 w-4 text-primary" /> Bias audit evidence</div>
+            <p className="text-2xl font-bold">{audits?.length ?? 0}</p>
+            <p className="text-xs text-muted-foreground">Recorded fairness audits available for compliance review.</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-5 space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium"><Sparkles className="h-4 w-4 text-primary" /> Validation outputs</div>
+            <p className="text-2xl font-bold">{result ? 3 : 0}</p>
+            <p className="text-xs text-muted-foreground">Fairness verdict, score breakdown, and narrative explanation from the selected run.</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Selectors */}
@@ -196,6 +229,46 @@ export default function AIValidation() {
               })}
             </CardContent>
           </Card>
+
+          {explanationPreview && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-primary" /> Explanation Preview
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground/80">
+                  {explanationPreview}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {Array.isArray(audits) && audits.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-primary" /> Recent Audit Evidence
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {audits.slice(0, 3).map((audit: BiasAudit) => (
+                  <div key={audit._id} className="rounded-lg border bg-muted/20 px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-medium">{typeof audit.job === 'object' ? audit.job.title : audit.job}</p>
+                      <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold', audit.flagged ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700')}>
+                        {audit.flagged ? 'Flagged' : 'Passed'}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {String(audit.details?.summary ?? 'Bias audit completed.')}
+                    </p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
     </div>

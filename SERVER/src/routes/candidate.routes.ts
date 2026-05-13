@@ -7,6 +7,7 @@ import { ApplicationModel } from '../models/Application.model.js'
 import { InterviewModel } from '../models/Interview.model.js'
 import { AssessmentModel } from '../models/Assessment.model.js'
 import { JobModel } from '../models/Job.model.js'
+import { ProtectedAttributeModel } from '../models/ProtectedAttribute.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { cvKey, presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
@@ -114,6 +115,17 @@ candidateRouter.post('/me/onboarding', async (req, res, next) => {
     )
     await UserModel.findByIdAndUpdate(req.user!._id, { onboardingComplete: true })
     await CandidateModel.findByIdAndUpdate(candidate._id, safeUpdate)
+    const body = req.body as { gender?: string; ageRange?: string; ethnicity?: string }
+    await ProtectedAttributeModel.findOneAndUpdate(
+      { candidate: String(candidate._id) },
+      {
+        candidate: String(candidate._id),
+        gender: body.gender,
+        ageRange: body.ageRange,
+        ethnicity: body.ethnicity,
+      },
+      { upsert: true, new: true },
+    )
     await logAction({ actor: 'user', action: 'candidate-onboarding-complete', candidateId: String(candidate._id), mode: 'assist' })
     res.json({ ok: true })
   } catch (err) { next(err) }

@@ -42,10 +42,12 @@ export const applicationService = {
     api.post(`/applications/${id}/fairness-gate`).then((r) => r.data),
   aiDecide: (payload: { jobId: string; shortlistThreshold?: number; rejectThreshold?: number }) =>
     api.post('/applications/ai-decide', payload).then((r) => r.data),
+  undoVeto: (id: string) =>
+    api.post(`/applications/${id}/undo-veto`).then((r) => r.data),
   sendCorrespondence: (id: string, payload: { subject?: string; message: string }) =>
     api.post(`/applications/${id}/correspondence/send`, payload).then((r) => r.data),
   getCorrespondenceThread: (id: string) =>
-    api.get(`/applications/${id}/correspondence/thread`).then((r) => r.data),
+    api.get<{ thread: Array<Record<string, unknown>> }>(`/applications/${id}/correspondence/thread`).then((r) => r.data),
   replyCorrespondence: (id: string, payload: { message: string }) =>
     api.post(`/applications/${id}/correspondence/reply`, payload).then((r) => r.data),
 }

@@ -4,9 +4,11 @@ import { JobModel } from '../models/Job.model.js'
 import { ApplicationModel } from '../models/Application.model.js'
 import { AuditLogModel } from '../models/AuditLog.model.js'
 import { BiasAuditModel } from '../models/BiasAudit.model.js'
+import { CompanyModel } from '../models/Company.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError, paginate } from '../lib/http.js'
 import { logAction } from '../data/store.js'
+import { computeJobBiasAudit } from '../lib/fairness.js'
 
 export const adminRouter = Router()
 adminRouter.use(requireAuth, requireRole('admin', 'super_admin'))
@@ -55,19 +57,31 @@ adminRouter.post('/bias-audits/run', async (req, res, next) => {
   try {
     const { jobId } = req.body as { jobId?: string }
     if (!jobId) throw new HttpError(400, 'jobId is required')
+    const computation = await computeJobBiasAudit(jobId)
     const audit = await BiasAuditModel.create({
       job: jobId, runAt: new Date().toISOString(),
-      disparateImpact: { gender: 0.9, age: 0.87 }, flagged: false,
-      details: { summary: 'Fairness audit completed — no significant disparate impact detected.' },
+      disparateImpact: computation.disparateImpact, flagged: computation.flagged,
+      details: computation.details,
     })
-    await logAction({ actor: 'ai', action: 'bias-audit-run', jobId, mode: 'assist', payload: { flagged: false } })
+    await logAction({ actor: 'ai', action: 'bias-audit-run', jobId, mode: 'assist', payload: { flagged: computation.flagged } })
     res.status(201).json({ ...audit.toObject(), _id: String(audit._id) })
   } catch (err) { next(err) }
 })
 
 adminRouter.get('/team', async (_req, res, next) => {
   try {
-    const users = await UserModel.find({ role: { $ne: 'candidate' } }, { password: 0 }).lean()
+    const me = await UserModel.findById(_req.user!._id, { companyName: 1 }).lean()
+    const company = await CompanyModel.findOne({
+      $or: [
+        { createdBy: _req.user!._id },
+        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+      ],
+    }).lean()
+    const companyNames = [company?.name, company?.legalName, me?.companyName].filter(Boolean)
+    const users = await UserModel.find({
+      role: { $ne: 'candidate' },
+      ...(companyNames.length ? { companyName: { $in: companyNames } } : { _id: _req.user!._id }),
+    } as Record<string, unknown>, { password: 0 }).lean()
     const members = users.map((u) => ({ ...u, _id: String(u._id) }))
     res.json({ members, data: members })
   } catch (err) { next(err) }
@@ -104,12 +118,27 @@ adminRouter.post('/team/invite', async (req, res, next) => {
 
 adminRouter.get('/billing', async (_req, res, next) => {
   try {
+    const me = await UserModel.findById(_req.user!._id, { companyName: 1 }).lean()
+    const company = await CompanyModel.findOne({
+      $or: [
+        { createdBy: _req.user!._id },
+        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+      ],
+    }).lean()
+    const companyId = company?._id ? String(company._id) : null
+    const companyNames = [company?.name, company?.legalName, me?.companyName].filter(Boolean)
     const [seats, jobs, applications] = await Promise.all([
-      UserModel.countDocuments(),
-      JobModel.countDocuments(),
-      ApplicationModel.countDocuments(),
+      UserModel.countDocuments((companyNames.length ? { companyName: { $in: companyNames } } : { _id: _req.user!._id }) as Record<string, unknown>),
+      JobModel.countDocuments(companyId ? { company: companyId } : { createdBy: _req.user!._id }),
+      ApplicationModel.countDocuments(companyId ? { job: { $in: await JobModel.find({ company: companyId }).distinct('_id') } } : {}),
     ])
-    res.json({ plan: 'Pro', seats, usage: { jobs, applications } })
+    res.json({
+      plan: 'Pro',
+      seats,
+      usage: { jobs, applications, aiCalls: applications + jobs },
+      nextBillingDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      company: company ? { id: String(company._id), name: company.name } : null,
+    })
   } catch (err) { next(err) }
 })
 

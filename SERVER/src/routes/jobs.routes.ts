@@ -1,5 +1,7 @@
 import { Router } from 'express'
 import { JobModel } from '../models/Job.model.js'
+import { CompanyModel } from '../models/Company.model.js'
+import { UserModel } from '../models/User.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
@@ -44,9 +46,18 @@ jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin', 'super_ad
     const limit = Math.max(1, Number(req.query.limit ?? 10) || 10)
     const skip = (page - 1) * limit
     const status = String(req.query.status ?? '')
+    const me = await UserModel.findById(req.user!._id, { companyName: 1 }).lean()
+    const ownedCompany = await CompanyModel.findOne({
+      $or: [
+        { createdBy: req.user!._id },
+        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+      ],
+    }, { _id: 1 }).lean()
+    const companyId = ownedCompany?._id ? String(ownedCompany._id) : null
     const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin'
-    // Admins see ALL company jobs; recruiters see only their own
-    const filter: Record<string, unknown> = isAdmin ? {} : { createdBy: req.user!._id }
+    const filter: Record<string, unknown> = isAdmin
+      ? (companyId ? { company: companyId } : { createdBy: req.user!._id })
+      : (companyId ? { company: companyId } : { createdBy: req.user!._id })
     if (status) filter.status = status
     const [jobs, total] = await Promise.all([
       JobModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -75,11 +86,47 @@ jobsRouter.get('/:id', async (req, res, next) => {
 jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const body = req.body as Record<string, unknown>
-    const job = await JobModel.create({
+    const me = await UserModel.findById(req.user!._id, { companyName: 1 }).lean()
+    const company = await CompanyModel.findOne({
+      $or: [
+        { createdBy: req.user!._id },
+        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+      ],
+    }).lean()
+    if (!company) throw new HttpError(400, 'Create or complete your company profile before posting a job.')
+
+    const normalisedDepartmentHiring = Array.isArray(body.departmentHiring)
+      ? (body.departmentHiring as Array<Record<string, unknown>>)
+          .map((entry) => ({
+            department: String(entry.department ?? body.department ?? '').trim(),
+            seats: Number(entry.seats ?? 1),
+          }))
+          .filter((entry) => entry.department && entry.seats > 0)
+      : []
+
+    const validModuleTypes = new Set(['aptitude', 'technical', 'situational', 'personality', 'values'])
+    const normalisedAssessmentModules = Array.isArray(body.assessmentModules)
+      ? (body.assessmentModules as Array<Record<string, unknown>>)
+          .map((module) => {
+            const rawType = String(module.type ?? 'technical')
+            const type = validModuleTypes.has(rawType) ? rawType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values' : 'technical'
+            return {
+              type,
+              timeLimit: Number(module.timeLimit ?? 20),
+              weight: Number(module.weight ?? 0.25),
+            }
+          })
+      : []
+
+    const jobPayload = {
       ...body,
-      status: 'draft',
+      company: String(company._id),
+      status: body.status === 'published' ? 'published' : 'draft',
+      departmentHiring: normalisedDepartmentHiring,
+      assessmentModules: normalisedAssessmentModules,
       createdBy: req.user!._id,
-    })
+    }
+    const job = await JobModel.create(jobPayload as Record<string, unknown>)
     await logAction({ actor: 'user', action: 'job-created', jobId: String(job._id), mode: 'assist' })
     res.status(201).json({ ...job.toObject(), _id: String(job._id) })
   } catch (err) { next(err) }

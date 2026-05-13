@@ -9,6 +9,8 @@ import { logAction } from '../data/store.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { presignedDownloadUrl } from '../lib/blob.js'
 import { UserModel } from '../models/User.model.js'
+import { BiasAuditModel } from '../models/BiasAudit.model.js'
+import { computeJobBiasAudit } from '../lib/fairness.js'
 
 export const recruiterRouter = Router()
 recruiterRouter.use(requireAuth, requireRole('recruiter', 'admin', 'super_admin'))
@@ -313,6 +315,32 @@ recruiterRouter.get('/jobs/:jobId/triage', async (req, res, next) => {
         'Run fairness gate before confirming any shortlist to check demographic parity.',
       ],
     })
+  } catch (err) { next(err) }
+})
+
+recruiterRouter.post('/jobs/:jobId/bias-audit', async (req, res, next) => {
+  try {
+    const jobId = String(req.params.jobId)
+    const computation = await computeJobBiasAudit(jobId)
+
+    const audit = await BiasAuditModel.create({
+      job: jobId,
+      runAt: new Date().toISOString(),
+      disparateImpact: computation.disparateImpact,
+      flagged: computation.flagged,
+      details: computation.details,
+    })
+
+    await logAction({ actor: 'user', action: 'bias-audit-run', jobId, mode: 'assist', payload: { flagged: computation.flagged } })
+    res.status(201).json({ ...audit.toObject(), _id: String(audit._id) })
+  } catch (err) { next(err) }
+})
+
+recruiterRouter.get('/jobs/:jobId/bias-audit/latest', async (req, res, next) => {
+  try {
+    const audit = await BiasAuditModel.findOne({ job: String(req.params.jobId) }).sort({ runAt: -1 }).lean()
+    if (!audit) return res.json(null)
+    res.json({ ...audit, _id: String(audit._id) })
   } catch (err) { next(err) }
 })
 

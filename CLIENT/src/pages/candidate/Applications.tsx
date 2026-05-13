@@ -32,6 +32,16 @@ const stageHint: Record<string, string> = {
   offered:    'Congratulations — an offer has been extended!',
 }
 
+const stageDisplay: Record<string, string> = {
+  applied: 'Pending review',
+  screening: 'Under review',
+  assessment: 'Action needed',
+  interview: 'In progress',
+  decision: 'Final review',
+  rejected: 'Closed',
+  offered: 'Successful',
+}
+
 function PipelineTracker({ stage, interviewMissed }: { stage: string; interviewMissed?: boolean }) {
   const isTerminal = stage === 'rejected' || stage === 'offered'
   const currentIdx = PIPELINE_STAGES.findIndex((s) => s.key === stage)
@@ -148,7 +158,7 @@ export default function Applications() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-medium truncate">{typeof job === 'object' ? job.title : 'Job'}</h3>
                         <Badge variant={stageColor[app.stage] ?? 'secondary'} className="capitalize shrink-0">
-                          {app.stage}
+                          {stageDisplay[app.stage] ?? app.stage}
                         </Badge>
                         {missed && (
                           <Badge variant="destructive" className="shrink-0">Interview missed</Badge>

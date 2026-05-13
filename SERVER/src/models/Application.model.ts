@@ -25,6 +25,8 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
     },
     recruiterNotes: String,
     recruiterNote: String,  // human-in-the-loop feedback shown to candidate in explanation
+    aiDecision: { type: String, enum: ['shortlist', 'review', 'reject'] },
+    fairnessComputedAt: String,
     interviewMissed: { type: Boolean, default: false },
     missedInterviewRecovery: {
       status: { type: String, enum: ['pending', 'approved', 'rejected'] },
@@ -45,6 +47,26 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
             answer: { type: String, required: true },
           },
           { _id: false },
+        ),
+      ],
+      default: [],
+    },
+    correspondence: {
+      type: [
+        new Schema(
+          {
+            senderRole: { type: String, enum: ['candidate', 'recruiter', 'admin', 'system'], required: true },
+            senderUserId: String,
+            senderName: String,
+            recipientUserId: String,
+            recipientEmail: String,
+            channel: { type: String, enum: ['in_app', 'email', 'system'], default: 'in_app' },
+            subject: String,
+            message: { type: String, required: true },
+            deliveryStatus: { type: String, enum: ['pending', 'sent', 'failed'], default: 'sent' },
+            sentAt: { type: String, default: () => new Date().toISOString() },
+          },
+          { _id: true },
         ),
       ],
       default: [],

@@ -113,6 +113,7 @@ export interface Application {
   }
   stage: 'applied' | 'screening' | 'assessment' | 'interview' | 'decision' | 'offered' | 'rejected'
   recruiterNotes?: string
+  aiDecision?: 'shortlist' | 'review' | 'reject'
   decision?: 'hire' | 'reject' | 'hold'
   decisionBy?: string | User
   decisionAt?: string

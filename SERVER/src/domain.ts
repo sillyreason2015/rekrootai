@@ -145,6 +145,8 @@ export interface Application {
   stage: 'applied' | 'screening' | 'assessment' | 'interview' | 'decision' | 'offered' | 'rejected'
   recruiterNotes?: string
   recruiterNote?: string
+  aiDecision?: 'shortlist' | 'review' | 'reject'
+  fairnessComputedAt?: string
   interviewMissed?: boolean
   missedInterviewRecovery?: {
     status?: 'pending' | 'approved' | 'rejected'
@@ -159,6 +161,19 @@ export interface Application {
   decisionAt?: string
   createdAt: string
   applicationAnswers?: Array<{ question: string; answer: string }>
+  correspondence?: Array<{
+    _id?: string
+    senderRole: 'candidate' | 'recruiter' | 'admin' | 'system'
+    senderUserId?: string
+    senderName?: string
+    recipientUserId?: string
+    recipientEmail?: string
+    channel?: 'in_app' | 'email' | 'system'
+    subject?: string
+    message: string
+    deliveryStatus?: 'pending' | 'sent' | 'failed'
+    sentAt?: string
+  }>
 }
 
 export interface Question {

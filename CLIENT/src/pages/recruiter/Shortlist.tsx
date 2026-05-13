@@ -17,7 +17,7 @@ import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import AiBadge from '../../components/shared/AiBadge'
 import AiSuggestion from '../../components/shared/AiSuggestion'
 import { scoreBg, cn } from '../../lib/utils'
-import type { Application, Candidate, User } from '../../types'
+import type { Application, BiasAudit, Candidate, User } from '../../types'
 
 type Mode = 'Assist' | 'Veto' | 'Override'
 
@@ -30,6 +30,13 @@ type ExplanationData = {
     shapValues?: Record<string, number>; stage?: string; decision?: string
     weights?: { w1: number; w2: number; w3: number; w4: number }
   }
+}
+
+type FairnessAuditResult = {
+  _id: string
+  flagged: boolean
+  disparateImpact: Record<string, number>
+  details?: Record<string, unknown>
 }
 
 function stageLabel(stage: string) {
@@ -255,7 +262,7 @@ function CvViewerPanel({ appId, name, onClose }: { appId: string; name: string; 
     queryFn: () => recruiterService.getApplicationCv(appId),
     retry: false,
   })
-  const { data: analysis, isLoading: analysisLoading, refetch: runAnalysis, isFetched } = useQuery({
+  const { data: analysis, isLoading: analysisLoading, refetch: runAnalysis, isFetched, isError: analysisError } = useQuery({
     queryKey: ['cv-analysis', appId],
     queryFn: () => recruiterService.getCvAnalysis(appId),
     enabled: false,
@@ -304,7 +311,11 @@ function CvViewerPanel({ appId, name, onClose }: { appId: string; name: string; 
             <p className="text-sm font-semibold">AI CV Analysis</p>
             <AiBadge size="sm" />
           </div>
-          {!isFetched && (
+          <Button size="sm" variant="outline" onClick={() => runAnalysis()} disabled={analysisLoading} className="gap-1">
+            {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            {isFetched ? 'Run Again' : 'Analyse CV'}
+          </Button>
+          {false && !isFetched && (
             <Button size="sm" variant="outline" onClick={() => runAnalysis()} disabled={analysisLoading} className="gap-1">
               {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               Analyse CV
@@ -314,6 +325,8 @@ function CvViewerPanel({ appId, name, onClose }: { appId: string; name: string; 
 
         {analysisLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Gemini is analysing the CV…</div>}
 
+        {analysisError && <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">AI CV analysis failed. Please try again.</div>}
+        {!analysisLoading && isFetched && !analysis && !analysisError && <div className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">No AI CV analysis was returned for this candidate yet.</div>}
         {analysis && (
           <div className="space-y-3">
             {analysis.overall && (
@@ -365,6 +378,7 @@ export default function Shortlist() {
   const [assistantCandidate, setAssistantCandidate] = useState<{ id: string; name: string; scores: Application['scores']; stage: string } | null>(null)
   const [showTriage, setShowTriage] = useState(false)
   const [cvNotice, setCvNotice] = useState<string | null>(null)
+  const [auditNotice, setAuditNotice] = useState<string | null>(null)
   const qc = useQueryClient()
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
@@ -374,6 +388,11 @@ export default function Shortlist() {
     queryKey: ['triage', selectedJob, mode],
     queryFn: () => recruiterService.getJobTriage(selectedJob, mode.toLowerCase() as 'assist' | 'veto' | 'override'),
     enabled: !!selectedJob && showTriage,
+  })
+  const { data: latestBiasAudit } = useQuery<BiasAudit | null>({
+    queryKey: ['latest-bias-audit', selectedJob],
+    queryFn: () => recruiterService.getLatestBiasAudit(selectedJob),
+    enabled: !!selectedJob,
   })
 
   const { data, isLoading } = useQuery({
@@ -388,6 +407,15 @@ export default function Shortlist() {
   const rejectMutation     = useMutation({ mutationFn: (id: string) => applicationService.reject(id), ...mutOpts })
   const sendAssessmentMutation = useMutation({ mutationFn: (id: string) => applicationService.sendAssessment(id, 60), ...mutOpts })
   const fairnessMutation   = useMutation({ mutationFn: (id: string) => applicationService.runFairnessGate(id), ...mutOpts })
+  const undoVetoMutation   = useMutation({ mutationFn: (id: string) => applicationService.undoVeto(id), ...mutOpts })
+  const biasAuditMutation  = useMutation({
+    mutationFn: () => recruiterService.runBiasAudit(selectedJob),
+    onSuccess: (audit: FairnessAuditResult) => {
+      const ratios = Object.entries(audit.disparateImpact ?? {}).map(([key, value]) => `${key}: ${(value * 100).toFixed(0)}%`).join(', ')
+      setAuditNotice(audit.flagged ? `Demographic parity flagged for review. ${ratios}` : `Demographic parity check passed. ${ratios}`)
+      qc.invalidateQueries({ queryKey: ['latest-bias-audit', selectedJob] })
+    },
+  })
   const scheduleMutation   = useMutation({
     mutationFn: ({ appId, scheduledAt, durationMin }: { appId: string; scheduledAt: string; durationMin: number }) =>
       api.post('/interviews', { applicationId: appId, scheduledAt: new Date(scheduledAt).toISOString(), durationMin, mode: mode.toLowerCase() }),
@@ -403,9 +431,9 @@ export default function Shortlist() {
       const results = Array.isArray(resp?.results) ? resp.results : []
       setVetoSummary({
         processed: Number(resp?.processed ?? results.length),
-        shortlisted: results.filter((r: any) => r.action === 'shortlisted').length,
-        rejected: results.filter((r: any) => r.action === 'rejected').length,
-        review: results.filter((r: any) => r.action === 'review').length,
+        shortlisted: results.filter((r: any) => r.decision === 'shortlist').length,
+        rejected: results.filter((r: any) => r.decision === 'reject').length,
+        review: results.filter((r: any) => r.decision === 'review').length,
       })
       qc.invalidateQueries({ queryKey: ['applications', selectedJob] })
     },
@@ -514,9 +542,19 @@ export default function Shortlist() {
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowTriage((v) => !v)}>
               <Layers className="h-3.5 w-3.5" /> {showTriage ? 'Hide Triage' : 'AI Triage'}
             </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => biasAuditMutation.mutate()} disabled={biasAuditMutation.isPending}>
+              {biasAuditMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Shield className="h-3.5 w-3.5" />}
+              Demographic Parity
+            </Button>
           </>
         )}
       </div>
+
+      {auditNotice && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-800 flex items-center gap-2">
+          <Shield className="h-4 w-4 shrink-0" /> {auditNotice}
+        </div>
+      )}
 
       {/* AI Triage panel */}
       {showTriage && selectedJob && (
@@ -685,6 +723,12 @@ export default function Shortlist() {
                             <Ban className="h-3.5 w-3.5" />
                           </Button>
                         )}
+                        {mode === 'Veto' && ['shortlist', 'reject'].includes(app.aiDecision ?? '') && (
+                          <Button size="sm" variant="outline" className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                            onClick={() => undoVetoMutation.mutate(app._id)} disabled={undoVetoMutation.isPending}>
+                            <ArrowRight className="h-3.5 w-3.5 rotate-180" /> Undo Veto
+                          </Button>
+                        )}
                       </div>
 
                       <button onClick={() => setExpanded(isExpand ? null : app._id)} className="p-1 text-muted-foreground shrink-0">
@@ -694,6 +738,19 @@ export default function Shortlist() {
 
                     {/* AI suggestion strip */}
                     <div className="border-t px-4 py-3">
+                      {latestBiasAudit && (
+                        <div className={cn('mb-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs',
+                          latestBiasAudit.flagged ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700')}>
+                          <Shield className="h-3.5 w-3.5 shrink-0" />
+                          Latest demographic parity audit:
+                          <span className="font-semibold">{latestBiasAudit.flagged ? 'Flagged for review' : 'Passed'}</span>
+                          <span className="text-current/80">
+                            gender {(Number(latestBiasAudit.disparateImpact?.gender ?? 1) * 100).toFixed(0)}%,
+                            age {(Number((latestBiasAudit.disparateImpact as any)?.ageRange ?? latestBiasAudit.disparateImpact?.age ?? 1) * 100).toFixed(0)}%,
+                            ethnicity {(Number(latestBiasAudit.disparateImpact?.ethnicity ?? 1) * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      )}
                       <AiSuggestion
                         stage={app.stage}
                         scores={app.scores}

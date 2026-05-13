@@ -4,7 +4,7 @@ import { baseSchemaOptions } from './_base.js'
 
 const moduleConfigSchema = new Schema<AssessmentModuleConfig>(
   {
-    type: { type: String, enum: ['aptitude', 'technical', 'situational', 'personality'] },
+    type: { type: String, enum: ['aptitude', 'technical', 'situational', 'personality', 'values'] },
     timeLimit: Number,
     weight: Number,
   },

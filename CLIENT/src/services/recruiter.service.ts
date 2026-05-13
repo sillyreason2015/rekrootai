@@ -1,4 +1,5 @@
 import api from '../lib/axios'
+import type { BiasAudit } from '../types'
 
 export const recruiterService = {
   getAuditLog: (params?: { page?: number; limit?: number; action?: string }) =>
@@ -11,6 +12,10 @@ export const recruiterService = {
     api.get(`/recruiter/jobs/${jobId}/cvs`).then((r) => r.data),
   getJobTriage: (jobId: string, mode: 'assist' | 'veto' | 'override') =>
     api.get(`/recruiter/jobs/${jobId}/triage`, { params: { mode } }).then((r) => r.data),
+  runBiasAudit: (jobId: string) =>
+    api.post<BiasAudit>(`/recruiter/jobs/${jobId}/bias-audit`).then((r) => r.data),
+  getLatestBiasAudit: (jobId: string) =>
+    api.get<BiasAudit | null>(`/recruiter/jobs/${jobId}/bias-audit/latest`).then((r) => r.data),
   askAssistant: (applicationId: string, question: string) =>
     api.post(`/recruiter/applications/${applicationId}/assistant`, { question }).then((r) => r.data),
   getCvAnalysis: (applicationId: string) =>

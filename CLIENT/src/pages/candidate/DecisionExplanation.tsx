@@ -28,6 +28,7 @@ export default function DecisionExplanation() {
   const { id } = useParams<{ id: string }>()
   const qc = useQueryClient()
   const [reply, setReply] = useState('')
+  const [replyStatus, setReplyStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['explanation', id],
@@ -44,7 +45,12 @@ export default function DecisionExplanation() {
     mutationFn: () => applicationService.replyCorrespondence(id!, { message: reply }),
     onSuccess: () => {
       setReply('')
+      setReplyStatus({ kind: 'success', text: 'Message sent successfully.' })
       qc.invalidateQueries({ queryKey: ['candidate-correspondence-thread', id] })
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setReplyStatus({ kind: 'error', text: msg ?? 'Failed to send message.' })
     },
   })
 
@@ -286,12 +292,18 @@ export default function DecisionExplanation() {
           >
             Send Message
           </button>
-          {Array.isArray(thread) && thread.length > 0 && (
+          {replyStatus && (
+            <p className={cn('text-xs', replyStatus.kind === 'success' ? 'text-emerald-600' : 'text-destructive')}>
+              {replyStatus.text}
+            </p>
+          )}
+          {Array.isArray(thread?.thread) && thread.thread.length > 0 && (
             <div className="space-y-2 rounded-md border bg-muted/20 p-3 text-xs">
-              {thread.map((t: any) => (
+              {thread.thread.map((t: any) => (
                 <div key={t._id}>
-                  <p className="font-medium">{t.action === 'correspondence-reply' ? 'You' : 'Recruiter'}</p>
+                  <p className="font-medium">{t.senderRole === 'candidate' ? 'You' : 'Recruiter'}</p>
                   <p className="text-muted-foreground">{t.message}</p>
+                  {t.deliveryStatus && <p className="mt-1 text-[11px] text-muted-foreground">Delivery: {t.deliveryStatus}</p>}
                 </div>
               ))}
             </div>

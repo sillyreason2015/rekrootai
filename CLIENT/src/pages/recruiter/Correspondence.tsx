@@ -35,8 +35,8 @@ export default function Correspondence() {
   const [selectedApp, setSelectedApp] = useState('')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
-  const [sent, setSent] = useState<string[]>([])
   const [error, setError] = useState('')
+  const [sendStatus, setSendStatus] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
 
@@ -54,14 +54,15 @@ export default function Correspondence() {
   const sendMutation = useMutation({
     mutationFn: () => applicationService.sendCorrespondence(selectedApp, { subject, message }),
     onSuccess: () => {
-      setSent((p) => [...p, selectedApp])
       setMessage('')
       setError('')
+      setSendStatus({ kind: 'success', text: 'Message sent successfully.' })
       qc.invalidateQueries({ queryKey: ['correspondence-thread', selectedApp] })
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setError(msg ?? 'Failed to send message. Please try again.')
+      setSendStatus({ kind: 'error', text: msg ?? 'Failed to send message. Please try again.' })
     },
   })
 
@@ -149,7 +150,7 @@ export default function Correspondence() {
           <p className="text-xs text-muted-foreground">{message.length} characters</p>
           <Button
             onClick={() => sendMutation.mutate()}
-            disabled={!selectedApp || !subject || !message || sendMutation.isPending || sent.includes(selectedApp)}
+            disabled={!selectedApp || !subject || !message || sendMutation.isPending}
           >
             {sendMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             <Send className="h-4 w-4" /> Send Message
@@ -163,20 +164,21 @@ export default function Correspondence() {
         </div>
       )}
 
-      {sent.length > 0 && (
+      {sendStatus?.kind === 'success' && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
           <CheckCircle2 className="h-4 w-4" />
-          {sent.length} message{sent.length > 1 ? 's' : ''} sent successfully.
+          {sendStatus.text}
         </div>
       )}
-      {!!selectedApp && Array.isArray(thread) && thread.length > 0 && (
+      {!!selectedApp && Array.isArray(thread?.thread) && thread.thread.length > 0 && (
         <div className="rounded-xl border bg-card p-4">
           <p className="mb-2 text-sm font-medium">Conversation thread</p>
           <div className="space-y-2">
-            {thread.map((t: any) => (
+            {thread.thread.map((t: any) => (
               <div key={t._id} className="rounded-md bg-muted/40 p-2 text-xs">
-                <p className="font-medium">{t.action === 'correspondence-reply' ? 'Candidate reply' : 'Recruiter message'}</p>
+                <p className="font-medium">{t.senderRole === 'candidate' ? 'Candidate reply' : 'Recruiter message'}</p>
                 <p className="text-muted-foreground">{t.message}</p>
+                {t.deliveryStatus && <p className="mt-1 text-[11px] text-muted-foreground">Delivery: {t.deliveryStatus}</p>}
               </div>
             ))}
           </div>
