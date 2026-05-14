@@ -32,6 +32,8 @@ export const applicationService = {
   shortlist: (id: string) => api.post(`/applications/${id}/shortlist`).then((r) => r.data),
   sendAssessment: (id: string, durationMinutes = 60) =>
     api.post(`/applications/${id}/send-assessment`, { durationMinutes }).then((r) => r.data),
+  undoAssessment: (id: string) =>
+    api.post(`/applications/${id}/undo-assessment`).then((r) => r.data),
   reject: (id: string, reason?: string) =>
     api.post(`/applications/${id}/reject`, { reason }).then((r) => r.data),
   makeDecision: (id: string, decision: 'hire' | 'reject' | 'hold', notes?: string) =>

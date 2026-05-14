@@ -9,7 +9,9 @@ export const assessmentsRouter = Router()
 
 assessmentsRouter.get('/:applicationId', requireAuth, async (req, res, next) => {
   try {
-    const assessment = await AssessmentModel.findOne({ application: req.params.applicationId }).lean()
+    const assessment = await AssessmentModel.findOne({ application: req.params.applicationId })
+      .populate('job', 'title assessmentModules thresholds')
+      .lean()
     if (!assessment) throw new HttpError(404, 'Assessment not found')
     res.json({ ...assessment, _id: String(assessment._id) })
   } catch (err) { next(err) }
@@ -17,6 +19,11 @@ assessmentsRouter.get('/:applicationId', requireAuth, async (req, res, next) => 
 
 assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, next) => {
   try {
+    const existing = await AssessmentModel.findById(req.params.assessmentId).lean()
+    if (!existing) throw new HttpError(404, 'Assessment not found')
+    if (existing.status !== 'pending' || existing.startedAt) {
+      throw new HttpError(409, 'Assessment has already started')
+    }
     const assessment = await AssessmentModel.findByIdAndUpdate(
       req.params.assessmentId,
       { status: 'in_progress', startedAt: new Date().toISOString() },

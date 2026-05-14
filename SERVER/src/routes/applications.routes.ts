@@ -1,10 +1,13 @@
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
+import type { Job } from '../domain.js'
 import { ApplicationModel } from '../models/Application.model.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { JobModel } from '../models/Job.model.js'
 import { UserModel } from '../models/User.model.js'
 import { InterviewModel } from '../models/Interview.model.js'
 import { CompanyModel } from '../models/Company.model.js'
+import { QuestionBankModel } from '../models/QuestionBank.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
@@ -12,6 +15,7 @@ import { scoreCandidateForJob } from '../lib/candidate-profile.js'
 import { notify } from '../lib/notify.js'
 import { sendEmail } from '../lib/email.js'
 import { computeJobBiasAudit } from '../lib/fairness.js'
+import { generateQuestions } from '../lib/questionGen.js'
 
 export const applicationsRouter = Router()
 
@@ -37,6 +41,68 @@ async function getRecruitersForApplication(application: { job: string }) {
     },
     { _id: 1, firstName: 1, lastName: 1, email: 1 },
   ).lean()
+}
+
+const VALID_MODULE_TYPES = ['aptitude', 'technical', 'situational', 'personality', 'values'] as const
+
+function getModuleQuestionCount(timeLimit?: number) {
+  const minutes = Number(timeLimit ?? 20)
+  return Math.max(3, Math.min(12, Math.round(minutes / 4)))
+}
+
+function normaliseDifficulty(moduleType: typeof VALID_MODULE_TYPES[number]) {
+  if (moduleType === 'personality' || moduleType === 'values') return 'easy'
+  if (moduleType === 'situational') return 'medium'
+  return 'medium'
+}
+
+async function buildAssessmentModules(job: Pick<Job, 'company' | 'assessmentModules'>) {
+  const company = await CompanyModel.findById(String(job?.company), { name: 1, legalName: 1 }).lean()
+  const companyNames = [company?.name, company?.legalName].filter((value): value is string => Boolean(value?.trim()))
+
+  const configuredModules: Array<{ type: string; timeLimit?: number; weight?: number }> = job?.assessmentModules?.length
+    ? job.assessmentModules
+    : [{ type: 'technical', timeLimit: 20, weight: 1 }]
+
+  return Promise.all(configuredModules.map(async (module) => {
+    const moduleType = VALID_MODULE_TYPES.includes(module.type as typeof VALID_MODULE_TYPES[number])
+      ? module.type as typeof VALID_MODULE_TYPES[number]
+      : 'technical'
+    const difficulty = normaliseDifficulty(moduleType)
+    const count = getModuleQuestionCount(module.timeLimit)
+
+    const bankItems = await QuestionBankModel.find({
+      category: moduleType,
+      ...(companyNames.length ? { companyName: { $in: companyNames } } : {}),
+    })
+      .sort({ createdAt: -1 })
+      .limit(count)
+      .lean()
+
+    const questions = bankItems.length
+      ? bankItems.map((item) => ({
+          _id: String(item._id),
+          text: item.text,
+          type: item.type,
+          options: item.options,
+          correctIndex: item.correctIndex,
+          points: item.points,
+        }))
+      : generateQuestions(moduleType, difficulty, count, moduleType).map((question) => ({
+          _id: randomUUID(),
+          text: question.text,
+          type: question.type,
+          options: question.options,
+          correctIndex: question.correctIndex,
+          points: question.points,
+        }))
+
+    return {
+      type: moduleType,
+      questions,
+      answers: [],
+    }
+  }))
 }
 
 applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin', 'super_admin'), async (req, res, next) => {
@@ -358,17 +424,48 @@ applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recrui
   try {
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    const existingAssessment = await (await import('../models/Assessment.model.js')).AssessmentModel.findOne({
+      application: String(app._id),
+      status: { $in: ['pending', 'in_progress'] },
+    }).lean()
+    if (existingAssessment) throw new HttpError(409, 'An active assessment already exists for this application')
+    const job = await JobModel.findById(String(app.job)).lean()
+    if (!job) throw new HttpError(404, 'Job not found')
     const { AssessmentModel } = await import('../models/Assessment.model.js')
     const durationMinutes = Number((req.body as { durationMinutes?: number }).durationMinutes ?? 60)
+    const modules = await buildAssessmentModules(job)
     const assessment: any = await AssessmentModel.create({
       application: app._id, job: app.job, candidate: app.candidate, durationMinutes, status: 'pending',
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      modules: [{ type: 'technical', difficulty: 'medium', questions: [], answers: [] }],
+      modules,
     } as object)
     await ApplicationModel.findByIdAndUpdate(app._id, { stage: 'assessment', status: 'assessment_sent' })
     await logAction({ actor: 'user', action: 'assessment-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
     notify(String(app.candidate), { type: 'assessment_sent', title: 'Assessment invitation sent', body: 'A recruiter has invited you to complete the next assessment stage.', link: '/candidate/applications' })
     res.status(201).json({ ...assessment.toObject(), _id: String(assessment._id) })
+  } catch (err) { next(err) }
+})
+
+applicationsRouter.post('/:id/undo-assessment', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    const { AssessmentModel } = await import('../models/Assessment.model.js')
+    const assessment = await AssessmentModel.findOne({ application: String(app._id) }).sort({ createdAt: -1 })
+    if (!assessment) throw new HttpError(404, 'Assessment not found')
+    if (assessment.status !== 'pending' || assessment.startedAt) {
+      throw new HttpError(409, 'Only unstarted assessments can be undone')
+    }
+
+    await AssessmentModel.deleteOne({ _id: assessment._id })
+    await ApplicationModel.findByIdAndUpdate(app._id, {
+      stage: 'screening',
+      status: 'shortlisted',
+      assessmentExpiresAt: null,
+      assessmentStatus: null,
+      'scores.assessment': 0,
+    })
+    res.json({ ok: true })
   } catch (err) { next(err) }
 })
 

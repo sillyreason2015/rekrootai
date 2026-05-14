@@ -31,6 +31,15 @@ export default function Assessment() {
     enabled: !!applicationId,
   })
 
+  useEffect(() => {
+    if (!assessment) return
+    if (assessment.status === 'in_progress') {
+      setStarted(true)
+      const nextModuleIndex = assessment.modules.findIndex((module) => !module.completedAt)
+      setActiveModule(nextModuleIndex >= 0 ? nextModuleIndex : 0)
+    }
+  }, [assessment])
+
   const startMutation = useMutation({
     mutationFn: () => assessmentService.start(assessment!._id),
     onSuccess: () => { setStarted(true); setActiveModule(0) },

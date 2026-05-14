@@ -144,6 +144,7 @@ export interface Assessment {
   _id: string
   application: string | Application
   job: string | Job
+  candidate?: string | Candidate | User
   modules: AssessmentModule[]
   status: 'pending' | 'in_progress' | 'completed' | 'expired'
   startedAt?: string
