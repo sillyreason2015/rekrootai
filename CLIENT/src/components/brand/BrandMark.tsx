@@ -65,7 +65,7 @@ export default function BrandMark({ className, withWordmark = false, wordmarkCla
       {withWordmark && (
         <div className={cn('leading-none', wordmarkClassName)}>
           <p className="font-serif text-xl font-semibold tracking-tight text-primary">RekrootAI</p>
-          <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Everything recruitment in one place</p>
+          <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Recruit. Match. Hire.</p>
         </div>
       )}
     </div>
