@@ -1,10 +1,10 @@
 import api from '../lib/axios'
-import type { Interview } from '../types'
+import type { Interview, InterviewArtifactsResponse } from '../types'
 
 export const interviewService = {
   getMine: () => api.get<Interview[]>('/interviews/mine').then((r) => r.data),
   get: (id: string) => api.get<Interview>(`/interviews/${id}`).then((r) => r.data),
-  getArtifacts: (id: string) => api.get<Interview>(`/interviews/${id}/artifacts`).then((r) => r.data),
+  getArtifacts: (id: string) => api.get<InterviewArtifactsResponse>(`/interviews/${id}/artifacts`).then((r) => r.data),
   schedule: (applicationId: string, scheduledAt: string, durationMin: number, mode?: 'veto' | 'assist' | 'override') =>
     api.post<Interview>('/interviews', { applicationId, scheduledAt, durationMin, mode }).then((r) => r.data),
   getJoinToken: (id: string) =>

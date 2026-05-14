@@ -50,6 +50,6 @@ export const applicationService = {
     api.post(`/applications/${id}/correspondence/send`, payload).then((r) => r.data),
   getCorrespondenceThread: (id: string) =>
     api.get<{ thread: Array<Record<string, unknown>> }>(`/applications/${id}/correspondence/thread`).then((r) => r.data),
-  replyCorrespondence: (id: string, payload: { message: string }) =>
+  replyCorrespondence: (id: string, payload: { subject?: string; message: string }) =>
     api.post(`/applications/${id}/correspondence/reply`, payload).then((r) => r.data),
 }

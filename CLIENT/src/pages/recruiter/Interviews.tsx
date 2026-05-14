@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Video, Calendar, Clock, CheckCircle2 } from 'lucide-react'
+import { Video, Calendar, Clock, CheckCircle2, ChevronDown, ChevronUp, FileVideo, FileText, Download, BrainCircuit } from 'lucide-react'
 import { interviewService } from '../../services/interview.service'
 import { Card, CardContent } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { formatDate } from '../../lib/utils'
-import type { Interview } from '../../types'
+import type { Interview, InterviewArtifactsResponse } from '../../types'
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'success' | 'destructive' | 'warning'> = {
   scheduled: 'secondary',
@@ -83,9 +83,15 @@ function InterviewCard({ interview, onChanged }: { interview: Interview; onChang
   const isScheduled = interview.status === 'scheduled'
   const isUpcoming = isLive || isScheduled
   const [showReschedule, setShowReschedule] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const [scheduledAt, setScheduledAt] = useState(new Date(interview.scheduledAt).toISOString().slice(0, 16))
   const [durationMin, setDurationMin] = useState(Number(interview.durationMin ?? 45))
   const [reason, setReason] = useState('')
+  const { data: details, isLoading: detailsLoading } = useQuery<InterviewArtifactsResponse>({
+    queryKey: ['interview-artifacts', interview._id],
+    queryFn: () => interviewService.getArtifacts(interview._id),
+    enabled: showDetails,
+  })
   const rescheduleMutation = useMutation({
     mutationFn: () => interviewService.reschedule(interview._id, { scheduledAt: new Date(scheduledAt).toISOString(), durationMin, reason }),
     onSuccess: () => {
@@ -151,6 +157,12 @@ function InterviewCard({ interview, onChanged }: { interview: Interview; onChang
               Score: {interview.score}
             </span>
           )}
+          <button
+            className="rounded-lg border px-3 py-2 text-xs"
+            onClick={() => setShowDetails((v) => !v)}
+          >
+            {showDetails ? <span className="inline-flex items-center gap-1"><ChevronUp className="h-3.5 w-3.5" /> Hide Details</span> : <span className="inline-flex items-center gap-1"><ChevronDown className="h-3.5 w-3.5" /> View Details</span>}
+          </button>
         </div>
         </div>
         {showReschedule && isScheduled && (
@@ -183,6 +195,84 @@ function InterviewCard({ interview, onChanged }: { interview: Interview; onChang
             >
               Confirm Reschedule
             </button>
+          </div>
+        )}
+        {showDetails && (
+          <div className="space-y-4 rounded-xl border border-primary/15 bg-primary/5 p-4">
+            {detailsLoading ? (
+              <LoadingSpinner className="py-4" />
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-lg border bg-background p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Interview summary</p>
+                    <p className="mt-2 text-sm">Scheduled: {formatDate(interview.scheduledAt)}</p>
+                    <p className="mt-1 text-sm">Duration: {interview.durationMin} min</p>
+                    <p className="mt-1 text-sm capitalize">Status: {interview.status}</p>
+                    <p className="mt-1 text-sm capitalize">AI analysis: {details?.aiAnalysisStatus ?? interview.aiAnalysisStatus ?? 'idle'}</p>
+                  </div>
+                  <div className="rounded-lg border bg-background p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Artifacts</p>
+                    <div className="mt-2 space-y-2 text-sm">
+                      {details?.recordingUrl ? (
+                        <a className="inline-flex items-center gap-2 text-primary hover:underline" href={details.recordingUrl} target="_blank" rel="noreferrer">
+                          <FileVideo className="h-4 w-4" /> View recording
+                        </a>
+                      ) : (
+                        <p className="text-muted-foreground">No recording uploaded yet.</p>
+                      )}
+                      {details?.artifacts?.filter((artifact) => artifact.downloadUrl && artifact.kind !== 'recording').map((artifact) => (
+                        <a key={artifact._id} className="flex items-center gap-2 text-primary hover:underline" href={artifact.downloadUrl ?? '#'} target="_blank" rel="noreferrer">
+                          <Download className="h-4 w-4" /> {artifact.kind} download
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {!!details?.rubric?.length && (
+                  <div className="rounded-lg border bg-background p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Rubric scores</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {details.rubric.map((item, index) => (
+                        <div key={`${item.criterion}-${index}`} className="rounded-md border bg-muted/20 p-2 text-sm">
+                          <p className="font-medium">{item.criterion}</p>
+                          <p className="text-muted-foreground">Score: {item.score}/{item.maxScore}</p>
+                          {item.notes && <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!!details?.transcript?.length && (
+                  <div className="rounded-lg border bg-background p-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-primary" />
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Transcript</p>
+                    </div>
+                    <div className="mt-3 max-h-56 space-y-2 overflow-y-auto">
+                      {details.transcript.map((line, index) => (
+                        <div key={`${line.timestamp}-${index}`} className="rounded-md bg-muted/20 p-2 text-sm">
+                          <p className="font-medium capitalize">{line.speaker}</p>
+                          <p className="text-muted-foreground">{line.text}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {details?.aiAnalysis && (
+                  <div className="rounded-lg border bg-background p-3">
+                    <div className="flex items-center gap-2">
+                      <BrainCircuit className="h-4 w-4 text-primary" />
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI analysis</p>
+                    </div>
+                    <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">{JSON.stringify(details.aiAnalysis, null, 2)}</pre>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
       </CardContent>

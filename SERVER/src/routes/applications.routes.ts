@@ -39,6 +39,23 @@ async function notifyCandidate(candidateId: string, data: { type: string; title:
   notify(String(user._id), data)
 }
 
+async function emailCandidate(candidateId: string, input: { subject: string; text: string; html?: string }) {
+  const { user } = await getCandidateUser(candidateId)
+  if (!user?.email) return false
+  try {
+    await sendEmail({
+      to: user.email,
+      subject: input.subject,
+      text: input.text,
+      html: input.html,
+    })
+    return true
+  } catch (err) {
+    console.error('[candidate-email] Failed to send candidate email:', err)
+    return false
+  }
+}
+
 async function getRecruitersForApplication(application: { job: string }) {
   const job = await JobModel.findById(String(application.job), { company: 1, createdBy: 1 }).lean()
   if (!job) return []
@@ -245,8 +262,14 @@ applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 
     assertStage(current.stage, ['applied'], 'Shortlisting')
     const app = await ApplicationModel.findByIdAndUpdate(req.params.id, { status: 'shortlisted', stage: 'screening' }, { new: true }).lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
     await logAction({ actor: 'user', action: 'shortlisted', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
     await notifyCandidate(String(app.candidate), { type: 'shortlisted', title: 'Application progressed', body: 'A recruiter has started reviewing your application.', link: '/candidate/applications' })
+    await emailCandidate(String(app.candidate), {
+      subject: `[${job?.title ?? 'Your application'}] Application shortlisted`,
+      text: `Your application for ${job?.title ?? 'this role'} has moved to the screening stage. A recruiter has started reviewing your profile and you will be notified when the next step is ready.`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Your application for <strong>${job?.title ?? 'this role'}</strong> has moved to the screening stage.</p><p>A recruiter has started reviewing your profile and you will be notified when the next step is ready.</p></div>`,
+    })
     res.json({ ...app, _id: String(app._id) })
   } catch (err) { next(err) }
 })
@@ -260,8 +283,14 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
       { new: true },
     ).lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
     await logAction({ actor: 'user', action: 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { decision: reason } })
     await notifyCandidate(String(app.candidate), { type: 'fairness_rejected', title: 'Application closed', body: reason?.trim() || 'Your application was not progressed further for this role.', link: `/candidate/explanation/${String(app._id)}` })
+    await emailCandidate(String(app.candidate), {
+      subject: `[${job?.title ?? 'Your application'}] Application update`,
+      text: `We have completed our review for ${job?.title ?? 'this role'} and will not be progressing your application further.${reason?.trim() ? `\n\nRecruiter note: ${reason.trim()}` : ''}\n\nYou can log in to your AIRS portal to review the decision details and any correspondence.`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>We have completed our review for <strong>${job?.title ?? 'this role'}</strong> and will not be progressing your application further.</p>${reason?.trim() ? `<p><strong>Recruiter note:</strong> ${reason.trim().replace(/\n/g, '<br/>')}</p>` : ''}<p>You can log in to your AIRS portal to review the decision details and any correspondence.</p></div>`,
+    })
     res.json({ ...app, _id: String(app._id) })
   } catch (err) { next(err) }
 })
@@ -501,6 +530,11 @@ applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recrui
     })
     await logAction({ actor: 'user', action: 'assessment-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
     await notifyCandidate(String(app.candidate), { type: 'assessment_sent', title: 'Assessment invitation sent', body: 'A recruiter has invited you to complete the next assessment stage.', link: '/candidate/applications' })
+    await emailCandidate(String(app.candidate), {
+      subject: `[${job.title ?? 'Your application'}] Assessment invitation`,
+      text: `You have been invited to complete the next assessment stage for ${job.title ?? 'this role'}.\n\nPlease log in to your AIRS candidate portal to begin your assessment.`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>You have been invited to complete the next assessment stage for <strong>${job.title ?? 'this role'}</strong>.</p><p>Please log in to your AIRS candidate portal to begin your assessment.</p></div>`,
+    })
     res.status(201).json({ ...assessment.toObject(), _id: String(assessment._id) })
   } catch (err) { next(err) }
 })
@@ -533,6 +567,12 @@ applicationsRouter.post('/:id/undo-assessment', requireAuth, requireRole('recrui
       title: 'Assessment reset',
       body: 'Your previous assessment has been withdrawn. A recruiter may send you a new one shortly.',
       link: '/candidate/applications',
+    })
+    const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
+    await emailCandidate(String(app.candidate), {
+      subject: `[${job?.title ?? 'Your application'}] Assessment reset`,
+      text: `Your previous assessment for ${job?.title ?? 'this role'} has been withdrawn. A recruiter may send you a new assessment shortly.`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Your previous assessment for <strong>${job?.title ?? 'this role'}</strong> has been withdrawn.</p><p>A recruiter may send you a new assessment shortly.</p></div>`,
     })
     res.json({ ok: true })
   } catch (err) { next(err) }
@@ -577,7 +617,15 @@ applicationsRouter.post('/:id/fairness-gate', requireAuth, requireRole('recruite
 
     const passed = flags.length === 0
     await ApplicationModel.findByIdAndUpdate(req.params.id, { fairnessComputedAt: new Date().toISOString() })
-    if (passed) await notifyCandidate(String(app.candidate), { type: 'fairness_passed', title: 'Application review updated', body: 'Your application has passed the AI fairness review stage.', link: '/candidate/applications' })
+    if (passed) {
+      await notifyCandidate(String(app.candidate), { type: 'fairness_passed', title: 'Application review updated', body: 'Your application has passed the AI fairness review stage.', link: '/candidate/applications' })
+      const jobInfo = await JobModel.findById(String(app.job), { title: 1 }).lean()
+      await emailCandidate(String(app.candidate), {
+        subject: `[${jobInfo?.title ?? 'Your application'}] Fairness review passed`,
+        text: `Your application for ${jobInfo?.title ?? 'this role'} has passed the fairness review stage and remains under consideration.`,
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Your application for <strong>${jobInfo?.title ?? 'this role'}</strong> has passed the fairness review stage and remains under consideration.</p></div>`,
+      })
+    }
     res.json({
       passed,
       score: final,

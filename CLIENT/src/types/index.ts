@@ -237,6 +237,18 @@ export interface InterviewArtifact {
   createdAt?: string
 }
 
+export interface InterviewArtifactsResponse {
+  transcriptUrl?: string | null
+  recordingUrl?: string | null
+  transcript?: TranscriptEntry[]
+  rubric?: RubricScore[]
+  score?: number | null
+  aiAnalysis?: Record<string, unknown> | null
+  aiAnalysisStatus?: 'idle' | 'pending' | 'completed' | 'failed'
+  hasTranscript?: boolean
+  artifacts?: InterviewArtifact[]
+}
+
 export interface LinkedProvider {
   provider: 'google' | 'microsoft'
   email: string

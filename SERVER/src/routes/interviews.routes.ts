@@ -4,6 +4,7 @@ import { InterviewModel } from '../models/Interview.model.js'
 import { ApplicationModel } from '../models/Application.model.js'
 import { CandidateModel } from '../models/Candidate.model.js'
 import { InterviewArtifactModel } from '../models/InterviewArtifact.model.js'
+import { JobModel } from '../models/Job.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
@@ -13,6 +14,8 @@ import { ensureInterviewAccess, mergeTranscriptEntries, reconcileInterviewState,
 import { enqueueInterviewAnalysis } from '../lib/interview-analysis-queue.js'
 import { presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
 import { computeCompositeScore } from '../lib/scoring.js'
+import { sendEmail } from '../lib/email.js'
+import { UserModel } from '../models/User.model.js'
 
 export const interviewsRouter = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } })
@@ -21,6 +24,20 @@ async function notifyCandidate(candidateId: string, data: { type: string; title:
   const candidate = await CandidateModel.findById(candidateId, { user: 1 }).lean()
   if (!candidate?.user) return
   notify(String(candidate.user), data)
+}
+
+async function emailInterviewCandidate(candidateId: string, input: { subject: string; text: string; html?: string }) {
+  const candidate = await CandidateModel.findById(candidateId, { user: 1 }).lean()
+  if (!candidate?.user) return false
+  const user = await UserModel.findById(String(candidate.user), { email: 1 }).lean()
+  if (!user?.email) return false
+  try {
+    await sendEmail({ to: user.email, subject: input.subject, text: input.text, html: input.html })
+    return true
+  } catch (err) {
+    console.error('[interview-email] Failed to send candidate email:', err)
+    return false
+  }
 }
 
 function buildSpeakerSegments(lines: PersistedTranscriptLine[]) {
@@ -105,6 +122,12 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
     await ApplicationModel.findByIdAndUpdate(application._id, { stage: 'interview', status: 'interview_scheduled' })
     await logAction({ actor: 'user', action: 'interview-scheduled', candidateId: String(application.candidate), jobId: String(application.job), mode: mode ?? 'assist' })
     await notifyCandidate(String(application.candidate), { type: 'info', title: 'Interview Scheduled', body: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.`, link: '/candidate/applications' })
+    const job = await InterviewModel.populate(interview, { path: 'job', select: 'title' })
+    await emailInterviewCandidate(String(application.candidate), {
+      subject: `[${(job.job as { title?: string } | undefined)?.title ?? 'Your application'}] Interview scheduled`,
+      text: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.\n\nPlease log in to your AIRS portal to view the details and join at the scheduled time.`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Your interview has been scheduled for <strong>${scheduledAt ?? 'soon'}</strong>.</p><p>Please log in to your AIRS portal to view the details and join at the scheduled time.</p></div>`,
+    })
     res.status(201).json({ ...interview.toObject(), _id: String(interview._id) })
   } catch (err) { next(err) }
 })
@@ -304,6 +327,18 @@ interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'ad
       mode: interview.collaborationMode ?? 'assist',
       payload: { avgScore: score, aiRecommendation: interview.aiRecommendation ?? null },
     })
+    await notifyCandidate(String(interview.candidate), {
+      type: 'interview_completed',
+      title: 'Interview completed',
+      body: 'Your interview has been reviewed and your application is now in final decision review.',
+      link: '/candidate/applications',
+    })
+    const job = await JobModel.findById(String(interview.job), { title: 1 }).lean()
+    await emailInterviewCandidate(String(interview.candidate), {
+      subject: `[${job?.title ?? 'Your application'}] Interview completed`,
+      text: `Your interview for ${job?.title ?? 'this role'} has been completed and your application is now in final review.`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Your interview for <strong>${job?.title ?? 'this role'}</strong> has been completed.</p><p>Your application is now in final review.</p></div>`,
+    })
     await enqueueInterviewAnalysis(String(interview._id))
     res.json({ ...interview, _id: String(interview._id) })
   } catch (err) { next(err) }
@@ -371,6 +406,12 @@ interviewsRouter.post('/:id/reschedule', requireAuth, requireRole('recruiter', '
     ).lean()
     if (!interview) throw new HttpError(404, 'Interview not found')
     await notifyCandidate(String(interview.candidate), { type: 'info', title: 'Interview Rescheduled', body: `Your interview has been rescheduled to ${scheduledAt}.`, link: '/candidate/applications' })
+    const job = await JobModel.findById(String(interview.job), { title: 1 }).lean()
+    await emailInterviewCandidate(String(interview.candidate), {
+      subject: `[${job?.title ?? 'Your application'}] Interview rescheduled`,
+      text: `Your interview for ${job?.title ?? 'this role'} has been rescheduled to ${scheduledAt}. Please log in to your AIRS portal to review the updated details.`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Your interview for <strong>${job?.title ?? 'this role'}</strong> has been rescheduled to <strong>${scheduledAt}</strong>.</p><p>Please log in to your AIRS portal to review the updated details.</p></div>`,
+    })
     res.json({ ...interview, _id: String(interview._id) })
   } catch (err) { next(err) }
 })

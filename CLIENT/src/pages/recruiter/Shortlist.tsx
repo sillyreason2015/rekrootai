@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle,
   Calendar, Video, ArrowRight, Download, Layers, TrendingUp, TrendingDown,
-  Minus, Bot, X, Send, Loader2, Info, FileText, Eye, Sparkles, ExternalLink,
+  Minus, Bot, X, Send, Loader2, Info, FileText, Eye, Sparkles, ExternalLink, MessageSquare,
 } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { applicationService } from '../../services/application.service'
@@ -733,6 +733,12 @@ export default function Shortlist() {
                         <Eye className="h-3.5 w-3.5" />
                         {showCvViewer === app._id ? 'Hide CV' : 'View CV'}
                       </Button>
+                      <Link to={`/recruiter/correspondence?job=${selectedJob}&app=${app._id}`}>
+                        <Button size="sm" variant="outline" className="gap-1">
+                          <MessageSquare className="h-3.5 w-3.5" />
+                          Messages
+                        </Button>
+                      </Link>
                       <Button size="sm" variant="outline" className="gap-1"
                         onClick={() => downloadCv(app._id)}>
                         <Download className="h-3.5 w-3.5" />

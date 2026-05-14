@@ -20,6 +20,7 @@ interface ThresholdDraft {
 
 export default function RecruiterJobs() {
   const { user } = useAuth()
+  const canManageJobs = ['recruiter', 'admin', 'super_admin'].includes(user?.role ?? '')
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin'
   const [status, setStatus] = useState<string>('all')
   const [expandedThresh, setExpandedThresh] = useState<string | null>(null)
@@ -152,7 +153,7 @@ export default function RecruiterJobs() {
                           View applicants
                         </Link>
                       )}
-                      {isAdmin && (
+                      {canManageJobs && (
                         <Link to={`/recruiter/jobs/${job._id}/edit`}>
                           <Button size="sm" variant="outline" className="gap-1">
                             <Pencil className="h-3.5 w-3.5" /> Edit
@@ -168,19 +169,19 @@ export default function RecruiterJobs() {
                         Thresholds
                         {isExpand ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                       </button>
-                      {job.status === 'draft' && isAdmin && (
+                      {job.status === 'draft' && canManageJobs && (
                         <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 gap-1"
                           onClick={() => publishMutation.mutate(job._id)} disabled={publishMutation.isPending}>
                           <Globe className="h-3.5 w-3.5" /> Publish
                         </Button>
                       )}
-                      {job.status === 'published' && isAdmin && (
+                      {job.status === 'published' && canManageJobs && (
                         <Button size="sm" variant="outline" className="gap-1"
                           onClick={() => closeMutation.mutate(job._id)} disabled={closeMutation.isPending}>
                           <Lock className="h-3.5 w-3.5" /> Close
                         </Button>
                       )}
-                      {job.status !== 'published' && isAdmin && (
+                      {job.status !== 'published' && canManageJobs && (
                         confirmDelete === job._id ? (
                           <div className="flex items-center gap-1">
                             <span className="text-xs text-destructive font-medium">Delete?</span>

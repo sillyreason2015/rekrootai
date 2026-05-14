@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { notificationService, type Notification } from '../../services/notification.service'
 import { formatDistanceToNow } from 'date-fns'
 import { useTheme } from '../../contexts/ThemeContext'
+import BrandMark from '../brand/BrandMark'
 
 function useNotifications() {
   return useQuery({
@@ -63,7 +64,7 @@ export default function Navbar() {
       <div className="flex h-full items-center justify-between px-6">
         {/* Brand */}
         <Link to="/" className="flex items-center gap-2">
-          <span className="font-serif text-xl font-bold text-primary">RekrootAI</span>
+          <BrandMark withWordmark />
           <span className="hidden rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-primary sm:inline">
             Beta
           </span>
