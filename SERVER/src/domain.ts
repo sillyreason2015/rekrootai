@@ -109,6 +109,7 @@ export interface Job {
   status: 'draft' | 'published' | 'closed'
   applicationDeadline?: string
   bannerUrl?: string
+  aiMode?: 'veto' | 'assist' | 'override'
   assessmentModules: AssessmentModuleConfig[]
   thresholds: {
     screening: number
@@ -243,6 +244,12 @@ export interface Interview {
   rubric?: RubricScore[]
   aiAnalysis?: Record<string, unknown>
   aiAnalysisStatus?: 'idle' | 'pending' | 'completed' | 'failed'
+  proctoringEvents?: Array<{
+    actor: 'candidate' | 'recruiter' | 'system'
+    type: 'tab_switch' | 'window_blur' | 'camera_off' | 'mic_off' | 'other'
+    reason: string
+    at: string
+  }>
   score?: number
   status: 'scheduled' | 'live' | 'completed' | 'cancelled'
 }

@@ -36,6 +36,20 @@ const interviewSchema = new Schema<Interview>(
     rubric: { type: [rubricScoreSchema], default: [] },
     aiAnalysis: { type: Schema.Types.Mixed },
     aiAnalysisStatus: { type: String, enum: ['idle', 'pending', 'completed', 'failed'], default: 'idle' },
+    proctoringEvents: {
+      type: [
+        new Schema(
+          {
+            actor: { type: String, enum: ['candidate', 'recruiter', 'system'], required: true },
+            type: { type: String, enum: ['tab_switch', 'window_blur', 'camera_off', 'mic_off', 'other'], required: true },
+            reason: { type: String, required: true },
+            at: { type: String, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
     score: Number,
     status: {
       type: String,

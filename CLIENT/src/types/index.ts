@@ -85,6 +85,7 @@ export interface Job {
   salaryCurrency: string
   status: 'draft' | 'published' | 'closed'
   applicationDeadline?: string
+  aiMode?: 'veto' | 'assist' | 'override'
   assessmentModules: AssessmentModuleConfig[]
   thresholds?: { screening?: number; assessment?: number; fairness?: number; interview?: number; tau1?: number; tau2?: number }
   alpha: number
@@ -193,6 +194,12 @@ export interface Interview {
   rubric?: RubricScore[]
   aiAnalysis?: Record<string, unknown>
   aiAnalysisStatus?: 'idle' | 'pending' | 'completed' | 'failed'
+  proctoringEvents?: Array<{
+    actor: 'candidate' | 'recruiter' | 'system'
+    type: 'tab_switch' | 'window_blur' | 'camera_off' | 'mic_off' | 'other'
+    reason: string
+    at: string
+  }>
   artifacts?: InterviewArtifact[]
   score?: number
   status: 'scheduled' | 'live' | 'completed' | 'cancelled'

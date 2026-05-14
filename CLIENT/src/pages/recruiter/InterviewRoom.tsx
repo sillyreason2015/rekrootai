@@ -64,6 +64,7 @@ export default function RecruiterInterviewRoom() {
     enabled: !!id,
   })
   const collaborationMode = (searchParams.get('mode') ?? interview?.collaborationMode ?? 'assist') as 'veto' | 'assist' | 'override'
+  const proctoringCount = interview?.proctoringEvents?.length ?? 0
 
   useEffect(() => {
     if (Array.isArray(interview?.rubric) && interview.rubric.length > 0) {
@@ -159,6 +160,29 @@ export default function RecruiterInterviewRoom() {
     try { recognition.start() } catch { /* ignore */ }
     recognitionRef.current = recognition
   }, [addTranscriptLine, micOn])
+
+  const reacquireVideoTrack = useCallback(async () => {
+    const room = roomRef.current
+    if (!room) return false
+    try {
+      const [videoTrack] = await createLocalTracks({ video: true, audio: false })
+      const previous = localVideoTrackRef.current
+      if (previous) {
+        await room.localParticipant.unpublishTrack(previous).catch(() => {})
+        previous.detach()
+        previous.stop()
+      }
+      await room.localParticipant.publishTrack(videoTrack)
+      localVideoTrackRef.current = videoTrack as LocalVideoTrack
+      if (localVideoRef.current) (videoTrack as LocalVideoTrack).attach(localVideoRef.current)
+      setCamOn(true)
+      setErrorMsg('')
+      return true
+    } catch {
+      setErrorMsg('Camera could not be restarted on this device. You can continue in audio-only mode.')
+      return false
+    }
+  }, [])
 
   useEffect(() => {
     if (!id) return
@@ -276,9 +300,22 @@ export default function RecruiterInterviewRoom() {
 
   const toggleCam = () => {
     const track = localVideoTrackRef.current
-    if (!track) return
-    if (camOn) track.mute(); else track.unmute()
-    setCamOn((v) => !v)
+    if (!track) {
+      void reacquireVideoTrack()
+      return
+    }
+    if (camOn) {
+      track.mute()
+      setCamOn(false)
+      if (id) void interviewService.reportProctoringEvent(id, { type: 'camera_off', reason: 'Recruiter turned camera off during interview' })
+      return
+    }
+    if (track.mediaStreamTrack.readyState === 'ended') {
+      void reacquireVideoTrack()
+      return
+    }
+    track.unmute()
+    setCamOn(true)
   }
 
   const hangUp = () => {
@@ -296,10 +333,10 @@ export default function RecruiterInterviewRoom() {
   const maxScore = rubric.length * 5
 
   return (
-    <div className="flex h-screen flex-col gap-3 overflow-hidden bg-gray-950 p-4">
+    <div className="flex min-h-screen flex-col gap-3 overflow-hidden bg-gray-950 p-3 sm:p-4">
       <audio ref={remoteAudioRef} autoPlay className="hidden" />
       {/* Header */}
-      <div className="flex items-center justify-between shrink-0">
+      <div className="flex items-center justify-between shrink-0 gap-3">
         <div>
           <h1 className="font-serif text-lg font-semibold text-white">
             {typeof interview.job === 'object' ? interview.job.title : 'Interview'}
@@ -309,6 +346,7 @@ export default function RecruiterInterviewRoom() {
           {recordingError && <p className="text-[11px] text-amber-300">{recordingError}</p>}
         </div>
         <div className="flex items-center gap-3">
+          {proctoringCount > 0 && <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-medium text-amber-300">{proctoringCount} proctoring alert{proctoringCount === 1 ? '' : 's'}</span>}
           {connState === 'connecting' && <span className="text-xs text-white/50 animate-pulse">Connecting…</span>}
           {connState === 'error' && (
             <div className="flex items-center gap-2">
@@ -340,11 +378,11 @@ export default function RecruiterInterviewRoom() {
       </div>
 
       {/* Body */}
-      <div className="flex flex-1 gap-3 overflow-hidden min-h-0">
+      <div className="flex flex-1 min-h-0 flex-col gap-3 overflow-hidden xl:flex-row">
         {/* Left: videos + controls */}
         <div className="flex flex-1 flex-col gap-3 min-w-0">
           {/* Side-by-side videos */}
-          <div className="flex flex-1 gap-3 min-h-0">
+          <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 md:grid-cols-2">
             {/* Candidate (remote) */}
             <div className="relative flex-1 overflow-hidden rounded-2xl bg-gray-900">
               <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
@@ -406,7 +444,26 @@ export default function RecruiterInterviewRoom() {
         </div>
 
         {/* Right: rubric + transcript */}
-        <div className="flex w-80 shrink-0 flex-col gap-3 overflow-hidden">
+        <div className="flex w-full shrink-0 flex-col gap-3 overflow-hidden xl:w-80">
+          {!!interview.proctoringEvents?.length && (
+            <Card className="overflow-hidden">
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm">Proctoring Alerts</CardTitle>
+              </CardHeader>
+              <CardContent className="max-h-40 space-y-2 overflow-y-auto text-xs scrollbar-thin">
+                {interview.proctoringEvents
+                  .slice()
+                  .reverse()
+                  .map((event, index) => (
+                    <div key={`${event.at}-${index}`} className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                      <p className="font-medium">{event.actor}: {event.reason}</p>
+                      <p className="mt-0.5 text-[11px] text-amber-700">{new Date(event.at).toLocaleString()} · {event.type.replace(/_/g, ' ')}</p>
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+          )}
+
           {/* Rubric */}
           <Card className="flex flex-col overflow-hidden" style={{ maxHeight: '55%' }}>
             <CardHeader className="py-3 shrink-0">

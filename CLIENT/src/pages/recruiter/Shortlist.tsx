@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -379,11 +379,20 @@ export default function Shortlist() {
   const [showTriage, setShowTriage] = useState(false)
   const [cvNotice, setCvNotice] = useState<string | null>(null)
   const [auditNotice, setAuditNotice] = useState<string | null>(null)
+  const [pendingMode, setPendingMode] = useState<Mode | null>(null)
   const qc = useQueryClient()
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
   const [selectedJob, setSelectedJob] = useState(jobId)
   const selectedJobData = jobs?.data?.find((job) => job._id === selectedJob)
+  useEffect(() => {
+    const nextMode = selectedJobData?.aiMode
+    if (nextMode === 'assist' || nextMode === 'veto' || nextMode === 'override') {
+      setMode((nextMode[0].toUpperCase() + nextMode.slice(1)) as Mode)
+      return
+    }
+    setMode('Assist')
+  }, [selectedJobData?._id, selectedJobData?.aiMode])
 
   const { data: triageData, isLoading: triageLoading } = useQuery({
     queryKey: ['triage', selectedJob, mode],
@@ -444,6 +453,14 @@ export default function Shortlist() {
       qc.invalidateQueries({ queryKey: ['applications', selectedJob] })
     },
   })
+  const modeMutation = useMutation({
+    mutationFn: ({ jobId: id, nextMode }: { jobId: string; nextMode: Mode }) =>
+      jobService.update(id, { aiMode: nextMode.toLowerCase() as 'assist' | 'veto' | 'override' }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-jobs'] })
+      setPendingMode(null)
+    },
+  })
 
   const downloadCv = async (appId: string) => {
     setCvNotice(null)
@@ -476,8 +493,8 @@ export default function Shortlist() {
           <div className="flex rounded-xl border bg-card p-1">
             {(['Assist', 'Veto', 'Override'] as Mode[]).map((m) => (
               <button key={m} onClick={() => {
-                setMode(m)
-                if (m === 'Veto' && selectedJob) vetoMutation.mutate()
+                if (!selectedJob || mode === m) return
+                setPendingMode(m)
               }}
                 className={cn('flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
                   mode === m ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
@@ -496,6 +513,18 @@ export default function Shortlist() {
         {mode === 'Veto'     && 'AI shortlists automatically. You can veto individual candidates.'}
         {mode === 'Override' && 'Full manual control. AI scores are advisory only.'}
       </div>
+
+      {pendingMode && selectedJob && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p>Changing AI mode updates how future actions behave for this job. It will not rewind candidates who have already progressed.</p>
+          <div className="mt-3 flex gap-2">
+            <Button size="sm" onClick={() => modeMutation.mutate({ jobId: selectedJob, nextMode: pendingMode })} disabled={modeMutation.isPending}>
+              Confirm {pendingMode}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setPendingMode(null)}>Cancel</Button>
+          </div>
+        </div>
+      )}
 
       {mode === 'Veto' && vetoSummary && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
@@ -548,6 +577,12 @@ export default function Shortlist() {
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowTriage((v) => !v)}>
               <Layers className="h-3.5 w-3.5" /> {showTriage ? 'Hide Triage' : 'AI Triage'}
             </Button>
+            {mode === 'Veto' && (
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => vetoMutation.mutate()} disabled={vetoMutation.isPending}>
+                {vetoMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
+                Run Auto-Triage
+              </Button>
+            )}
             <Button size="sm" variant="outline" className="gap-1.5" onClick={() => biasAuditMutation.mutate()} disabled={biasAuditMutation.isPending}>
               {biasAuditMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Shield className="h-3.5 w-3.5" />}
               Demographic Parity
@@ -718,19 +753,19 @@ export default function Shortlist() {
 
                       {/* Pipeline action buttons */}
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {app.stage === 'applied' && mode !== 'Veto' && (
+                        {app.stage === 'applied' && (
                           <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
                             onClick={() => shortlistMutation.mutate(app._id)} disabled={shortlistMutation.isPending}>
                             <CheckCircle2 className="h-3.5 w-3.5" /> Shortlist
                           </Button>
                         )}
-                        {app.stage === 'screening' && mode !== 'Override' && (
+                        {app.stage === 'screening' && (
                           <Button size="sm" variant="outline"
                             onClick={() => sendAssessmentMutation.mutate(app._id)} disabled={sendAssessmentMutation.isPending}>
                             <ArrowRight className="h-3.5 w-3.5" /> Send Assessment
                           </Button>
                         )}
-                        {app.stage === 'assessment' && mode !== 'Override' && (
+                        {app.stage === 'assessment' && (
                           <div className="flex items-center gap-1">
                             <Button
                               size="sm"
@@ -765,7 +800,7 @@ export default function Shortlist() {
                         {app.stage === 'interview' && extApp.interviewId && extApp.interviewStatus !== 'completed' && (
                           <>
                             <Button size="sm" variant="outline" className="text-purple-600 border-purple-200"
-                              onClick={() => window.open(`/recruiter/interview/${extApp.interviewId}?mode=${mode.toLowerCase()}`, '_blank')}>
+                              onClick={() => window.open(`/recruiter/interview/${extApp.interviewId}?mode=${selectedJobData?.aiMode ?? mode.toLowerCase()}`, '_blank')}>
                               <Video className="h-3.5 w-3.5" /> Join
                             </Button>
                             <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200"
@@ -774,7 +809,7 @@ export default function Shortlist() {
                             </Button>
                           </>
                         )}
-                        {!['decision', 'rejected', 'offered'].includes(app.stage) && mode !== 'Veto' && (
+                        {!['decision', 'rejected', 'offered'].includes(app.stage) && (
                           <Button size="sm" variant="outline" className="text-destructive border-destructive/20 hover:bg-destructive/5"
                             onClick={() => {
                               if (app.stage === 'assessment' || app.stage === 'interview') {
@@ -787,7 +822,7 @@ export default function Shortlist() {
                             <Ban className="h-3.5 w-3.5" /> Reject
                           </Button>
                         )}
-                        {mode === 'Veto' && ['shortlist', 'reject'].includes(app.aiDecision ?? '') && (
+                        {mode === 'Veto' && ['shortlist', 'reject'].includes(app.aiDecision ?? '') && ['screening', 'rejected'].includes(app.stage) && (
                           <Button size="sm" variant="outline" className="text-amber-700 border-amber-200 hover:bg-amber-50"
                             onClick={() => undoVetoMutation.mutate(app._id)} disabled={undoVetoMutation.isPending}>
                             <ArrowRight className="h-3.5 w-3.5 rotate-180" /> Undo Veto

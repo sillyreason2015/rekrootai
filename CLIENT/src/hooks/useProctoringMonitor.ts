@@ -9,6 +9,8 @@ interface Options {
   onViolation?: (count: number) => void
   /** Called when violations reach maxViolations */
   onMaxViolations?: () => void
+  /** Called with reason details whenever a violation is detected */
+  onViolationReason?: (reason: string, count: number) => void
 }
 
 interface ProctoringState {
@@ -24,6 +26,7 @@ export function useProctoringMonitor({
   maxViolations = 3,
   onViolation,
   onMaxViolations,
+  onViolationReason,
 }: Options): ProctoringState {
   const [violations, setViolations] = useState(0)
   const [lastViolationReason, setLastViolationReason] = useState('')
@@ -31,8 +34,10 @@ export function useProctoringMonitor({
   const violationsRef = useRef(0)
   const onViolationRef = useRef(onViolation)
   const onMaxRef = useRef(onMaxViolations)
+  const onViolationReasonRef = useRef(onViolationReason)
   onViolationRef.current = onViolation
   onMaxRef.current = onMaxViolations
+  onViolationReasonRef.current = onViolationReason
 
   const recordViolation = useCallback((reason: string) => {
     violationsRef.current += 1
@@ -41,6 +46,7 @@ export function useProctoringMonitor({
     setLastViolationReason(reason)
     setShowWarning(true)
     onViolationRef.current?.(count)
+    onViolationReasonRef.current?.(reason, count)
     if (count >= maxViolations) {
       onMaxRef.current?.()
     }

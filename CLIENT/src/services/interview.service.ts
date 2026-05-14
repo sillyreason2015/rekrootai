@@ -13,6 +13,8 @@ export const interviewService = {
     api.post(`/interviews/${id}/rubric`, { rubric }).then((r) => r.data),
   complete: (id: string, score = 0, mode?: 'veto' | 'assist' | 'override', aiRecommendation?: 'advance' | 'hold' | 'reject') =>
     api.post(`/interviews/${id}/complete`, { score, mode, aiRecommendation }).then((r) => r.data),
+  reportProctoringEvent: (id: string, payload: { type: 'tab_switch' | 'window_blur' | 'camera_off' | 'mic_off' | 'other'; reason: string }) =>
+    api.post(`/interviews/${id}/proctoring-event`, payload).then((r) => r.data),
   uploadRecording: (id: string, file: Blob, filename: string) => {
     const form = new FormData()
     form.append('recording', file, filename)

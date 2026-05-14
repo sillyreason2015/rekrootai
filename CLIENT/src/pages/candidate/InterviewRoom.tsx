@@ -143,7 +143,35 @@ export default function CandidateInterviewRoom() {
   // Proctoring monitor — active once inside the room
   const { violations, lastViolationReason, showWarning, dismissWarning } = useProctoringMonitor({
     enabled: proctoringAccepted && connState === 'connected',
+    onViolationReason: (reason) => {
+      if (!id) return
+      const type = reason.includes('Tab') ? 'tab_switch' : 'window_blur'
+      void interviewService.reportProctoringEvent(id, { type, reason })
+    },
   })
+
+  const reacquireVideoTrack = useCallback(async () => {
+    const room = roomRef.current
+    if (!room) return false
+    try {
+      const [videoTrack] = await createLocalTracks({ video: true, audio: false })
+      const previous = localVideoTrackRef.current
+      if (previous) {
+        await room.localParticipant.unpublishTrack(previous).catch(() => {})
+        previous.detach()
+        previous.stop()
+      }
+      await room.localParticipant.publishTrack(videoTrack)
+      localVideoTrackRef.current = videoTrack as LocalVideoTrack
+      if (localVideoRef.current) (videoTrack as LocalVideoTrack).attach(localVideoRef.current)
+      setCamOn(true)
+      setErrorMsg('')
+      return true
+    } catch {
+      setErrorMsg('Camera could not be restarted on this device. You can continue in audio-only mode.')
+      return false
+    }
+  }, [setErrorMsg])
 
   useEffect(() => {
     if (!id || !proctoringAccepted) return
@@ -262,9 +290,22 @@ export default function CandidateInterviewRoom() {
 
   const toggleCam = () => {
     const track = localVideoTrackRef.current
-    if (!track) return
-    if (camOn) track.mute(); else track.unmute()
-    setCamOn((v) => !v)
+    if (!track) {
+      void reacquireVideoTrack()
+      return
+    }
+    if (camOn) {
+      track.mute()
+      setCamOn(false)
+      if (id) void interviewService.reportProctoringEvent(id, { type: 'camera_off', reason: 'Candidate turned camera off during interview' })
+      return
+    }
+    if (track.mediaStreamTrack.readyState === 'ended') {
+      void reacquireVideoTrack()
+      return
+    }
+    track.unmute()
+    setCamOn(true)
   }
 
   const hangUp = () => {
@@ -292,7 +333,7 @@ export default function CandidateInterviewRoom() {
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
   return (
-    <div className="flex h-screen flex-col gap-3 overflow-hidden bg-gray-950 p-4">
+    <div className="flex min-h-screen flex-col gap-3 overflow-hidden bg-gray-950 p-3 sm:p-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -351,11 +392,11 @@ export default function CandidateInterviewRoom() {
       )}
 
       {/* Main: side-by-side videos + transcript */}
-      <div className="flex flex-1 gap-3 overflow-hidden min-h-0">
+      <div className="flex flex-1 min-h-0 flex-col gap-3 lg:flex-row overflow-hidden">
         {/* Left: side-by-side video panels */}
         <div className="flex flex-1 flex-col gap-3 min-w-0">
           {/* Video row — side by side */}
-          <div className="flex flex-1 gap-3 min-h-0">
+          <div className="grid flex-1 min-h-0 grid-cols-1 gap-3 md:grid-cols-2">
             {/* Recruiter (remote) */}
             <div className="relative flex-1 overflow-hidden rounded-2xl bg-gray-900">
               <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
@@ -414,7 +455,7 @@ export default function CandidateInterviewRoom() {
         </div>
 
         {/* Transcript panel */}
-        <Card className="flex w-72 shrink-0 flex-col overflow-hidden bg-card">
+        <Card className="flex w-full shrink-0 flex-col overflow-hidden bg-card lg:w-72">
           <div className="flex items-center gap-2 border-b px-4 py-3">
             <MessageSquare className="h-4 w-4" />
             <span className="text-sm font-medium">Live Transcript</span>

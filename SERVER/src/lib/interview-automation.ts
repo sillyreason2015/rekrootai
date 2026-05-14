@@ -4,6 +4,7 @@ import { CandidateModel } from '../models/Candidate.model.js'
 import { logAction } from '../data/store.js'
 import { notify } from './notify.js'
 import { env } from '../config/env.js'
+import { computeCompositeScore } from './scoring.js'
 
 export type PersistedTranscriptLine = { speaker: 'candidate' | 'recruiter'; text: string; timestamp: string }
 
@@ -120,6 +121,8 @@ export async function reconcileInterviewState(interviewId: string) {
   if (Number.isNaN(scheduledEnd) || Date.now() < scheduledEnd) return interview
 
   await InterviewModel.findByIdAndUpdate(interview._id, { status: 'cancelled', score: 0 })
+  const application = await ApplicationModel.findById(interview.application, { scores: 1 }).lean()
+  const currentScores = application?.scores ?? {}
   await ApplicationModel.findByIdAndUpdate(interview.application, {
     interviewMissed: true,
     stage: 'rejected',
@@ -127,6 +130,12 @@ export async function reconcileInterviewState(interviewId: string) {
     decision: 'reject',
     decisionAt: new Date().toISOString(),
     'scores.interview': 0,
+    'scores.final': computeCompositeScore({
+      resume: currentScores.resume,
+      assessment: currentScores.assessment,
+      penalty: currentScores.penalty,
+      interview: 0,
+    }, 'rejected'),
   })
   await logAction({
     actor: 'ai',

@@ -1,140 +1,222 @@
-# Integra-Hire (AIRS) Context
+# RekrootAI Final Context
 
-Last updated: 2026-05-13  
+Last updated: 2026-05-14
 Workspace: `C:\Users\Nathan\Documents\Claude\Projects\AIRS`
 
-## Project baseline from thesis
+## Current project state
 
-- Chapter 3 defines RekrootAI as a four-stage sequential evaluation system:
-  1. Resume-job fit using hybrid TF-IDF + semantic similarity
-  2. Structured assessment with proctoring
-  3. Fairness-adjusted AI ranking
-  4. Live interview with recruiter human review in `veto`, `assist`, or `override` mode
-- Chapter 4 describes the implemented architecture as:
-  - React + TypeScript frontend
-  - Node/Express + MongoDB + Redis application layer
-  - Python FastAPI ML microservice
-  - LiveKit-backed WebRTC interview infrastructure
-- Interview expectations from the thesis:
-  - Recruiter schedules a live room
-  - System issues time-limited room access tokens
-  - Recruiter scores by rubric
-  - Collaboration mode is recorded with the decision
-  - Audit log captures human/AI interaction
+RekrootAI is now in a much stronger pre-completion state. The largest correctness issues in workflow behavior, composite scoring, interview room resilience, and AI mode semantics have been addressed in code.
 
-## Current verified app state
+The app now has:
 
-- Candidate onboarding endpoint exists at `POST /candidates/me/onboarding`.
-- Recruiter onboarding now exists at `POST /auth/onboarding`.
-- Recruiter onboarding invite flow now uses `POST /companies/invite` instead of the admin-only invite route.
-- Account management routes now exist and are wired to the client:
-  - `PATCH /auth/me`
-  - `POST /auth/change-password`
-  - `POST /auth/me/avatar`
-- Auth refresh handling in the client has been hardened so concurrent `401` responses no longer hang queued requests indefinitely.
-- A route contract simulator exists at `SERVER/scripts/route-contract-check.mjs` and currently reports no missing client/server route contracts.
-- Unsupported social login is now gated:
-  - `GET /auth/provider-status` exposes whether Google/Microsoft providers are actually configured.
-  - Login only renders social-login buttons when the provider is enabled.
-  - When provider credentials are configured, `/auth/google` and `/auth/microsoft` now perform real OAuth redirects and callback token exchange instead of returning placeholder `501`s.
+- Stable multi-stage candidate progression
+- Persisted AI oversight mode at the job level
+- Explicit, non-destructive mode switching
+- Correct composite score recomputation
+- Safer interview scheduling/completion flow
+- Mobile-improved interview room layouts
+- Better recording mime fallback handling
+- Camera reacquisition after failed/off video states
+- Persisted interview proctoring events with recruiter visibility
 
-## Interview module: current truthful status
+## What was fixed in this stabilization pass
 
-- The interview module is partially aligned to the thesis, not fully.
-- Recent alignment fixes completed:
-  - `GET /interviews/:id/token` now returns `wsUrl` and generates a real LiveKit JWT when `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_HOST` are configured.
-  - Interview access checks now restrict `GET /interviews/:id`, `GET /interviews/:id/token`, and artifacts access to the owning recruiter, owning candidate, or admins.
-  - Interview scheduling now persists `collaborationMode`.
-  - Interview completion now persists `collaborationMode` and optional `aiRecommendation`.
-  - Application listing routes now expose `interviewId`, `interviewStatus`, `interviewScheduledAt`, and `interviewMode` so the shortlist UI can reflect actual interview state.
-  - Recruiter shortlist now passes the active mode into scheduling and the recruiter interview room URL.
-  - Interview transcript snapshots can now be persisted from the interview rooms through `POST /interviews/:id/transcript`, and speaker-specific updates are merged instead of overwriting the whole transcript.
-  - Both recruiter and candidate interview rooms now restore previously persisted transcript lines when reloading the room.
-  - Interview completion now stores a lightweight `aiAnalysis` artifact derived from rubric score, transcript stats, and recommendation state so artifacts are no longer empty after completion.
-  - Expired scheduled interviews are now auto-reconciled server-side into a missed/cancelled state with candidate notification and rejection handling.
-  - A background scheduler now sweeps for expired interviews every minute so missed-interview handling no longer depends only on user read/access traffic.
-  - Final recruiter decision audit entries now derive mode from the linked interview collaboration mode instead of hard-coding `assist`.
-  - Final decisions now keep `hold` in `decision`, move `reject` to `rejected`, and move `hire` to `offered`.
-- Still not fully aligned to the thesis:
-  - No real post-call interview recording pipeline is implemented.
-  - Transcript capture still relies on browser speech recognition rather than a dedicated server-side speech-to-text pipeline.
-  - No real speaker diarisation pipeline is implemented.
-  - The saved `aiAnalysis` artifact uses Gemini when configured and otherwise falls back to a lightweight rules-based summary, so it is still not a dedicated interview analyser service.
+### 1. Composite score correctness
 
-## Performance and reliability findings
+The composite score bug is fixed.
 
-- Health and forgot-password no longer block for ~10 seconds when Mongo is disconnected.
-- Global request slowness from settings-cache DB waits was reduced by:
-  - bypassing maintenance checks on `/health`
-  - short-circuiting settings fetches when Mongo is not connected
-  - reducing Mongoose buffer timeout behavior
-- Mongo connection handling is now more production-like:
-  - centralized DB connect path in `SERVER/src/db/mongoose.ts`
-  - `bufferCommands` disabled
-  - lower server selection/connect timeouts
-  - tuned socket and pool settings
-- Additional indexes now exist for the most common route filters:
-  - jobs by `status/createdAt` and `createdBy/createdAt`
-  - applications by `candidate`, `job`, `stage`, and duplicate-prevention on `candidate+job`
-  - interviews by `status/scheduledAt`, `recruiter/scheduledAt`, and recent application lookup
-  - notifications by `user/read/createdAt`
-- DB-backed routes can still take ~3 seconds to fail when Mongo is unavailable. That is much better than before, but production latency still needs real database profiling.
+Before:
+
+- `scores.final` could remain frozen at the original resume score
+- candidates could incorrectly show `100%` composite despite weak assessment/interview results
+
+Now:
+
+- composite score is recomputed from stage scores consistently
+- read-side responses also derive the correct final score for existing records
+
+Relevant files:
+
+- [scoring.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/lib/scoring.ts)
+- [applications.routes.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/routes/applications.routes.ts)
+- [assessments.routes.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/routes/assessments.routes.ts)
+- [interviews.routes.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/routes/interviews.routes.ts)
+
+### 2. AI mode semantics are now persistent and non-destructive
+
+Before:
+
+- the mode selector in shortlist was just local React state
+- switching to `Veto` immediately triggered automated backend mutation
+- users could accidentally change candidate stages just by exploring modes
+
+Now:
+
+- `aiMode` is persisted on the job
+- switching mode requires confirmation
+- changing mode does not mutate candidate stages
+- auto-processing in veto mode is now an explicit `Run Auto-Triage` action
+
+Relevant files:
+
+- [Job.model.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/models/Job.model.ts)
+- [jobs.routes.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/routes/jobs.routes.ts)
+- [Shortlist.tsx](C:/Users/Nathan/Documents/Claude/Projects/AIRS/CLIENT/src/pages/recruiter/Shortlist.tsx)
+- [types/index.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/CLIENT/src/types/index.ts)
+
+### 3. Stage regression protections are in place
+
+Before:
+
+- mode-driven actions could move candidates backward
+- undo paths were too permissive
+- several endpoints trusted the current stage too loosely
+
+Now:
+
+- `/applications/:id/ai-decide` refuses to mutate candidates who are no longer in `applied`
+- `undo-veto` only works while the candidate is still at the immediate veto outcome
+- workflow endpoints now guard allowed stages more strictly
+
+Added backend protections cover:
+
+- shortlist only from `applied`
+- send assessment only from `screening`
+- undo assessment only from `assessment`
+- fairness gate only from `assessment`, `interview`, or `decision`
+- final decision only from `decision`
+- interview scheduling only after assessment review
+- interview completion only before completed/cancelled terminal state
+
+Relevant files:
+
+- [applications.routes.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/routes/applications.routes.ts)
+- [interviews.routes.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/routes/interviews.routes.ts)
+
+## Important workflow rules now reflected in code
+
+These rules are now mostly true in implementation:
+
+1. Changing AI mode affects future behavior, not past stage history.
+2. Auto-triage is an explicit action, not a side effect of changing tabs/toggles.
+3. Candidates should not move backward unless the recruiter explicitly invokes a rollback path.
+4. Invalid stage transitions are rejected by the server instead of silently mutating state.
+
+## Interview module status
+
+### What is now working better
+
+- Interview rooms are more mobile-friendly
+  - video panes stack more cleanly on small screens
+  - right-side panels are no longer forced into a fixed desktop-only layout
+- Recording setup is more resilient
+  - tries WebM and MP4-compatible mime options instead of WebM-only assumptions
+- Camera recovery is better
+  - when a local video track dies, the room can reacquire a fresh track instead of leaving the user stuck
+- Proctoring is more complete
+  - client-side violations can be posted to the backend
+  - interviewer can see persisted proctoring alerts in the recruiter room
+
+Relevant files:
+
+- [candidate/InterviewRoom.tsx](C:/Users/Nathan/Documents/Claude/Projects/AIRS/CLIENT/src/pages/candidate/InterviewRoom.tsx)
+- [recruiter/InterviewRoom.tsx](C:/Users/Nathan/Documents/Claude/Projects/AIRS/CLIENT/src/pages/recruiter/InterviewRoom.tsx)
+- [interviewRecording.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/CLIENT/src/lib/interviewRecording.ts)
+- [useProctoringMonitor.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/CLIENT/src/hooks/useProctoringMonitor.ts)
+- [interview.service.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/CLIENT/src/services/interview.service.ts)
+- [interviews.routes.ts](C:/Users/Nathan/Documents/Claude/Projects/AIRS/SERVER/src/routes/interviews.routes.ts)
+
+### What is still not fully production-grade
+
+- Proctoring is still rule/event-based, not computer-vision-based
+- No face detection / multi-face detection / identity assurance
+- No robust server-side STT pipeline
+- Recording/browser behavior still needs real-device validation, especially on Safari/iOS
+
+## User experience impact after fixes
+
+### Recruiters should no longer experience
+
+- candidates disappearing from Final Selection just because mode changed
+- candidates being silently pushed backward by switching between Assist/Veto/Override
+- the mode toggle acting like a destructive command
+- camera failing permanently after a single off/on cycle in many common cases
+
+### Candidates should no longer experience as often
+
+- seemingly irrational state changes caused by recruiter mode exploration
+- hidden proctoring violations with no backend trace
+- some camera recovery failures after toggling video
+
+## Remaining risks
+
+The biggest remaining risks are no longer basic logic bugs. They are validation and polish risks.
+
+### 1. Real-browser/device validation is still needed
+
+Type-checking passes, but this environment has not fully verified:
+
+- iPhone Safari interview recording behavior
+- Android Chrome recording behavior
+- weak-network reconnect behavior during live interviews
+- long-session performance in transcript/recording flows
+
+### 2. Some rollback semantics are still product-policy sensitive
+
+The platform now blocks many invalid transitions, but product decisions may still be needed for:
+
+- whether a recruiter should be able to reopen rejected candidates later by explicit action
+- whether fairness reruns should be allowed after final decision
+- whether there should be a dedicated “reopen decision” action
+
+### 3. Proctoring is auditable but still lightweight
+
+The system now stores and displays proctoring events, but it should not be overclaimed as advanced anti-cheat monitoring.
 
 ## Testing status
 
-- `SERVER`: `npm run type-check` passes.
-- `SERVER`: `npm run contract-check` passes.
-- `SERVER`: API test suite `SERVER/tests/app.test.ts` passes `8/8` after adding `supertest`.
-- `CLIENT`: `npm exec tsc --noEmit` passes.
-- `CLIENT`: full Vite production build is still blocked in this environment by `spawn EPERM` from `esbuild`, so local compile verification is TypeScript-only here.
+Verified in this workspace:
 
-## Important corrections to older project notes
+- `cd SERVER && npm run type-check` passes
+- `cd CLIENT && npm exec tsc --noEmit` passes
 
-- OAuth is not fully implemented.
-  - Provider callback flow now exists for Google and Microsoft when credentials are configured.
-  - The current implementation auto-provisions new OAuth sign-ins as candidate accounts; recruiter/admin OAuth onboarding is still not a complete enterprise identity flow.
-- The current system should not be described as having complete LiveKit interview infrastructure unless the environment variables are configured and tested live.
-- The current system should not be described as having completed recording review, diarisation, or a production-grade AI interview analysis service.
+This means the current server/client integration compiles cleanly after the stabilization pass.
 
-## Recommended defense-safe wording
+## Defense-safe wording
 
-- Safe to claim:
-  - role-based onboarding
-  - hybrid screening pipeline
-  - assessment workflow with proctoring signals
-  - fairness gate and explanation endpoints
-  - live interview room integration path using LiveKit
-  - audit-oriented human-AI collaboration design
-- Avoid overclaiming:
-  - fully operational OAuth social login
-  - complete automated interview transcription/diarisation/recording analysis
-  - production-proven low-latency performance across all environments
+Safe to claim:
 
-## Immediate next engineering priorities
+- RekrootAI supports configurable human-AI oversight modes with persisted job-level behavior.
+- Candidate progression is stage-based and now guarded against accidental regressions.
+- Composite scoring is weighted and recalculated correctly across stages.
+- Live interview rooms support transcript capture, recording, rubric scoring, and proctoring event logging.
+- Recruiters can review proctoring alerts during the interview workflow.
 
-1. Finish the interview module to match the thesis:
-   - replace browser-only transcript capture with a more reliable STT pipeline
-   - add real recording capture and diarisation
-   - upgrade lightweight interview analysis into a defensible analyser service
-   - keep expanding collaboration mode visibility across recruiter review screens
-2. Harden OAuth account lifecycle:
-   - support recruiter/admin-first OAuth onboarding deliberately instead of defaulting new OAuth sign-ins to candidate
-   - add provider account linking and clearer callback error handling
-3. Run a true end-to-end test with LiveKit configured:
-   - recruiter schedules interview
-   - candidate joins
-   - recruiter joins
-   - rubric saved
-   - interview completed
-   - application advances to decision
-4. Profile production slowness:
-   - Mongo query timings
-   - external SMTP/Redis/Object Storage waits
-   - any ML-service blocking calls
+Avoid overclaiming:
 
-## Useful commands
+- fully production-validated mobile/browser interview compatibility
+- advanced AI proctoring with facial analysis or identity verification
+- fully complete forensic-grade interview recording pipeline across all browsers
 
-- Server type-check: `cd SERVER && npm run type-check`
-- Server contract simulation: `cd SERVER && npm run contract-check`
-- Server tests: `cd SERVER && node --import tsx --test tests\\app.test.ts`
-- Client TypeScript check: `cd CLIENT && npm exec tsc --noEmit`
+## Best next step after this point
+
+The next highest-value step is live QA, not broad new feature work.
+
+Recommended sequence:
+
+1. Run full recruiter/candidate walkthroughs on desktop
+2. Run actual mobile-browser interview tests
+3. Validate notification wording and final-selection behavior with seeded scenarios
+4. Only after that, add any remaining product-policy actions like explicit reopen flows
+
+## High-confidence summary
+
+The app is now much closer to completion.
+
+The most dangerous logic bugs were:
+
+- destructive mode switching
+- stale composite scoring
+- weak stage-transition safeguards
+
+Those are now fixed or strongly mitigated in code.

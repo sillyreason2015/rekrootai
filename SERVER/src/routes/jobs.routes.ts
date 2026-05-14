@@ -139,6 +139,9 @@ jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin
       ...body,
       company: companyId,
       status: body.status === 'published' ? 'published' : 'draft',
+      aiMode: ['assist', 'veto', 'override'].includes(String(body.aiMode ?? ''))
+        ? body.aiMode
+        : 'assist',
       departmentHiring: normalisedDepartmentHiring,
       assessmentModules: normalisedAssessmentModules,
       createdBy: req.user!._id,

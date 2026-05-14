@@ -12,6 +12,7 @@ import { env } from '../config/env.js'
 import { ensureInterviewAccess, mergeTranscriptEntries, reconcileInterviewState, type PersistedTranscriptLine } from '../lib/interview-automation.js'
 import { enqueueInterviewAnalysis } from '../lib/interview-analysis-queue.js'
 import { presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
+import { computeCompositeScore } from '../lib/scoring.js'
 
 export const interviewsRouter = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } })
@@ -86,6 +87,9 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
     }
     const application = applicationId ? await ApplicationModel.findById(applicationId).lean() : null
     if (!application) throw new HttpError(404, 'Application not found')
+    if (!['assessment', 'interview'].includes(application.stage)) {
+      throw new HttpError(409, 'Interviews can only be scheduled after assessment review')
+    }
     const interview = await InterviewModel.create({
       application: application._id,
       job: application.job,
@@ -178,6 +182,26 @@ interviewsRouter.post('/:id/transcript', requireAuth, async (req, res, next) => 
   } catch (err) { next(err) }
 })
 
+interviewsRouter.post('/:id/proctoring-event', requireAuth, async (req, res, next) => {
+  try {
+    const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
+    if (!interview) throw new HttpError(404, 'Interview not found')
+    const body = req.body as { type?: 'tab_switch' | 'window_blur' | 'camera_off' | 'mic_off' | 'other'; reason?: string }
+    const candidate = await CandidateModel.findOne({ user: req.user!._id }, { _id: 1 }).lean()
+    const actor = candidate && String(candidate._id) === String(interview.candidate) ? 'candidate' : 'recruiter'
+    const event = {
+      actor,
+      type: body.type ?? 'other',
+      reason: String(body.reason ?? 'Proctoring event detected'),
+      at: new Date().toISOString(),
+    }
+    await InterviewModel.findByIdAndUpdate(interview._id, {
+      $push: { proctoringEvents: event },
+    })
+    res.json({ ok: true, event })
+  } catch (err) { next(err) }
+})
+
 interviewsRouter.post('/:id/artifacts/recording', requireAuth, upload.single('recording'), async (req, res, next) => {
   try {
     const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
@@ -236,6 +260,7 @@ interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'ad
     if (!['admin', 'super_admin'].includes(req.user!.role) && String(current.recruiter) !== String(req.user!._id)) {
       throw new HttpError(403, 'Forbidden')
     }
+    if (current.status === 'completed' || current.status === 'cancelled') throw new HttpError(409, 'This interview can no longer be completed')
     const body = req.body as {
       score?: number
       mode?: 'veto' | 'assist' | 'override'
@@ -260,8 +285,16 @@ interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'ad
       { new: true }
     ).lean()
     if (!interview) throw new HttpError(404, 'Interview not found')
+    const application = await ApplicationModel.findById(interview.application, { scores: 1 }).lean()
+    const currentScores = application?.scores ?? {}
+    const finalScore = computeCompositeScore({
+      resume: currentScores.resume,
+      assessment: currentScores.assessment,
+      penalty: currentScores.penalty,
+      interview: score,
+    }, 'decision')
     await ApplicationModel.findByIdAndUpdate(interview.application, {
-      stage: 'decision', status: 'decision_made', 'scores.interview': score,
+      stage: 'decision', status: 'decision_made', 'scores.interview': score, 'scores.final': finalScore,
     })
     await logAction({
       actor: 'ai',

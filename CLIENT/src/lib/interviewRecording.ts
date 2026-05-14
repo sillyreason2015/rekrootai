@@ -120,11 +120,20 @@ export function startInterviewRecording(args: StartInterviewRecordingArgs): Inte
   const mimeTypeCandidates = [
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
+    'video/mp4;codecs=h264,aac',
+    'video/mp4',
     'video/webm',
   ]
-  const mimeType = mimeTypeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? 'video/webm'
+  const mimeType = mimeTypeCandidates.find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? ''
 
-  const recorder = new MediaRecorder(combinedStream, { mimeType })
+  let recorder: MediaRecorder
+  try {
+    recorder = mimeType ? new MediaRecorder(combinedStream, { mimeType }) : new MediaRecorder(combinedStream)
+  } catch {
+    for (const track of combinedStream.getTracks()) track.stop()
+    for (const cleanup of cleanupFns) void cleanup()
+    return null
+  }
   recorder.ondataavailable = (event) => {
     if (event.data.size > 0) chunks.push(event.data)
   }

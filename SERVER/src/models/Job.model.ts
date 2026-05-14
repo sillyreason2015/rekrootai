@@ -63,6 +63,7 @@ const jobSchema = new Schema<Omit<Job, 'createdAt'>>(
     status: { type: String, enum: ['draft', 'published', 'closed'], default: 'draft' },
     applicationDeadline: String,
     bannerUrl: String,
+    aiMode: { type: String, enum: ['veto', 'assist', 'override'], default: 'assist' },
     assessmentModules: { type: [moduleConfigSchema], default: [] },
     thresholds: {
       screening: { type: Number, default: 0.5 },

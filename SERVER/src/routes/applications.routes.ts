@@ -16,8 +16,15 @@ import { notify } from '../lib/notify.js'
 import { sendEmail } from '../lib/email.js'
 import { computeJobBiasAudit } from '../lib/fairness.js'
 import { generateQuestions } from '../lib/questionGen.js'
+import { computeCompositeScore } from '../lib/scoring.js'
 
 export const applicationsRouter = Router()
+
+function assertStage(currentStage: string, allowedStages: string[], action: string) {
+  if (!allowedStages.includes(currentStage)) {
+    throw new HttpError(409, `${action} is only allowed when the application is in ${allowedStages.join(' or ')} stage`)
+  }
+}
 
 async function getCandidateUser(candidateId: string) {
   const candidate = await CandidateModel.findById(candidateId).lean()
@@ -130,7 +137,13 @@ applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin', 'sup
       candidate: candidate._id,
       status: 'pending',
       stage: 'applied',
-      scores: { resume: resumeScore, assessment: 0, penalty: 0, interview: 0, final: resumeScore },
+      scores: {
+        resume: resumeScore,
+        assessment: 0,
+        penalty: 0,
+        interview: 0,
+        final: computeCompositeScore({ resume: resumeScore, assessment: 0, penalty: 0, interview: 0 }, 'applied'),
+      },
     })
     await logAction({ actor: 'user', action: 'apply', candidateId: String(candidate._id), jobId, mode: 'assist' })
     notify(String(candidate._id), {
@@ -154,6 +167,10 @@ applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin', '
     const interviewMap = Object.fromEntries(interviews.map((item) => [String(item.application), item]))
     res.json(apps.map((app) => ({
       ...app,
+      scores: {
+        ...app.scores,
+        final: computeCompositeScore(app.scores ?? {}, app.stage),
+      },
       interviewId: interviewMap[String(app._id)]?._id ? String(interviewMap[String(app._id)]._id) : undefined,
       interviewStatus: interviewMap[String(app._id)]?.status,
       interviewScheduledAt: interviewMap[String(app._id)]?.scheduledAt,
@@ -195,6 +212,10 @@ applicationsRouter.get('/job/:jobId', requireAuth, requireRole('recruiter', 'adm
     }
     const enriched = apps.map((app) => ({
       ...app,
+      scores: {
+        ...app.scores,
+        final: computeCompositeScore(app.scores ?? {}, app.stage),
+      },
       interviewId: interviewMap[String(app._id)]?._id ? String(interviewMap[String(app._id)]._id) : undefined,
       interviewStatus: interviewMap[String(app._id)]?.status,
       interviewScheduledAt: interviewMap[String(app._id)]?.scheduledAt,
@@ -219,6 +240,9 @@ applicationsRouter.get('/:id', requireAuth, async (req, res, next) => {
 
 applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
+    const current = await ApplicationModel.findById(req.params.id).lean()
+    if (!current) throw new HttpError(404, 'Application not found')
+    assertStage(current.stage, ['applied'], 'Shortlisting')
     const app = await ApplicationModel.findByIdAndUpdate(req.params.id, { status: 'shortlisted', stage: 'screening' }, { new: true }).lean()
     if (!app) throw new HttpError(404, 'Application not found')
     await logAction({ actor: 'user', action: 'shortlisted', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
@@ -246,6 +270,9 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
   try {
     const { decision, notes } = req.body as { decision?: 'hire' | 'reject' | 'hold'; notes?: string }
     if (!decision) throw new HttpError(400, 'decision is required')
+    const current = await ApplicationModel.findById(req.params.id, { stage: 1 }).lean()
+    if (!current) throw new HttpError(404, 'Application not found')
+    assertStage(current.stage, ['decision'], 'Final decision')
     const linkedInterview = await InterviewModel.findOne({ application: req.params.id }, { collaborationMode: 1 }).sort({ createdAt: -1 }).lean()
     const mode = linkedInterview?.collaborationMode ?? 'assist'
     const app = await ApplicationModel.findByIdAndUpdate(
@@ -300,6 +327,9 @@ applicationsRouter.post('/:id/ai-decide', requireAuth, requireRole('recruiter', 
   try {
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    if (app.stage !== 'applied') {
+      return res.json({ decision: app.aiDecision ?? 'review', score: app.scores?.final ?? app.scores?.resume ?? 0, stage: app.stage, unchanged: true })
+    }
     const score = app.scores?.final ?? app.scores?.resume ?? 0
     const decision = score >= 65 ? 'shortlist' : score >= 40 ? 'review' : 'reject'
     const nextStage = decision === 'shortlist' ? 'screening' : decision === 'reject' ? 'rejected' : app.stage
@@ -314,6 +344,7 @@ applicationsRouter.post('/:id/undo-veto', requireAuth, requireRole('recruiter', 
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
     if (app.aiDecision !== 'shortlist' && app.aiDecision !== 'reject') throw new HttpError(400, 'No veto decision available to undo')
+    if (!['screening', 'rejected'].includes(app.stage)) throw new HttpError(409, 'Veto can only be undone before the candidate progresses beyond the shortlist outcome')
 
     const reverted = await ApplicationModel.findByIdAndUpdate(
       req.params.id,
@@ -361,7 +392,7 @@ applicationsRouter.get('/:id/explanation', requireAuth, async (req, res, next) =
     const assessment = s.assessment ?? 0
     const penalty = s.penalty ?? 0
     const interview = s.interview ?? 0
-    const final = s.final ?? resume
+    const final = computeCompositeScore(s, app.stage)
     const parts: string[] = []
     if (resume > 0) parts.push(`Your CV matched ${resume.toFixed(0)}% of the role's required skills.`)
     if (assessment > 0) parts.push(`Assessment score: ${assessment.toFixed(0)}%.`)
@@ -446,6 +477,7 @@ applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recrui
   try {
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    assertStage(app.stage, ['screening'], 'Sending an assessment')
     const existingAssessment = await (await import('../models/Assessment.model.js')).AssessmentModel.findOne({
       application: String(app._id),
       status: { $in: ['pending', 'in_progress'] },
@@ -477,16 +509,24 @@ applicationsRouter.post('/:id/undo-assessment', requireAuth, requireRole('recrui
   try {
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    assertStage(app.stage, ['assessment'], 'Resetting an assessment')
     const { AssessmentModel } = await import('../models/Assessment.model.js')
     const assessment = await AssessmentModel.findOne({ application: String(app._id) }).sort({ createdAt: -1 })
     if (!assessment) throw new HttpError(404, 'Assessment not found')
     await AssessmentModel.deleteOne({ _id: assessment._id })
+    const resetScores = {
+      resume: app.scores?.resume,
+      assessment: 0,
+      penalty: app.scores?.penalty,
+      interview: app.scores?.interview,
+    }
     await ApplicationModel.findByIdAndUpdate(app._id, {
       stage: 'screening',
       status: 'shortlisted',
       assessmentExpiresAt: null,
       assessmentStatus: null,
       'scores.assessment': 0,
+      'scores.final': computeCompositeScore(resetScores, 'screening'),
     })
     await notifyCandidate(String(app.candidate), {
       type: 'assessment_sent',
@@ -502,6 +542,7 @@ applicationsRouter.post('/:id/fairness-gate', requireAuth, requireRole('recruite
   try {
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
+    assertStage(app.stage, ['assessment', 'interview', 'decision'], 'Running the fairness gate')
     const job = await JobModel.findById(String(app.job), { thresholds: 1 }).lean()
     const fairnessThreshold = Number(job?.thresholds?.fairness ?? 0.8)
 

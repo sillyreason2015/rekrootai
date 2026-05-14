@@ -6,6 +6,7 @@ import { requireAuth } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
 import { notify } from '../lib/notify.js'
+import { computeCompositeScore } from '../lib/scoring.js'
 
 export const assessmentsRouter = Router()
 
@@ -81,12 +82,21 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
     const scores = assessment.modules.map((m) => m.score ?? 0).filter((s) => s > 0)
     assessment.score = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
     await assessment.save()
+    const application = await ApplicationModel.findById(assessment.application, { scores: 1 }).lean()
+    const currentScores = application?.scores ?? {}
+    const finalScore = computeCompositeScore({
+      resume: currentScores.resume,
+      assessment: assessment.score,
+      penalty: currentScores.penalty,
+      interview: currentScores.interview,
+    }, 'assessment')
     await ApplicationModel.findByIdAndUpdate(assessment.application, {
       stage: 'assessment',
       status: 'assessment_sent',
       assessmentStatus: 'completed',
       assessmentExpiresAt: assessment.expiresAt,
       'scores.assessment': assessment.score,
+      'scores.final': finalScore,
     })
     await logAction({ actor: 'ai', action: 'assessment-completed', jobId: String(assessment.job), mode: 'assist', payload: { avgScore: assessment.score, passed: assessment.score >= 60 } })
     await notifyCandidate(typeof assessment.candidate === 'string' ? assessment.candidate : undefined, {
