@@ -693,17 +693,15 @@ export default function Shortlist() {
                         )}
                         {app.stage === 'assessment' && mode !== 'Override' && (
                           <div className="flex items-center gap-1">
-                            {extApp.assessmentStatus === 'pending' && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-amber-700 border-amber-200 hover:bg-amber-50"
-                                onClick={() => undoAssessmentMutation.mutate(app._id)}
-                                disabled={undoAssessmentMutation.isPending}
-                              >
-                                <ArrowRight className="h-3.5 w-3.5 rotate-180" /> Undo Assessment
-                              </Button>
-                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                              onClick={() => undoAssessmentMutation.mutate(app._id)}
+                              disabled={undoAssessmentMutation.isPending}
+                            >
+                              <ArrowRight className="h-3.5 w-3.5 rotate-180" /> Reset Assessment
+                            </Button>
                             <Button size="sm" variant="outline" className="text-purple-600 border-purple-200 hover:bg-purple-50"
                               onClick={() => fairnessMutation.mutate(app._id)} disabled={fairnessMutation.isPending}>
                               <Shield className="h-3.5 w-3.5" /> Run Fairness

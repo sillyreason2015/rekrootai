@@ -26,6 +26,12 @@ async function getCandidateUser(candidateId: string) {
   return { candidate, user }
 }
 
+async function notifyCandidate(candidateId: string, data: { type: string; title: string; body: string; link?: string }) {
+  const { user } = await getCandidateUser(candidateId)
+  if (!user?._id) return
+  notify(String(user._id), data)
+}
+
 async function getRecruitersForApplication(application: { job: string }) {
   const job = await JobModel.findById(String(application.job), { company: 1, createdBy: 1 }).lean()
   if (!job) return []
@@ -216,7 +222,7 @@ applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 
     const app = await ApplicationModel.findByIdAndUpdate(req.params.id, { status: 'shortlisted', stage: 'screening' }, { new: true }).lean()
     if (!app) throw new HttpError(404, 'Application not found')
     await logAction({ actor: 'user', action: 'shortlisted', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
-    notify(String(app.candidate), { type: 'shortlisted', title: 'Application progressed', body: 'Your application has moved into recruiter screening.', link: '/candidate/applications' })
+    await notifyCandidate(String(app.candidate), { type: 'shortlisted', title: 'Application progressed', body: 'A recruiter has started reviewing your application.', link: '/candidate/applications' })
     res.json({ ...app, _id: String(app._id) })
   } catch (err) { next(err) }
 })
@@ -231,7 +237,7 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
     ).lean()
     if (!app) throw new HttpError(404, 'Application not found')
     await logAction({ actor: 'user', action: 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { decision: reason } })
-    notify(String(app.candidate), { type: 'fairness_rejected', title: 'Application closed', body: reason?.trim() || 'Your application was not progressed further for this role.', link: `/candidate/explanation/${String(app._id)}` })
+    await notifyCandidate(String(app.candidate), { type: 'fairness_rejected', title: 'Application closed', body: reason?.trim() || 'Your application was not progressed further for this role.', link: `/candidate/explanation/${String(app._id)}` })
     res.json({ ...app, _id: String(app._id) })
   } catch (err) { next(err) }
 })
@@ -265,7 +271,7 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
       mode,
       payload: { decision },
     })
-    notify(String(app.candidate), {
+    await notifyCandidate(String(app.candidate), {
       type: decision === 'hire' ? 'offer_extended' : 'decision_made',
       title: decision === 'hire' ? 'Offer decision recorded' : decision === 'reject' ? 'Application decision recorded' : 'Application on hold',
       body: decision === 'hire' ? 'Congratulations. A recruiter has marked your application as hired.' : decision === 'reject' ? 'A recruiter has completed review and closed this application.' : 'Your application is on hold while the recruiter completes final review.',
@@ -330,7 +336,7 @@ applicationsRouter.post('/:id/undo-veto', requireAuth, requireRole('recruiter', 
       payload: { previousDecision: app.aiDecision },
     })
 
-    notify(String(reverted.candidate), {
+    await notifyCandidate(String(reverted.candidate), {
       type: 'decision_made',
       title: 'Application returned to review',
       body: 'A recruiter reopened your application for manual review.',
@@ -426,7 +432,7 @@ applicationsRouter.post('/:id/correspondence/send', requireAuth, requireRole('re
         },
       },
     })
-    notify(String(app.candidate), { type: 'recruiter_feedback', title: 'New message from recruiter', body: subject, link: `/candidate/explanation/${String(app._id)}` })
+    await notifyCandidate(String(app.candidate), { type: 'recruiter_feedback', title: 'New message from recruiter', body: subject, link: `/candidate/explanation/${String(app._id)}` })
     await logAction({ actor: 'user', action: 'email-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { subject, message } })
     res.json({ ok: deliveryStatus === 'sent', message: deliveryStatus === 'sent' ? 'Correspondence sent' : 'Email failed to send', deliveryStatus })
   } catch (err) { next(err) }
@@ -458,7 +464,7 @@ applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recrui
       assessmentExpiresAt: assessment.expiresAt,
     })
     await logAction({ actor: 'user', action: 'assessment-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
-    notify(String(app.candidate), { type: 'assessment_sent', title: 'Assessment invitation sent', body: 'A recruiter has invited you to complete the next assessment stage.', link: '/candidate/applications' })
+    await notifyCandidate(String(app.candidate), { type: 'assessment_sent', title: 'Assessment invitation sent', body: 'A recruiter has invited you to complete the next assessment stage.', link: '/candidate/applications' })
     res.status(201).json({ ...assessment.toObject(), _id: String(assessment._id) })
   } catch (err) { next(err) }
 })
@@ -470,10 +476,6 @@ applicationsRouter.post('/:id/undo-assessment', requireAuth, requireRole('recrui
     const { AssessmentModel } = await import('../models/Assessment.model.js')
     const assessment = await AssessmentModel.findOne({ application: String(app._id) }).sort({ createdAt: -1 })
     if (!assessment) throw new HttpError(404, 'Assessment not found')
-    if (assessment.status !== 'pending' || assessment.startedAt) {
-      throw new HttpError(409, 'Only unstarted assessments can be undone')
-    }
-
     await AssessmentModel.deleteOne({ _id: assessment._id })
     await ApplicationModel.findByIdAndUpdate(app._id, {
       stage: 'screening',
@@ -481,6 +483,12 @@ applicationsRouter.post('/:id/undo-assessment', requireAuth, requireRole('recrui
       assessmentExpiresAt: null,
       assessmentStatus: null,
       'scores.assessment': 0,
+    })
+    await notifyCandidate(String(app.candidate), {
+      type: 'assessment_sent',
+      title: 'Assessment reset',
+      body: 'Your previous assessment has been withdrawn. A recruiter may send you a new one shortly.',
+      link: '/candidate/applications',
     })
     res.json({ ok: true })
   } catch (err) { next(err) }
@@ -524,7 +532,7 @@ applicationsRouter.post('/:id/fairness-gate', requireAuth, requireRole('recruite
 
     const passed = flags.length === 0
     await ApplicationModel.findByIdAndUpdate(req.params.id, { fairnessComputedAt: new Date().toISOString() })
-    if (passed) notify(String(app.candidate), { type: 'fairness_passed', title: 'Application review updated', body: 'Your application has passed the AI fairness review stage.', link: '/candidate/applications' })
+    if (passed) await notifyCandidate(String(app.candidate), { type: 'fairness_passed', title: 'Application review updated', body: 'Your application has passed the AI fairness review stage.', link: '/candidate/applications' })
     res.json({
       passed,
       score: final,
@@ -610,7 +618,7 @@ applicationsRouter.post('/:id/correspondence/reply', requireAuth, async (req, re
         })
       })
     } else {
-      notify(String(app.candidate), { type: 'recruiter_feedback', title: 'New recruiter reply', body: subject ?? 'You have received a new message about your application.', link: `/candidate/explanation/${String(app._id)}` })
+      await notifyCandidate(String(app.candidate), { type: 'recruiter_feedback', title: 'New recruiter reply', body: subject ?? 'You have received a new message about your application.', link: `/candidate/explanation/${String(app._id)}` })
     }
 
     await logAction({ actor: 'user', action: 'correspondence-reply', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: req.body as Record<string, unknown> })

@@ -16,6 +16,12 @@ import { presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
 export const interviewsRouter = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024 * 1024 } })
 
+async function notifyCandidate(candidateId: string, data: { type: string; title: string; body: string; link?: string }) {
+  const candidate = await CandidateModel.findById(candidateId, { user: 1 }).lean()
+  if (!candidate?.user) return
+  notify(String(candidate.user), data)
+}
+
 function buildSpeakerSegments(lines: PersistedTranscriptLine[]) {
   const sorted = [...lines].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
   const segments: Array<{
@@ -94,7 +100,7 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
     })
     await ApplicationModel.findByIdAndUpdate(application._id, { stage: 'interview', status: 'interview_scheduled' })
     await logAction({ actor: 'user', action: 'interview-scheduled', candidateId: String(application.candidate), jobId: String(application.job), mode: mode ?? 'assist' })
-    notify(String(application.candidate), { type: 'info', title: 'Interview Scheduled', body: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.` })
+    await notifyCandidate(String(application.candidate), { type: 'info', title: 'Interview Scheduled', body: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.`, link: '/candidate/applications' })
     res.status(201).json({ ...interview.toObject(), _id: String(interview._id) })
   } catch (err) { next(err) }
 })
@@ -331,7 +337,7 @@ interviewsRouter.post('/:id/reschedule', requireAuth, requireRole('recruiter', '
       { new: true }
     ).lean()
     if (!interview) throw new HttpError(404, 'Interview not found')
-    notify(String(interview.candidate), { type: 'info', title: 'Interview Rescheduled', body: `Your interview has been rescheduled to ${scheduledAt}.` })
+    await notifyCandidate(String(interview.candidate), { type: 'info', title: 'Interview Rescheduled', body: `Your interview has been rescheduled to ${scheduledAt}.`, link: '/candidate/applications' })
     res.json({ ...interview, _id: String(interview._id) })
   } catch (err) { next(err) }
 })

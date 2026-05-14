@@ -56,6 +56,7 @@ const assessmentSchema = new Schema<Omit<Assessment, '_id'>>(
 
 assessmentSchema.index({ candidate: 1, status: 1 })
 assessmentSchema.index({ application: 1, status: 1 })
+assessmentSchema.index({ application: 1, createdAt: -1 })
 assessmentSchema.index({ status: 1, expiresAt: 1 })
 
 export const AssessmentModel = model<Omit<Assessment, '_id'>>('Assessment', assessmentSchema)

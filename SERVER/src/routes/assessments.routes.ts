@@ -1,11 +1,20 @@
 import { Router } from 'express'
 import { AssessmentModel } from '../models/Assessment.model.js'
 import { ApplicationModel } from '../models/Application.model.js'
+import { CandidateModel } from '../models/Candidate.model.js'
 import { requireAuth } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
+import { notify } from '../lib/notify.js'
 
 export const assessmentsRouter = Router()
+
+async function notifyCandidate(candidateId: string | undefined, data: { type: string; title: string; body: string; link?: string }) {
+  if (!candidateId) return
+  const candidate = await CandidateModel.findById(candidateId, { user: 1 }).lean()
+  if (!candidate?.user) return
+  notify(String(candidate.user), data)
+}
 
 assessmentsRouter.get('/:applicationId', requireAuth, async (req, res, next) => {
   try {
@@ -34,6 +43,12 @@ assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, nex
     await ApplicationModel.findByIdAndUpdate(assessment.application, {
       assessmentStatus: 'in_progress',
       assessmentExpiresAt: assessment.expiresAt,
+    })
+    await notifyCandidate(typeof existing.candidate === 'string' ? existing.candidate : undefined, {
+      type: 'assessment_sent',
+      title: 'Assessment started',
+      body: 'Your assessment session is now in progress. You can continue from where you left off if the page reloads.',
+      link: `/candidate/assessment/${String(existing.application)}`,
     })
     res.json({ ...assessment, _id: String(assessment._id) })
   } catch (err) { next(err) }
@@ -74,6 +89,14 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
       'scores.assessment': assessment.score,
     })
     await logAction({ actor: 'ai', action: 'assessment-completed', jobId: String(assessment.job), mode: 'assist', payload: { avgScore: assessment.score, passed: assessment.score >= 60 } })
+    await notifyCandidate(typeof assessment.candidate === 'string' ? assessment.candidate : undefined, {
+      type: assessment.score >= 60 ? 'assessment_completed' : 'assessment_failed',
+      title: assessment.score >= 60 ? 'Assessment submitted' : 'Assessment submitted',
+      body: assessment.score >= 60
+        ? `Your assessment has been submitted successfully with a current score of ${assessment.score}%.`
+        : `Your assessment has been submitted and recorded with a current score of ${assessment.score}%.`,
+      link: '/candidate/applications',
+    })
     res.json({ ...assessment.toObject(), _id: String(assessment._id) })
   } catch (err) { next(err) }
 })

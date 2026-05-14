@@ -15,6 +15,10 @@ import type { Question } from '../../types'
 
 const MAX_VIOLATIONS = 3
 
+function getAssessmentStorageKey(assessmentId: string, moduleIndex: number) {
+  return `assessment-session:${assessmentId}:${moduleIndex}`
+}
+
 export default function Assessment() {
   const { applicationId } = useParams<{ applicationId: string }>()
   const navigate = useNavigate()
@@ -25,7 +29,7 @@ export default function Assessment() {
   const [showProctoringModal, setShowProctoringModal] = useState(false)
   const [autoSubmitting, setAutoSubmitting] = useState(false)
 
-  const { data: assessment, isLoading } = useQuery({
+  const { data: assessment, isLoading, refetch } = useQuery({
     queryKey: ['assessment', applicationId],
     queryFn: () => assessmentService.getMine(applicationId!),
     enabled: !!applicationId,
@@ -35,29 +39,56 @@ export default function Assessment() {
     if (!assessment) return
     if (assessment.status === 'in_progress') {
       setStarted(true)
-      const nextModuleIndex = assessment.modules.findIndex((module) => !module.completedAt)
-      setActiveModule(nextModuleIndex >= 0 ? nextModuleIndex : 0)
+      const savedActiveModule = sessionStorage.getItem(`assessment-active-module:${assessment._id}`)
+      if (savedActiveModule !== null) {
+        const index = Number(savedActiveModule)
+        setActiveModule(Number.isInteger(index) && index >= 0 ? index : null)
+      } else {
+        setActiveModule(null)
+      }
     }
   }, [assessment])
 
+  useEffect(() => {
+    if (!assessment) return
+    if (activeModule === null) {
+      sessionStorage.removeItem(`assessment-active-module:${assessment._id}`)
+    } else {
+      sessionStorage.setItem(`assessment-active-module:${assessment._id}`, String(activeModule))
+    }
+  }, [assessment, activeModule])
+
   const startMutation = useMutation({
     mutationFn: () => assessmentService.start(assessment!._id),
-    onSuccess: () => { setStarted(true); setActiveModule(0) },
+    onSuccess: () => {
+      setStarted(true)
+      setActiveModule(null)
+      setAutoSubmitting(false)
+    },
   })
 
   const submitModule = useMutation({
     mutationFn: ({ type, ans }: { type: string; ans: unknown[] }) =>
       assessmentService.submitModule(assessment!._id, type, ans),
-    onSuccess: () => {
-      const nextIdx = (activeModule ?? 0) + 1
-      if (assessment && nextIdx < assessment.modules.length) {
-        setActiveModule(nextIdx)
-        setAnswers({})
-      } else {
-        void assessmentService.complete(assessment!._id).finally(() => {
+    onSuccess: async () => {
+      if (!assessment || activeModule === null) return
+      localStorage.removeItem(getAssessmentStorageKey(assessment._id, activeModule))
+      const refreshed = await refetch()
+      const latest = refreshed.data
+      const hasRemainingModules = latest?.modules.some((module) => !module.completedAt)
+
+      if (!hasRemainingModules) {
+        void assessmentService.complete(assessment._id).finally(() => {
+          assessment.modules.forEach((_module, index) => localStorage.removeItem(getAssessmentStorageKey(assessment._id, index)))
+          sessionStorage.removeItem(`assessment-active-module:${assessment._id}`)
+          setAutoSubmitting(false)
           navigate('/candidate/applications')
         })
+        return
       }
+      setAnswers({})
+      setAutoSubmitting(false)
+      setActiveModule(null)
     },
   })
 
@@ -87,7 +118,20 @@ export default function Assessment() {
     if (!started || activeModule === null || !assessment) return
     const mod = assessment.modules[activeModule]
     const timeLimit = (assessment.job as { assessmentModules?: Array<{ timeLimit: number }> })?.assessmentModules?.[activeModule]?.timeLimit ?? 20
-    setTimeLeft(mod.timeSpent ? 0 : 60 * timeLimit)
+    const saved = localStorage.getItem(getAssessmentStorageKey(assessment._id, activeModule))
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as { answers?: Record<string, number | string>; timeLeft?: number }
+        setAnswers(parsed.answers ?? {})
+        setTimeLeft(typeof parsed.timeLeft === 'number' ? parsed.timeLeft : (mod.timeSpent ? 0 : 60 * timeLimit))
+      } catch {
+        setAnswers({})
+        setTimeLeft(mod.timeSpent ? 0 : 60 * timeLimit)
+      }
+    } else {
+      setAnswers({})
+      setTimeLeft(mod.timeSpent ? 0 : 60 * timeLimit)
+    }
     const id = setInterval(() => setTimeLeft((t) => {
       if (t <= 1) { forceSubmit(); return 0 }
       return t - 1
@@ -95,6 +139,14 @@ export default function Assessment() {
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeModule, assessment])
+
+  useEffect(() => {
+    if (!assessment || activeModule === null || !started) return
+    localStorage.setItem(
+      getAssessmentStorageKey(assessment._id, activeModule),
+      JSON.stringify({ answers, timeLeft }),
+    )
+  }, [assessment, activeModule, answers, timeLeft, started])
 
   if (isLoading) return <LoadingSpinner />
   if (!assessment) return <p className="text-muted-foreground">Assessment not found.</p>
@@ -122,7 +174,7 @@ export default function Assessment() {
     )
   }
 
-  // Pre-start screen
+  // Overview / module picker
   if (!started || activeModule === null) {
     return (
       <>
@@ -154,7 +206,12 @@ export default function Assessment() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             {assessment.modules.map((mod, i) => (
-              <Card key={i} className={cn(mod.completedAt ? 'border-emerald-200 bg-emerald-50' : '')}>
+              <Card
+                key={i}
+                className={cn(
+                  mod.completedAt ? 'border-emerald-200 bg-emerald-50 opacity-70' : started ? 'cursor-pointer hover:border-primary/40' : '',
+                )}
+              >
                 <CardContent className="flex items-center gap-3 p-4">
                   {mod.completedAt ? (
                     <CheckCircle2 className="h-6 w-6 text-emerald-500" />
@@ -172,19 +229,38 @@ export default function Assessment() {
                       {mod.type === 'values' && 'Alignment with company culture and ethics — unscored, for recruiter review'}
                     </p>
                   </div>
+                  {started && !mod.completedAt && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="ml-auto"
+                      onClick={() => {
+                        setAnswers({})
+                        setActiveModule(i)
+                      }}
+                    >
+                      Open
+                    </Button>
+                  )}
                 </CardContent>
               </Card>
             ))}
           </div>
 
-          <Button
-            size="lg"
-            onClick={() => setShowProctoringModal(true)}
-            disabled={startMutation.isPending}
-          >
-            {startMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Begin Assessment
-          </Button>
+          {!started ? (
+            <Button
+              size="lg"
+              onClick={() => setShowProctoringModal(true)}
+              disabled={startMutation.isPending}
+            >
+              {startMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Begin Assessment
+            </Button>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Completed modules are locked. Choose any remaining module to continue your assessment.
+            </p>
+          )}
         </div>
       </>
     )
