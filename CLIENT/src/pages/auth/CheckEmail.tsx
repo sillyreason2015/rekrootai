@@ -22,7 +22,7 @@ export default function CheckEmail() {
     if (user?.isVerified) {
       const dest =
         user.role === 'recruiter'
-          ? '/recruiter/onboarding'
+          ? (user.onboardingComplete || user.companyName ? '/recruiter/dashboard' : '/recruiter/onboarding')
           : user.role === 'admin'
             ? '/admin/dashboard'
             : user.role === 'super_admin'

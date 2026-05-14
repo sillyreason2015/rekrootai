@@ -5,9 +5,30 @@ import { HttpError } from '../lib/http.js'
 import { QuestionBankModel } from '../models/QuestionBank.model.js'
 import { UserModel } from '../models/User.model.js'
 import { JobModel } from '../models/Job.model.js'
+import { CompanyModel } from '../models/Company.model.js'
 import { generateQuestions, extractQuestionsFromText } from '../lib/questionGen.js'
 import { env } from '../config/env.js'
 import { GoogleGenerativeAI } from '@google/generative-ai'
+
+async function resolveQuestionBankCompany(userId: string) {
+  const me = await UserModel.findById(userId, { companyName: 1 }).lean()
+  const rawCompanyName = me?.companyName?.trim()
+  const company = await CompanyModel.findOne({
+    $or: [
+      { createdBy: userId },
+      ...(rawCompanyName ? [{ name: rawCompanyName }, { legalName: rawCompanyName }] : []),
+    ],
+  }).lean()
+
+  const companyNames = [company?.name, company?.legalName, rawCompanyName]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+
+  return {
+    me,
+    canonicalCompanyName: company?.name ?? company?.legalName ?? rawCompanyName ?? null,
+    companyNames: [...new Set(companyNames)],
+  }
+}
 
 async function generateWithGemini(
   jobContext: { title: string; description: string; skills: string[]; requirements: string[] },
@@ -73,10 +94,10 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 // GET /question-bank
 questionBankRouter.get('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const me = await UserModel.findById(req.user!._id).lean()
+    const { companyNames } = await resolveQuestionBankCompany(req.user!._id)
     const filter: Record<string, unknown> = req.user?.role === 'super_admin'
       ? {}
-      : { companyName: me?.companyName ?? '__none__' }
+      : { companyName: { $in: companyNames.length ? companyNames : ['__none__'] } }
     const items = await QuestionBankModel.find(filter).sort({ createdAt: -1 }).lean()
     res.json(items.map((q) => ({ ...q, _id: String(q._id) })))
   } catch (err) {
@@ -87,7 +108,7 @@ questionBankRouter.get('/', requireAuth, requireRole('recruiter', 'admin', 'supe
 // POST /question-bank
 questionBankRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const me = await UserModel.findById(req.user!._id).lean()
+    const { canonicalCompanyName } = await resolveQuestionBankCompany(req.user!._id)
     const body = req.body as {
       text?: string
       type?: 'mcq' | 'open' | 'code'
@@ -108,7 +129,7 @@ questionBankRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'sup
       category: body.category ?? 'general',
       difficulty: body.difficulty ?? 'medium',
       tags: body.tags ?? [],
-      companyName: me?.companyName,
+      companyName: canonicalCompanyName ?? undefined,
       createdBy: req.user!._id,
     })
     res.status(201).json({ ...question.toJSON(), _id: String(question._id) })
@@ -128,7 +149,7 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
   try {
     const { getSettings } = await import('../lib/settings.js')
     const settings = await getSettings()
-    const me = await UserModel.findById(req.user!._id).lean()
+    const { canonicalCompanyName, companyNames } = await resolveQuestionBankCompany(req.user!._id)
     const { moduleType, difficulty, count, category, jobId } = req.body as {
       moduleType?: string
       difficulty?: string
@@ -150,6 +171,12 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
     if (jobId && env.GEMINI_API_KEY && settings.geminiGen) {
       const job = await JobModel.findById(jobId).lean()
       if (!job) throw new HttpError(404, 'Job not found')
+      if (req.user?.role !== 'super_admin') {
+        const company = await CompanyModel.findById(String(job.company), { name: 1, legalName: 1 }).lean()
+        const jobCompanyNames = [company?.name, company?.legalName].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        const allowed = jobCompanyNames.some((name) => companyNames.includes(name))
+        if (!allowed) throw new HttpError(403, 'Forbidden')
+      }
 
       // Check per-user cooldown
       const userId = String(req.user!._id)
@@ -189,7 +216,7 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
     if (!generated.length) throw new HttpError(400, 'No questions available for this combination')
 
     const docs = await QuestionBankModel.insertMany(
-      generated.map((q) => ({ ...q, companyName: me?.companyName, createdBy: req.user!._id })),
+      generated.map((q) => ({ ...q, companyName: canonicalCompanyName ?? undefined, createdBy: req.user!._id })),
     )
     res.status(201).json({ added: docs.length, questions: docs.map((d) => ({ ...d.toJSON(), _id: String(d._id) })), source })
   } catch (err) {
@@ -201,7 +228,7 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
 questionBankRouter.post('/upload', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), upload.single('file'), async (req, res, next) => {
   try {
     if (!req.file) throw new HttpError(400, 'No file uploaded')
-    const me = await UserModel.findById(req.user!._id).lean()
+    const { canonicalCompanyName } = await resolveQuestionBankCompany(req.user!._id)
     const mime = req.file.mimetype
     const difficulty = (req.body as { difficulty?: string }).difficulty
     const diff = (['easy', 'medium', 'hard'].includes(difficulty as string) ? difficulty : 'medium') as 'easy' | 'medium' | 'hard'
@@ -232,7 +259,7 @@ questionBankRouter.post('/upload', requireAuth, requireRole('recruiter', 'admin'
     if (!extracted.length) throw new HttpError(400, 'No questions detected in the document. Ensure questions are numbered (1. / Q1. / Question 1:) or end with a "?"')
 
     const docs = await QuestionBankModel.insertMany(
-      extracted.map((q) => ({ ...q, companyName: me?.companyName, createdBy: req.user!._id })),
+      extracted.map((q) => ({ ...q, companyName: canonicalCompanyName ?? undefined, createdBy: req.user!._id })),
     )
 
     res.status(201).json({ added: docs.length, questions: docs.map((d) => ({ ...d.toJSON(), _id: String(d._id) })) })
@@ -244,10 +271,10 @@ questionBankRouter.post('/upload', requireAuth, requireRole('recruiter', 'admin'
 // DELETE /question-bank/:id
 questionBankRouter.delete('/:id', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const me = await UserModel.findById(req.user!._id).lean()
+    const { companyNames } = await resolveQuestionBankCompany(req.user!._id)
     const item = await QuestionBankModel.findById(String(req.params.id)).lean()
     if (!item) throw new HttpError(404, 'Question not found')
-    if (req.user?.role !== 'super_admin' && item.companyName !== me?.companyName) {
+    if (req.user?.role !== 'super_admin' && !companyNames.includes(String(item.companyName ?? ''))) {
       throw new HttpError(403, 'Forbidden')
     }
     await QuestionBankModel.deleteOne({ _id: String(req.params.id) })

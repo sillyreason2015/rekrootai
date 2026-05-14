@@ -8,7 +8,41 @@ import { logAction } from '../data/store.js'
 
 export const jobsRouter = Router()
 
-// ── GET /jobs — public, published only ───────────────────────────────────────
+async function resolveCompanyScope(userId: string) {
+  const me = await UserModel.findById(userId, { companyName: 1 }).lean()
+  const rawCompanyName = me?.companyName?.trim()
+
+  const ownedCompany = await CompanyModel.findOne({
+    $or: [
+      { createdBy: userId },
+      ...(rawCompanyName ? [{ name: rawCompanyName }, { legalName: rawCompanyName }] : []),
+    ],
+  }).lean()
+
+  if (ownedCompany?._id) {
+    return {
+      companyId: String(ownedCompany._id),
+      companyNames: [ownedCompany.name, ownedCompany.legalName, rawCompanyName].filter(Boolean) as string[],
+    }
+  }
+
+  return {
+    companyId: null,
+    companyNames: rawCompanyName ? [rawCompanyName] : [],
+  }
+}
+
+async function buildScopedJobFilter(userId: string) {
+  const { companyId } = await resolveCompanyScope(userId)
+  return companyId ? { company: companyId } : { createdBy: userId }
+}
+
+async function findScopedJob(userId: string, jobId: string) {
+  const filter = await buildScopedJobFilter(userId)
+  return JobModel.findOne({ _id: jobId, ...filter }).lean()
+}
+
+// GET /jobs - public, published only
 jobsRouter.get('/', async (req, res, next) => {
   try {
     const search = String(req.query.search ?? '').toLowerCase()
@@ -39,25 +73,14 @@ jobsRouter.get('/', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// ── GET /jobs/mine — recruiter's own jobs (admins see all) ────────────────────
+// GET /jobs/mine - company jobs visible to recruiter/admin workspace members
 jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const page = Math.max(1, Number(req.query.page ?? 1) || 1)
     const limit = Math.max(1, Number(req.query.limit ?? 10) || 10)
     const skip = (page - 1) * limit
     const status = String(req.query.status ?? '')
-    const me = await UserModel.findById(req.user!._id, { companyName: 1 }).lean()
-    const ownedCompany = await CompanyModel.findOne({
-      $or: [
-        { createdBy: req.user!._id },
-        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
-      ],
-    }, { _id: 1 }).lean()
-    const companyId = ownedCompany?._id ? String(ownedCompany._id) : null
-    const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin'
-    const filter: Record<string, unknown> = isAdmin
-      ? (companyId ? { company: companyId } : { createdBy: req.user!._id })
-      : (companyId ? { company: companyId } : { createdBy: req.user!._id })
+    const filter: Record<string, unknown> = await buildScopedJobFilter(req.user!._id)
     if (status) filter.status = status
     const [jobs, total] = await Promise.all([
       JobModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
@@ -73,7 +96,7 @@ jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin', 'super_ad
   } catch (err) { next(err) }
 })
 
-// ── GET /jobs/:id ─────────────────────────────────────────────────────────────
+// GET /jobs/:id
 jobsRouter.get('/:id', async (req, res, next) => {
   try {
     const job = await JobModel.findById(req.params.id).lean()
@@ -82,18 +105,12 @@ jobsRouter.get('/:id', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// ── POST /jobs ────────────────────────────────────────────────────────────────
+// POST /jobs
 jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const body = req.body as Record<string, unknown>
-    const me = await UserModel.findById(req.user!._id, { companyName: 1 }).lean()
-    const company = await CompanyModel.findOne({
-      $or: [
-        { createdBy: req.user!._id },
-        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
-      ],
-    }).lean()
-    if (!company) throw new HttpError(400, 'Create or complete your company profile before posting a job.')
+    const { companyId } = await resolveCompanyScope(req.user!._id)
+    if (!companyId) throw new HttpError(400, 'Create or complete your company profile before posting a job.')
 
     const normalisedDepartmentHiring = Array.isArray(body.departmentHiring)
       ? (body.departmentHiring as Array<Record<string, unknown>>)
@@ -120,7 +137,7 @@ jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin
 
     const jobPayload = {
       ...body,
-      company: String(company._id),
+      company: companyId,
       status: body.status === 'published' ? 'published' : 'draft',
       departmentHiring: normalisedDepartmentHiring,
       assessmentModules: normalisedAssessmentModules,
@@ -132,77 +149,81 @@ jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin
   } catch (err) { next(err) }
 })
 
-// ── PATCH /jobs/:id ───────────────────────────────────────────────────────────
+// PATCH /jobs/:id
 jobsRouter.patch('/:id', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const job = await JobModel.findOneAndUpdate(
-      { _id: req.params.id, createdBy: req.user!._id },
-      req.body as Record<string, unknown>,
-      { new: true },
-    ).lean()
+    const jobId = String(req.params.id)
+    const existing = await findScopedJob(req.user!._id, jobId)
+    if (!existing) throw new HttpError(404, 'Job not found')
+    const job = await JobModel.findByIdAndUpdate(jobId, req.body as Record<string, unknown>, { new: true }).lean()
     if (!job) throw new HttpError(404, 'Job not found')
     await logAction({ actor: 'user', action: 'job-updated', jobId: String(job._id), mode: 'assist' })
     res.json({ ...job, _id: String(job._id) })
   } catch (err) { next(err) }
 })
 
-// ── POST /jobs/:id/publish ────────────────────────────────────────────────────
+// POST /jobs/:id/publish
 jobsRouter.post('/:id/publish', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const job = await JobModel.findOneAndUpdate(
-      { _id: req.params.id, createdBy: req.user!._id },
-      { status: 'published' },
-      { new: true },
-    ).lean()
+    const jobId = String(req.params.id)
+    const existing = await findScopedJob(req.user!._id, jobId)
+    if (!existing) throw new HttpError(404, 'Job not found')
+    const job = await JobModel.findByIdAndUpdate(jobId, { status: 'published' }, { new: true }).lean()
     if (!job) throw new HttpError(404, 'Job not found')
     await logAction({ actor: 'user', action: 'job-published', jobId: String(job._id), mode: 'assist' })
     res.json({ ...job, _id: String(job._id) })
   } catch (err) { next(err) }
 })
 
-// ── POST /jobs/:id/close ──────────────────────────────────────────────────────
+// POST /jobs/:id/close
 jobsRouter.post('/:id/close', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const job = await JobModel.findOneAndUpdate(
-      { _id: req.params.id, createdBy: req.user!._id },
-      { status: 'closed' },
-      { new: true },
-    ).lean()
+    const jobId = String(req.params.id)
+    const existing = await findScopedJob(req.user!._id, jobId)
+    if (!existing) throw new HttpError(404, 'Job not found')
+    const job = await JobModel.findByIdAndUpdate(jobId, { status: 'closed' }, { new: true }).lean()
     if (!job) throw new HttpError(404, 'Job not found')
     res.json({ ...job, _id: String(job._id) })
   } catch (err) { next(err) }
 })
 
-// ── DELETE /jobs/:id ──────────────────────────────────────────────────────────
+// DELETE /jobs/:id
 jobsRouter.delete('/:id', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const job = await JobModel.findOne({ _id: req.params.id, createdBy: req.user!._id }).lean()
+    const jobId = String(req.params.id)
+    const job = await findScopedJob(req.user!._id, jobId)
     if (!job) throw new HttpError(404, 'Job not found')
     if (job.status === 'published') throw new HttpError(400, 'Close the job before deleting it')
-    await JobModel.deleteOne({ _id: req.params.id })
+    await JobModel.deleteOne({ _id: jobId })
     res.json({ ok: true })
   } catch (err) { next(err) }
 })
 
-// ── GET /jobs/:jobId/question-banks/:metric ───────────────────────────────────
-// Delegates to the real question bank — returns questions for this job + module type
+// GET /jobs/:jobId/question-banks/:metric
 jobsRouter.get('/:jobId/question-banks/:metric', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
+    const jobId = String(req.params.jobId)
+    const metric = String(req.params.metric)
+    const existing = await findScopedJob(req.user!._id, jobId)
+    if (!existing) throw new HttpError(404, 'Job not found')
     const { QuestionBankModel } = await import('../models/QuestionBank.model.js')
     const items = await QuestionBankModel.find({
-      category: req.params.metric,
+      category: metric,
     }).sort({ createdAt: -1 }).limit(50).lean()
-    res.json({ jobId: req.params.jobId, metric: req.params.metric, items: items.map((q) => ({ ...q, _id: String(q._id) })) })
+    res.json({ jobId, metric, items: items.map((q) => ({ ...q, _id: String(q._id) })) })
   } catch (err) { next(err) }
 })
 
-// ── PATCH /jobs/:id/thresholds ────────────────────────────────────────────────
+// PATCH /jobs/:id/thresholds
 jobsRouter.patch('/:id/thresholds', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const job = await JobModel.findOneAndUpdate(
-      { _id: req.params.id, createdBy: req.user!._id },
+    const jobId = String(req.params.id)
+    const existing = await findScopedJob(req.user!._id, jobId)
+    if (!existing) throw new HttpError(404, 'Job not found')
+    const job = await JobModel.findByIdAndUpdate(
+      jobId,
       { thresholds: req.body },
-      { new: true }
+      { new: true },
     ).lean()
     if (!job) throw new HttpError(404, 'Job not found')
     res.json({ ...job, _id: String(job._id) })

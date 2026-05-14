@@ -72,7 +72,7 @@ export default function Register() {
         return
       }
       if (me.role === 'candidate') navigate(me.onboardingComplete ? '/candidate/dashboard' : '/onboarding', { replace: true })
-      else navigate(me.onboardingComplete ? '/recruiter/dashboard' : '/recruiter/onboarding', { replace: true })
+      else navigate(me.onboardingComplete || me.companyName ? '/recruiter/dashboard' : '/recruiter/onboarding', { replace: true })
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setError(msg ?? 'Registration failed. Try again.')

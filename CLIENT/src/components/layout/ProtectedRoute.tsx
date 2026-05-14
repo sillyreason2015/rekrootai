@@ -9,6 +9,7 @@ interface Props {
 
 export default function ProtectedRoute({ allowedRoles, requireOnboarding = true }: Props) {
   const { user, loading } = useAuth()
+  const onboardingComplete = Boolean(user?.onboardingComplete || (user?.role === 'recruiter' && user.companyName))
 
   if (loading) {
     return (
@@ -24,7 +25,7 @@ export default function ProtectedRoute({ allowedRoles, requireOnboarding = true 
     return <Navigate to="/check-email" replace />
   }
 
-  if (requireOnboarding && !user.onboardingComplete && user.role !== 'admin' && user.role !== 'super_admin') {
+  if (requireOnboarding && !onboardingComplete && user.role !== 'admin' && user.role !== 'super_admin') {
     const dest = user.role === 'recruiter' ? '/recruiter/onboarding' : '/onboarding'
     return <Navigate to={dest} replace />
   }

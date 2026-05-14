@@ -102,17 +102,30 @@ adminRouter.post('/team/invite/accept', async (req, res, next) => {
     const existing = await UserModel.findOne({ email: invite.email.toLowerCase() }).lean()
     if (existing) throw new HttpError(409, 'A user with this email already exists')
 
+    let companyName = invite.companyName
+    if (!companyName && invite.invitedBy) {
+      const inviter = await UserModel.findById(invite.invitedBy, { companyName: 1 }).lean()
+      const inviterCompany = await CompanyModel.findOne({
+        $or: [
+          { createdBy: invite.invitedBy },
+          ...(inviter?.companyName ? [{ name: inviter.companyName }, { legalName: inviter.companyName }] : []),
+        ],
+      }).lean()
+      companyName = inviterCompany?.name ?? inviterCompany?.legalName ?? inviter?.companyName
+    }
+
     const argon2 = await import('argon2')
     const hashed = await argon2.hash(password)
+    const invitedRole = invite.role ?? 'recruiter'
     const user = await UserModel.create({
       email: invite.email,
       password: hashed,
-      role: invite.role ?? 'recruiter',
+      role: invitedRole,
       firstName: firstName?.trim() || 'Team',
       lastName: lastName?.trim() || 'Member',
-      companyName: invite.companyName,
+      companyName,
       isVerified: true,
-      onboardingComplete: Boolean(invite.companyName),
+      onboardingComplete: invitedRole !== 'candidate',
     })
 
     await EmailTokenModel.deleteOne({ _id: invite._id })
@@ -120,7 +133,7 @@ adminRouter.post('/team/invite/accept', async (req, res, next) => {
       actor: 'user',
       action: 'team-invite-accepted',
       mode: 'assist',
-      payload: { email: invite.email, role: invite.role ?? 'recruiter', companyName: invite.companyName ?? '' },
+      payload: { email: invite.email, role: invitedRole, companyName: companyName ?? '' },
     })
     res.status(201).json({ ok: true, userId: String(user._id) })
   } catch (err) { next(err) }

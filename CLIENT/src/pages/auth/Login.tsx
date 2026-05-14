@@ -38,7 +38,7 @@ export default function Login() {
 
   const routeForUser = (u: { role?: string; onboardingComplete?: boolean }) => {
     if (u.role === 'candidate') return u.onboardingComplete ? '/candidate/dashboard' : '/onboarding'
-    if (u.role === 'recruiter') return u.onboardingComplete ? '/recruiter/dashboard' : '/recruiter/onboarding'
+    if (u.role === 'recruiter') return (u.onboardingComplete || Boolean((u as { companyName?: string }).companyName)) ? '/recruiter/dashboard' : '/recruiter/onboarding'
     if (u.role === 'admin') return '/admin/dashboard'
     if (u.role === 'super_admin') return '/internal/super-admin/audit-log'
     return '/'

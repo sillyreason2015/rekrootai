@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import multer from 'multer'
+import crypto from 'crypto'
 import { CompanyModel } from '../models/Company.model.js'
 import { UserModel } from '../models/User.model.js'
 import { EmailTokenModel } from '../models/EmailToken.model.js'
@@ -9,7 +10,6 @@ import { HttpError } from '../lib/http.js'
 import { sendInviteEmail } from '../lib/mail.js'
 import { logoKey, bannerKey, uploadBlob, presignedDownloadUrl } from '../lib/blob.js'
 import { env } from '../config/env.js'
-import crypto from 'crypto'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 4 * 1024 * 1024 } })
 
@@ -17,16 +17,49 @@ export const companyRouter = Router()
 
 companyRouter.use(requireAuth, requireRole('recruiter', 'admin'))
 
-// GET /companies/mine — returns null (not 404) when no company exists yet
-companyRouter.get('/mine', async (req, res, next) => {
-  try {
-    const me = await UserModel.findById(req.user!._id).lean()
-    const company = await CompanyModel.findOne({
+async function resolveCompanyContext(userId: string) {
+  const me = await UserModel.findById(userId, { companyName: 1 }).lean()
+  const rawCompanyName = me?.companyName?.trim()
+
+  const ownedCompany = await CompanyModel.findOne({ createdBy: userId }).lean()
+  if (ownedCompany) {
+    return {
+      me,
+      company: ownedCompany,
+      companyNames: [ownedCompany.name, ownedCompany.legalName, rawCompanyName].filter(Boolean) as string[],
+    }
+  }
+
+  if (rawCompanyName) {
+    const escaped = rawCompanyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const matchedCompany = await CompanyModel.findOne({
       $or: [
-        { createdBy: req.user!._id },
-        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
+        { name: rawCompanyName },
+        { legalName: rawCompanyName },
+        { name: { $regex: `^${escaped}$`, $options: 'i' } },
+        { legalName: { $regex: `^${escaped}$`, $options: 'i' } },
       ],
     }).lean()
+    if (matchedCompany) {
+      return {
+        me,
+        company: matchedCompany,
+        companyNames: [matchedCompany.name, matchedCompany.legalName, rawCompanyName].filter(Boolean) as string[],
+      }
+    }
+  }
+
+  return {
+    me,
+    company: null,
+    companyNames: rawCompanyName ? [rawCompanyName] : [],
+  }
+}
+
+// GET /companies/mine - returns null (not 404) when no company exists yet
+companyRouter.get('/mine', async (req, res, next) => {
+  try {
+    const { company } = await resolveCompanyContext(req.user!._id)
     if (!company) return res.json(null)
     res.json({ ...company, _id: String(company._id) })
   } catch (err) { next(err) }
@@ -35,49 +68,50 @@ companyRouter.get('/mine', async (req, res, next) => {
 // PATCH /companies/mine
 companyRouter.patch('/mine', async (req, res, next) => {
   try {
-    const me = await UserModel.findById(req.user!._id).lean()
     const body = req.body as Record<string, unknown>
+    const { company: existingCompany, companyNames } = await resolveCompanyContext(req.user!._id)
+    const canonicalCompanyName =
+      (typeof body.name === 'string' && body.name.trim()) ||
+      companyNames[0] ||
+      'My Company'
+
     const company = await CompanyModel.findOneAndUpdate(
-      {
-        $or: [
-          { createdBy: req.user!._id },
-          ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
-        ],
-      },
+      existingCompany?._id ? { _id: existingCompany._id } : { name: canonicalCompanyName },
       { $set: body, $setOnInsert: { createdBy: req.user!._id } },
       { new: true, upsert: true },
     ).lean()
+
+    if (typeof body.name === 'string' && body.name.trim()) {
+      await UserModel.findByIdAndUpdate(req.user!._id, { companyName: body.name.trim() })
+    }
+
     res.json({ ...company, _id: String(company!._id) })
   } catch (err) { next(err) }
 })
 
-// GET /companies/team — list team members sharing same companyName
+// GET /companies/team - list team members sharing same company context
 companyRouter.get('/team', async (req, res, next) => {
   try {
-    const me = await UserModel.findById(req.user!._id).lean()
-    // If no companyName, look up from owned company
-    let companyName = me?.companyName
-    if (!companyName) {
-      const owned = await CompanyModel.findOne({ createdBy: req.user!._id }).lean()
-      companyName = owned?.name
-    }
-    if (!companyName) return res.json({ members: [] })
-    const members = await UserModel.find({ companyName }, { password: 0 }).lean()
-    res.json({ members: members.map((m) => ({ ...m, _id: String(m._id) })) })
+    const { companyNames } = await resolveCompanyContext(req.user!._id)
+    if (!companyNames.length) return res.json({ members: [] })
+    const members = await UserModel.find({ companyName: { $in: [...new Set(companyNames)] } }, { password: 0 }).lean()
+    res.json({ members: members.map((member) => ({ ...member, _id: String(member._id) })) })
   } catch (err) { next(err) }
 })
 
-// POST /companies/mine/logo — upload company logo (creates company doc if needed)
+// POST /companies/mine/logo - upload company logo (creates company doc if needed)
 companyRouter.post('/mine/logo', upload.single('logo'), async (req, res, next) => {
   try {
     if (!req.file) throw new HttpError(400, 'No file uploaded')
-    const me = await UserModel.findById(req.user!._id).lean()
-    let company = await CompanyModel.findOne({
-      $or: [{ createdBy: req.user!._id }, ...(me?.companyName ? [{ name: me.companyName }] : [])],
-    }).lean()
+    const { me, company: resolvedCompany, companyNames } = await resolveCompanyContext(req.user!._id)
+    let company = resolvedCompany
     if (!company) {
-      // Create a minimal company doc so logo can be stored
-      const created = await CompanyModel.create({ name: me?.companyName ?? 'My Company', industry: 'Other', size: '1-10', createdBy: req.user!._id })
+      const created = await CompanyModel.create({
+        name: companyNames[0] ?? me?.companyName ?? 'My Company',
+        industry: 'Other',
+        size: '1-10',
+        createdBy: req.user!._id,
+      })
       company = created.toObject()
     }
     const key = logoKey(String(company._id), req.file.originalname)
@@ -88,7 +122,7 @@ companyRouter.post('/mine/logo', upload.single('logo'), async (req, res, next) =
   } catch (err) { next(err) }
 })
 
-// POST /companies/jobs/:jobId/banner — upload job banner
+// POST /companies/jobs/:jobId/banner - upload job banner
 companyRouter.post('/jobs/:jobId/banner', upload.single('banner'), async (req, res, next) => {
   try {
     if (!req.file) throw new HttpError(400, 'No file uploaded')
@@ -103,32 +137,23 @@ companyRouter.post('/jobs/:jobId/banner', upload.single('banner'), async (req, r
   } catch (err) { next(err) }
 })
 
-// GET /companies/mine/logo — get presigned logo URL
+// GET /companies/mine/logo - get presigned logo URL
 companyRouter.get('/mine/logo', async (req, res, next) => {
   try {
-    const me = await UserModel.findById(req.user!._id).lean()
-    const company = await CompanyModel.findOne({
-      $or: [{ createdBy: req.user!._id }, ...(me?.companyName ? [{ name: me.companyName }] : [])],
-    }).lean()
+    const { company } = await resolveCompanyContext(req.user!._id)
     if (!company?.logoUrl) return res.json({ url: null })
     const url = await presignedDownloadUrl(company.logoUrl, 86400 * 7)
     res.json({ url })
   } catch (err) { next(err) }
 })
 
-// POST /companies/invite — send team invite email
+// POST /companies/invite - send team invite email
 companyRouter.post('/invite', async (req, res, next) => {
   try {
     const { email } = req.body as { email?: string }
     if (!email) throw new HttpError(400, 'email is required')
-    const me = await UserModel.findById(req.user!._id).lean()
-    const company = await CompanyModel.findOne({
-      $or: [
-        { createdBy: req.user!._id },
-        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
-      ],
-    }).lean()
-    const companyName = company?.name ?? company?.legalName ?? me?.companyName
+    const { me, company, companyNames } = await resolveCompanyContext(req.user!._id)
+    const companyName = company?.name ?? company?.legalName ?? companyNames[0]
     const token = crypto.randomBytes(24).toString('hex')
     const expiresAt = new Date(Date.now() + 7 * 86_400_000).toISOString()
     await EmailTokenModel.create({
