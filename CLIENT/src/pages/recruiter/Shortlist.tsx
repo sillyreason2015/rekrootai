@@ -383,6 +383,7 @@ export default function Shortlist() {
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
   const [selectedJob, setSelectedJob] = useState(jobId)
+  const selectedJobData = jobs?.data?.find((job) => job._id === selectedJob)
 
   const { data: triageData, isLoading: triageLoading } = useQuery({
     queryKey: ['triage', selectedJob, mode],
@@ -408,6 +409,10 @@ export default function Shortlist() {
   const sendAssessmentMutation = useMutation({ mutationFn: (id: string) => applicationService.sendAssessment(id, 60), ...mutOpts })
   const undoAssessmentMutation = useMutation({ mutationFn: (id: string) => applicationService.undoAssessment(id), ...mutOpts })
   const fairnessMutation   = useMutation({ mutationFn: (id: string) => applicationService.runFairnessGate(id), ...mutOpts })
+  const rejectDecisionMutation = useMutation({
+    mutationFn: (id: string) => applicationService.makeDecision(id, 'reject', 'Rejected after assessment review'),
+    ...mutOpts,
+  })
   const undoVetoMutation   = useMutation({ mutationFn: (id: string) => applicationService.undoVeto(id), ...mutOpts })
   const biasAuditMutation  = useMutation({
     mutationFn: () => recruiterService.runBiasAudit(selectedJob),
@@ -613,6 +618,28 @@ export default function Shortlist() {
           {data.data
             .sort((a: Application, b: Application) => (b.scores?.final ?? 0) - (a.scores?.final ?? 0))
             .map((app: Application) => {
+              const toPercent = (value?: number) => {
+                if (typeof value !== 'number' || Number.isNaN(value)) return null
+                return value <= 1 ? value * 100 : value
+              }
+              const screeningThreshold = toPercent(selectedJobData?.thresholds?.screening)
+              const assessmentThreshold = toPercent(selectedJobData?.thresholds?.assessment)
+              const interviewThreshold = toPercent(selectedJobData?.thresholds?.interview)
+
+              const thresholdBreaches: Array<{ label: string; value: number; threshold: number }> = []
+              const resumeScore = app.scores?.resume
+              const assessmentScore = app.scores?.assessment
+              const interviewScore = app.scores?.interview
+              if (typeof resumeScore === 'number' && resumeScore > 0 && typeof screeningThreshold === 'number' && resumeScore < screeningThreshold) {
+                thresholdBreaches.push({ label: 'Screening', value: resumeScore, threshold: screeningThreshold })
+              }
+              if (typeof assessmentScore === 'number' && assessmentScore > 0 && typeof assessmentThreshold === 'number' && assessmentScore < assessmentThreshold) {
+                thresholdBreaches.push({ label: 'Assessment', value: assessmentScore, threshold: assessmentThreshold })
+              }
+              if (typeof interviewScore === 'number' && interviewScore > 0 && typeof interviewThreshold === 'number' && interviewScore < interviewThreshold) {
+                thresholdBreaches.push({ label: 'Interview', value: interviewScore, threshold: interviewThreshold })
+              }
+
               const candidate = app.candidate as Candidate
               const user = typeof candidate?.user === 'object' ? candidate.user as User : null
               const name = user ? `${user.firstName} ${user.lastName}` : 'Candidate'
@@ -635,6 +662,18 @@ export default function Shortlist() {
                         <span className={cn('inline-block rounded-full px-2 py-0.5 text-[11px] font-medium mt-0.5', stageBadge(app.stage))}>
                           {stageLabel(app.stage)}
                         </span>
+                        {thresholdBreaches.length > 0 && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                            {thresholdBreaches.map((breach) => (
+                              <span
+                                key={`${breach.label}-${breach.threshold}`}
+                                className="inline-block rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700"
+                              >
+                                {breach.label} below threshold ({breach.value.toFixed(0)}% {'<'} {breach.threshold.toFixed(0)}%)
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       {/* Score */}
@@ -696,6 +735,14 @@ export default function Shortlist() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                              onClick={() => setScheduleFor(isScheduling ? null : app._id)}
+                            >
+                              <Calendar className="h-3.5 w-3.5" /> Advance to Interview
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
                               className="text-amber-700 border-amber-200 hover:bg-amber-50"
                               onClick={() => undoAssessmentMutation.mutate(app._id)}
                               disabled={undoAssessmentMutation.isPending}
@@ -729,8 +776,15 @@ export default function Shortlist() {
                         )}
                         {!['decision', 'rejected', 'offered'].includes(app.stage) && mode !== 'Veto' && (
                           <Button size="sm" variant="outline" className="text-destructive border-destructive/20 hover:bg-destructive/5"
-                            onClick={() => rejectMutation.mutate(app._id)} disabled={rejectMutation.isPending}>
-                            <Ban className="h-3.5 w-3.5" />
+                            onClick={() => {
+                              if (app.stage === 'assessment' || app.stage === 'interview') {
+                                rejectDecisionMutation.mutate(app._id)
+                                return
+                              }
+                              rejectMutation.mutate(app._id)
+                            }}
+                            disabled={rejectMutation.isPending || rejectDecisionMutation.isPending}>
+                            <Ban className="h-3.5 w-3.5" /> Reject
                           </Button>
                         )}
                         {mode === 'Veto' && ['shortlist', 'reject'].includes(app.aiDecision ?? '') && (

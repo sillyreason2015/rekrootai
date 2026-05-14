@@ -107,7 +107,7 @@ export default function Navbar() {
               <Popover.Content
                 align="end"
                 sideOffset={8}
-                className="z-50 w-80 rounded-xl border bg-card shadow-xl"
+                className="z-50 w-[min(92vw,34rem)] rounded-xl border bg-card shadow-xl"
               >
                 {/* Header */}
                 <div className="flex items-center justify-between border-b px-4 py-3">
@@ -123,7 +123,7 @@ export default function Navbar() {
                 </div>
 
                 {/* List */}
-                <div className="max-h-96 overflow-y-auto divide-y">
+                <div className="max-h-[32rem] overflow-y-auto divide-y">
                   {notifications.length === 0 ? (
                     <div className="px-4 py-8 text-center text-sm text-muted-foreground">
                       No notifications yet
@@ -142,7 +142,7 @@ export default function Navbar() {
                         <span className="mt-0.5 text-base">{typeIcon[n.type] ?? '🔔'}</span>
                         <div className="min-w-0 flex-1">
                           <p className={cn('text-sm', !n.read ? 'font-medium' : '')}>{n.title}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">{n.body}</p>
+                          <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">{n.body}</p>
                           <p className="mt-1 text-[11px] text-muted-foreground">
                             {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
                           </p>

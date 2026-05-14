@@ -365,6 +365,10 @@ applicationsRouter.get('/:id/explanation', requireAuth, async (req, res, next) =
     const parts: string[] = []
     if (resume > 0) parts.push(`Your CV matched ${resume.toFixed(0)}% of the role's required skills.`)
     if (assessment > 0) parts.push(`Assessment score: ${assessment.toFixed(0)}%.`)
+    const assessmentThreshold = Number((app.job as { thresholds?: { assessment?: number } } | undefined)?.thresholds?.assessment ?? 70)
+    if (assessment > 0 && assessment < assessmentThreshold) {
+      parts.push(`Assessment result is below the pass threshold of ${assessmentThreshold.toFixed(0)}%, so this stage is marked as failed.`)
+    }
     if (interview > 0) parts.push(`Interview evaluation: ${interview.toFixed(0)}%.`)
     if (penalty > 0) parts.push(`A fairness adjustment of ${penalty.toFixed(0)} points was applied to correct for scoring imbalances.`)
     if (final > 0) parts.push(`Overall composite score: ${final.toFixed(0)}%.`)
