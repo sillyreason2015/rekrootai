@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Video, Calendar, Clock, CheckCircle2, ChevronDown, ChevronUp, FileVideo, FileText, Download, BrainCircuit } from 'lucide-react'
+import { Video, Calendar, Clock, CheckCircle2, ChevronDown, ChevronUp, FileVideo, FileText, Download, BrainCircuit, Sparkles, AlertTriangle, MessageCircleMore } from 'lucide-react'
 import { interviewService } from '../../services/interview.service'
 import { Card, CardContent } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
-import { formatDate } from '../../lib/utils'
+import { cn, formatDate } from '../../lib/utils'
 import type { Interview, InterviewArtifactsResponse } from '../../types'
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'success' | 'destructive' | 'warning'> = {
@@ -14,6 +14,139 @@ const statusVariant: Record<string, 'default' | 'secondary' | 'success' | 'destr
   live: 'warning',
   completed: 'success',
   cancelled: 'destructive',
+}
+
+type InterviewAiAnalysis = {
+  provider?: string
+  modelVersion?: string
+  generatedAt?: string
+  recommendation?: 'advance' | 'hold' | 'reject' | string
+  collaborationMode?: 'veto' | 'assist' | 'override' | string
+  summary?: string
+  scoreBand?: 'strong' | 'mixed' | 'weak' | string
+  strengths?: string[]
+  concerns?: string[]
+  transcriptStats?: {
+    totalEntries?: number
+    candidateTurns?: number
+    recruiterTurns?: number
+  }
+}
+
+function recommendationBadge(recommendation?: string) {
+  if (recommendation === 'advance') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  if (recommendation === 'reject') return 'bg-red-50 text-red-700 border-red-200'
+  return 'bg-amber-50 text-amber-700 border-amber-200'
+}
+
+function scoreBandBadge(scoreBand?: string) {
+  if (scoreBand === 'strong') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
+  if (scoreBand === 'weak') return 'bg-red-50 text-red-700 border-red-200'
+  return 'bg-slate-100 text-slate-700 border-slate-200'
+}
+
+function InterviewAiAnalysisPanel({ analysis }: { analysis: InterviewAiAnalysis }) {
+  const strengths = Array.isArray(analysis.strengths) ? analysis.strengths.filter(Boolean) : []
+  const concerns = Array.isArray(analysis.concerns) ? analysis.concerns.filter(Boolean) : []
+  const transcriptStats = analysis.transcriptStats
+
+  return (
+    <div className="rounded-lg border bg-background p-4 space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2">
+          <BrainCircuit className="h-4 w-4 text-primary" />
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI analysis</p>
+        </div>
+        {analysis.recommendation && (
+          <span className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide', recommendationBadge(analysis.recommendation))}>
+            {analysis.recommendation}
+          </span>
+        )}
+        {analysis.scoreBand && (
+          <span className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide', scoreBandBadge(analysis.scoreBand))}>
+            {analysis.scoreBand} fit
+          </span>
+        )}
+        {analysis.collaborationMode && (
+          <span className="rounded-full border border-primary/20 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-primary">
+            {analysis.collaborationMode} mode
+          </span>
+        )}
+      </div>
+
+      {analysis.summary && (
+        <div className="rounded-lg border border-primary/15 bg-primary/5 p-3">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <p className="text-sm font-semibold text-primary">Summary</p>
+          </div>
+          <p className="text-sm leading-relaxed text-foreground/80">{analysis.summary}</p>
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border bg-muted/10 p-3">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <p className="text-sm font-semibold">Strengths</p>
+          </div>
+          {strengths.length ? (
+            <div className="mt-2 space-y-2">
+              {strengths.map((item, index) => (
+                <p key={`${item}-${index}`} className="text-sm text-muted-foreground">{item}</p>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">No standout strengths were highlighted by the analysis.</p>
+          )}
+        </div>
+
+        <div className="rounded-lg border bg-muted/10 p-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <p className="text-sm font-semibold">Concerns</p>
+          </div>
+          {concerns.length ? (
+            <div className="mt-2 space-y-2">
+              {concerns.map((item, index) => (
+                <p key={`${item}-${index}`} className="text-sm text-muted-foreground">{item}</p>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">No material concerns were highlighted by the analysis.</p>
+          )}
+        </div>
+      </div>
+
+      {transcriptStats && (
+        <div className="rounded-lg border bg-muted/10 p-3">
+          <div className="flex items-center gap-2">
+            <MessageCircleMore className="h-4 w-4 text-primary" />
+            <p className="text-sm font-semibold">Conversation stats</p>
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="rounded-md border bg-background p-2 text-center">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Entries</p>
+              <p className="mt-1 text-lg font-semibold">{transcriptStats.totalEntries ?? 0}</p>
+            </div>
+            <div className="rounded-md border bg-background p-2 text-center">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Candidate</p>
+              <p className="mt-1 text-lg font-semibold">{transcriptStats.candidateTurns ?? 0}</p>
+            </div>
+            <div className="rounded-md border bg-background p-2 text-center">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Recruiter</p>
+              <p className="mt-1 text-lg font-semibold">{transcriptStats.recruiterTurns ?? 0}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        Source: {analysis.provider ?? 'analysis engine'} {analysis.modelVersion ? `· ${analysis.modelVersion}` : ''}
+        {analysis.generatedAt ? ` · ${new Date(analysis.generatedAt).toLocaleString()}` : ''}
+      </p>
+    </div>
+  )
 }
 
 export default function RecruiterInterviews() {
@@ -262,15 +395,7 @@ function InterviewCard({ interview, onChanged }: { interview: Interview; onChang
                   </div>
                 )}
 
-                {details?.aiAnalysis && (
-                  <div className="rounded-lg border bg-background p-3">
-                    <div className="flex items-center gap-2">
-                      <BrainCircuit className="h-4 w-4 text-primary" />
-                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI analysis</p>
-                    </div>
-                    <pre className="mt-3 overflow-x-auto whitespace-pre-wrap text-xs text-muted-foreground">{JSON.stringify(details.aiAnalysis, null, 2)}</pre>
-                  </div>
-                )}
+                {details?.aiAnalysis && <InterviewAiAnalysisPanel analysis={details.aiAnalysis as InterviewAiAnalysis} />}
               </>
             )}
           </div>
