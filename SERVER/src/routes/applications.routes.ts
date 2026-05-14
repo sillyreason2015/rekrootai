@@ -177,12 +177,24 @@ applicationsRouter.get('/job/:jobId', requireAuth, requireRole('recruiter', 'adm
       { application: 1, status: 1, scheduledAt: 1, collaborationMode: 1 }
     ).lean()
     const interviewMap = Object.fromEntries(interviews.map((item) => [String(item.application), item]))
+    const { AssessmentModel } = await import('../models/Assessment.model.js')
+    const assessments = await AssessmentModel.find(
+      { application: { $in: apps.map((app) => String(app._id)) } },
+      { application: 1, status: 1, expiresAt: 1, createdAt: 1 }
+    ).sort({ createdAt: -1 }).lean()
+    const assessmentMap = new Map<string, (typeof assessments)[number]>()
+    for (const assessment of assessments) {
+      const key = String(assessment.application)
+      if (!assessmentMap.has(key)) assessmentMap.set(key, assessment)
+    }
     const enriched = apps.map((app) => ({
       ...app,
       interviewId: interviewMap[String(app._id)]?._id ? String(interviewMap[String(app._id)]._id) : undefined,
       interviewStatus: interviewMap[String(app._id)]?.status,
       interviewScheduledAt: interviewMap[String(app._id)]?.scheduledAt,
       interviewMode: interviewMap[String(app._id)]?.collaborationMode,
+      assessmentStatus: assessmentMap.get(String(app._id))?.status ?? app.assessmentStatus,
+      assessmentExpiresAt: assessmentMap.get(String(app._id))?.expiresAt ?? app.assessmentExpiresAt,
     }))
     res.json({ data: enriched, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) })
   } catch (err) { next(err) }
@@ -439,7 +451,12 @@ applicationsRouter.post('/:id/send-assessment', requireAuth, requireRole('recrui
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       modules,
     } as object)
-    await ApplicationModel.findByIdAndUpdate(app._id, { stage: 'assessment', status: 'assessment_sent' })
+    await ApplicationModel.findByIdAndUpdate(app._id, {
+      stage: 'assessment',
+      status: 'assessment_sent',
+      assessmentStatus: 'pending',
+      assessmentExpiresAt: assessment.expiresAt,
+    })
     await logAction({ actor: 'user', action: 'assessment-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
     notify(String(app.candidate), { type: 'assessment_sent', title: 'Assessment invitation sent', body: 'A recruiter has invited you to complete the next assessment stage.', link: '/candidate/applications' })
     res.status(201).json({ ...assessment.toObject(), _id: String(assessment._id) })

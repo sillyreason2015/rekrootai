@@ -147,6 +147,8 @@ export interface Application {
   recruiterNote?: string
   aiDecision?: 'shortlist' | 'review' | 'reject'
   fairnessComputedAt?: string
+  assessmentExpiresAt?: string
+  assessmentStatus?: 'pending' | 'in_progress' | 'completed' | 'expired'
   interviewMissed?: boolean
   missedInterviewRecovery?: {
     status?: 'pending' | 'approved' | 'rejected'

@@ -10,6 +10,7 @@ export const assessmentsRouter = Router()
 assessmentsRouter.get('/:applicationId', requireAuth, async (req, res, next) => {
   try {
     const assessment = await AssessmentModel.findOne({ application: req.params.applicationId })
+      .sort({ createdAt: -1 })
       .populate('job', 'title assessmentModules thresholds')
       .lean()
     if (!assessment) throw new HttpError(404, 'Assessment not found')
@@ -30,6 +31,10 @@ assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, nex
       { new: true },
     ).lean()
     if (!assessment) throw new HttpError(404, 'Assessment not found')
+    await ApplicationModel.findByIdAndUpdate(assessment.application, {
+      assessmentStatus: 'in_progress',
+      assessmentExpiresAt: assessment.expiresAt,
+    })
     res.json({ ...assessment, _id: String(assessment._id) })
   } catch (err) { next(err) }
 })
@@ -62,7 +67,11 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
     assessment.score = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
     await assessment.save()
     await ApplicationModel.findByIdAndUpdate(assessment.application, {
-      stage: 'assessment', status: 'assessment_sent', 'scores.assessment': assessment.score,
+      stage: 'assessment',
+      status: 'assessment_sent',
+      assessmentStatus: 'completed',
+      assessmentExpiresAt: assessment.expiresAt,
+      'scores.assessment': assessment.score,
     })
     await logAction({ actor: 'ai', action: 'assessment-completed', jobId: String(assessment.job), mode: 'assist', payload: { avgScore: assessment.score, passed: assessment.score >= 60 } })
     res.json({ ...assessment.toObject(), _id: String(assessment._id) })

@@ -27,6 +27,11 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
     recruiterNote: String,  // human-in-the-loop feedback shown to candidate in explanation
     aiDecision: { type: String, enum: ['shortlist', 'review', 'reject'] },
     fairnessComputedAt: String,
+    assessmentExpiresAt: String,
+    assessmentStatus: {
+      type: String,
+      enum: ['pending', 'in_progress', 'completed', 'expired'],
+    },
     interviewMissed: { type: Boolean, default: false },
     missedInterviewRecovery: {
       status: { type: String, enum: ['pending', 'approved', 'rejected'] },
