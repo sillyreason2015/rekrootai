@@ -81,6 +81,20 @@ export async function sendOtpEmail(to: string, otp: string, firstName: string): 
   })
 }
 
+export async function sendEmail(input: { to: string; subject: string; text: string; html?: string }): Promise<void> {
+  if (!transport) {
+    console.warn(`[mail] SMTP not configured — would have sent to ${input.to}: ${input.subject}`)
+    return
+  }
+  await transport.sendMail({
+    from: `"RekrootAI" <${env.EMAIL_FROM ?? env.SMTP_USER}>`,
+    to: input.to,
+    subject: input.subject,
+    text: input.text,
+    html: input.html,
+  })
+}
+
 export async function sendInviteEmail(to: string, inviteUrl: string, inviterName?: string): Promise<void> {
   if (!transport) {
     console.warn(`[mail] SMTP not configured - invite for ${to}: ${inviteUrl}`)

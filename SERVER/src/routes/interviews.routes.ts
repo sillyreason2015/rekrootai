@@ -14,7 +14,7 @@ import { ensureInterviewAccess, mergeTranscriptEntries, reconcileInterviewState,
 import { enqueueInterviewAnalysis } from '../lib/interview-analysis-queue.js'
 import { presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
 import { computeCompositeScore } from '../lib/scoring.js'
-import { sendEmail } from '../lib/email.js'
+import { sendEmail } from '../lib/mail.js'
 import { UserModel } from '../models/User.model.js'
 
 export const interviewsRouter = Router()
