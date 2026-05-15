@@ -141,6 +141,7 @@ export default function App() {
               <Route path="/admin/ai-validation" element={<AIValidation />} />
               <Route path="/admin/livekit-test" element={<LiveKitTest />} />
               <Route path="/admin/bias-audit" element={<BiasAudit />} />
+              <Route path="/admin/shortlist" element={<Shortlist />} />
             </Route>
           </Route>
 

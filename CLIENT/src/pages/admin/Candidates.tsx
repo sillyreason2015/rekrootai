@@ -94,7 +94,7 @@ export default function AdminCandidates() {
                       </div>
                       <div className="flex items-center gap-3">
                         <Badge variant="secondary" className="capitalize">{app.stage}</Badge>
-                        <Link to={`/recruiter/shortlist?job=${effectiveJobId}`} className="text-sm text-primary hover:underline">
+                        <Link to={`/admin/shortlist?job=${effectiveJobId}`} className="text-sm text-primary hover:underline">
                           Review <ArrowRight className="inline h-3.5 w-3.5" />
                         </Link>
                       </div>
