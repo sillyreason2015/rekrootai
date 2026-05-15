@@ -198,7 +198,7 @@ export default function Applications() {
                           to={`/candidate/assessment/${app._id}`}
                           className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
                         >
-                          Complete Assessment <ExternalLink className="h-3 w-3" />
+                          {app.assessmentStatus === 'in_progress' ? 'Continue Assessment' : 'Complete Assessment'} <ExternalLink className="h-3 w-3" />
                         </Link>
                         {app.assessmentExpiresAt && (
                           <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">

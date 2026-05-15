@@ -28,6 +28,7 @@ export default function Assessment() {
   const [started, setStarted] = useState(false)
   const [showProctoringModal, setShowProctoringModal] = useState(false)
   const [autoSubmitting, setAutoSubmitting] = useState(false)
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
   const { data: assessment, isLoading, refetch } = useQuery({
     queryKey: ['assessment', applicationId],
@@ -360,17 +361,35 @@ export default function Assessment() {
         ))}
       </div>
 
+      {showSubmitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="rounded-xl border bg-card p-8 text-center shadow-2xl max-w-sm w-full mx-4">
+            <h2 className="font-serif text-xl font-semibold">Submit this module?</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Your answers will be saved and you cannot return to this module. You can then continue with the remaining modules.</p>
+            <div className="mt-6 flex gap-3 justify-center">
+              <Button variant="outline" onClick={() => setShowSubmitConfirm(false)}>Go Back</Button>
+              <Button
+                onClick={() => {
+                  setShowSubmitConfirm(false)
+                  const ans = questions.map((q) => ({
+                    questionId: q._id,
+                    selected: typeof answers[q._id] === 'number' ? answers[q._id] as number : undefined,
+                    text: typeof answers[q._id] === 'string' ? answers[q._id] as string : undefined,
+                  }))
+                  submitModule.mutate({ type: mod.type, ans })
+                }}
+              >
+                Yes, Submit
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end">
         <Button
           disabled={Object.keys(answers).length < questions.length || submitModule.isPending || autoSubmitting}
-          onClick={() => {
-            const ans = questions.map((q) => ({
-              questionId: q._id,
-              selected: typeof answers[q._id] === 'number' ? answers[q._id] as number : undefined,
-              text: typeof answers[q._id] === 'string' ? answers[q._id] as string : undefined,
-            }))
-            submitModule.mutate({ type: mod.type, ans })
-          }}
+          onClick={() => setShowSubmitConfirm(true)}
         >
           {submitModule.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           Submit Module <ChevronRight className="h-4 w-4" />
