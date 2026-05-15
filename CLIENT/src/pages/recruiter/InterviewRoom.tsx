@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
-import { Mic, MicOff, Video, VideoOff, PhoneOff, Save, MessageSquare } from 'lucide-react'
+import { Mic, MicOff, Video, VideoOff, PhoneOff, Save, MessageSquare, FileText, X } from 'lucide-react'
 import {
   Room,
   RoomEvent,
@@ -44,6 +44,7 @@ export default function RecruiterInterviewRoom() {
   const [remoteConnected, setRemoteConnected] = useState(false)
   const [recordingState, setRecordingState] = useState<'idle' | 'recording' | 'uploading'>('idle')
   const [recordingError, setRecordingError] = useState('')
+  const [showCv, setShowCv] = useState(false)
   const [rubric, setRubric] = useState<RubricEntry[]>(DEFAULT_CRITERIA.map((c) => ({ criterion: c, score: 0, notes: '' })))
   const [transcript, setTranscript] = useState<TranscriptLine[]>([])
   const transcriptRef = useRef<HTMLDivElement>(null)
@@ -331,6 +332,8 @@ export default function RecruiterInterviewRoom() {
   const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
   const totalScore = rubric.reduce((sum, r) => sum + r.score, 0)
   const maxScore = rubric.length * 5
+  const candidate = typeof interview?.candidate === 'object' && interview.candidate !== null ? interview.candidate as { cvUrl?: string; headline?: string } : null
+  const cvUrl = candidate?.cvUrl
 
   return (
     <div className="flex min-h-screen flex-col gap-3 overflow-hidden bg-gray-950 p-3 sm:p-4">
@@ -431,6 +434,13 @@ export default function RecruiterInterviewRoom() {
             >
               {camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </button>
+            <button
+              onClick={() => setShowCv((v) => !v)}
+              className={cn('flex h-12 w-12 items-center justify-center rounded-full transition-colors', showCv ? 'bg-primary text-white' : 'bg-white/10 hover:bg-white/20 text-white')}
+              title="View CV"
+            >
+              <FileText className="h-5 w-5" />
+            </button>
             <Button variant="outline" size="sm" className="text-white border-white/20 hover:bg-white/10" onClick={() => saveMutation.mutate()}>
               <Save className="h-4 w-4 mr-1" /> Save Rubric
             </Button>
@@ -525,6 +535,33 @@ export default function RecruiterInterviewRoom() {
           </Card>
         </div>
       </div>
+
+      {/* CV slide-over panel */}
+      {showCv && (
+        <div className="fixed inset-y-0 right-0 z-50 flex w-full max-w-xl flex-col bg-white shadow-2xl">
+          <div className="flex items-center justify-between border-b px-4 py-3 shrink-0">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-primary" />
+              <span className="font-medium text-sm">Candidate CV</span>
+            </div>
+            <button onClick={() => setShowCv(false)} className="rounded p-1 hover:bg-muted">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            {cvUrl ? (
+              <iframe src={cvUrl} className="h-full w-full" title="Candidate CV" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-center text-sm text-muted-foreground p-8">
+                <div>
+                  <FileText className="mx-auto mb-3 h-10 w-10 opacity-30" />
+                  <p>No CV file uploaded by this candidate.</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
