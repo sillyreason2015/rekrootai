@@ -13,6 +13,14 @@ import { Label } from '../../components/ui/label'
 import { Progress } from '../../components/ui/progress'
 
 const STEPS = ['Job Details', 'Requirements', 'Assessment', 'Review & Post']
+const FIELD_LIMITS = {
+  title: 120,
+  department: 80,
+  location: 160,
+  description: 4000,
+  listItem: 180,
+  question: 220,
+}
 
 const schema = z.object({
   title: z.string().min(3),
@@ -182,6 +190,11 @@ export default function CreateJob() {
 
   const { register, watch } = form
   const values = watch()
+  const fieldMeta = (required = true, maxLength?: number) => (
+    <span className="text-xs text-muted-foreground font-normal">
+      {required ? 'Required' : 'Optional'}{typeof maxLength === 'number' ? ` · Max ${maxLength} chars` : ''}
+    </span>
+  )
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">
@@ -202,13 +215,13 @@ export default function CreateJob() {
           <>
             <h2 className="font-serif text-xl font-semibold">Job Details</h2>
             <div className="space-y-1.5">
-              <Label>Job Title</Label>
-              <Input placeholder="Senior React Developer" {...register('title')} />
+              <Label className="flex items-center justify-between gap-2">Job Title {fieldMeta(true, FIELD_LIMITS.title)}</Label>
+              <Input placeholder="Senior React Developer" maxLength={FIELD_LIMITS.title} {...register('title')} />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label>Department</Label>
-                <Input placeholder="Engineering" {...register('department')} />
+                <Label className="flex items-center justify-between gap-2">Department {fieldMeta(true, FIELD_LIMITS.department)}</Label>
+                <Input placeholder="Engineering" maxLength={FIELD_LIMITS.department} {...register('department')} />
               </div>
               <div className="space-y-1.5">
                 <Label>Level</Label>
@@ -318,11 +331,12 @@ export default function CreateJob() {
               )}
             </div>
             <div className="space-y-1.5">
-              <Label>Job Description</Label>
+              <Label className="flex items-center justify-between gap-2">Job Description {fieldMeta(true, FIELD_LIMITS.description)}</Label>
               <textarea
                 rows={6}
                 className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                 placeholder="Describe the role, responsibilities, and what makes it exciting..."
+                maxLength={FIELD_LIMITS.description}
                 {...register('description')}
               />
             </div>
@@ -369,10 +383,10 @@ export default function CreateJob() {
             <h2 className="font-serif text-xl font-semibold">Requirements & Skills</h2>
 
             <div className="space-y-2">
-              <Label>Requirements</Label>
+              <Label className="flex items-center justify-between gap-2">Requirements {fieldMeta(true, FIELD_LIMITS.listItem)}</Label>
               {reqFields.map((f, i) => (
                 <div key={f.id} className="flex gap-2">
-                  <Input placeholder={`Requirement ${i + 1}`} {...register(`requirements.${i}.value`)} />
+                  <Input placeholder={`Requirement ${i + 1}`} maxLength={FIELD_LIMITS.listItem} {...register(`requirements.${i}.value`)} />
                   <Button type="button" variant="ghost" size="icon" onClick={() => rmReq(i)}><Trash2 className="h-4 w-4" /></Button>
                 </div>
               ))}
@@ -382,10 +396,10 @@ export default function CreateJob() {
             </div>
 
             <div className="space-y-2">
-              <Label>Responsibilities</Label>
+              <Label className="flex items-center justify-between gap-2">Responsibilities {fieldMeta(true, FIELD_LIMITS.listItem)}</Label>
               {respFields.map((f, i) => (
                 <div key={f.id} className="flex gap-2">
-                  <Input placeholder={`Responsibility ${i + 1}`} {...register(`responsibilities.${i}.value`)} />
+                  <Input placeholder={`Responsibility ${i + 1}`} maxLength={FIELD_LIMITS.listItem} {...register(`responsibilities.${i}.value`)} />
                   <Button type="button" variant="ghost" size="icon" onClick={() => rmResp(i)}><Trash2 className="h-4 w-4" /></Button>
                 </div>
               ))}
@@ -395,11 +409,11 @@ export default function CreateJob() {
             </div>
 
             <div className="space-y-2">
-              <Label>Required Skills</Label>
+              <Label className="flex items-center justify-between gap-2">Required Skills {fieldMeta(true, FIELD_LIMITS.listItem)}</Label>
               <div className="space-y-2">
                 {skillFields.map((f, i) => (
                   <div key={f.id} className="flex gap-2">
-                    <Input placeholder={`Skill ${i + 1}`} {...register(`skills.${i}.value`)} />
+                    <Input placeholder={`Skill ${i + 1}`} maxLength={FIELD_LIMITS.listItem} {...register(`skills.${i}.value`)} />
                     <Button type="button" variant="ghost" size="icon" onClick={() => rmSkill(i)}><Trash2 className="h-4 w-4" /></Button>
                   </div>
                 ))}
@@ -410,7 +424,7 @@ export default function CreateJob() {
             </div>
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Application Questions</Label>
+                <Label className="flex items-center justify-between gap-2">Application Questions {fieldMeta(false, FIELD_LIMITS.question)}</Label>
                 <label className="flex items-center gap-2 text-xs text-muted-foreground">
                   <input type="checkbox" {...register('requiresQuestionnaire')} />
                   Require answers before apply
@@ -418,7 +432,7 @@ export default function CreateJob() {
               </div>
               {qFields.map((f, i) => (
                 <div key={f.id} className="grid grid-cols-[1fr_120px_40px] gap-2">
-                  <Input placeholder={`Question ${i + 1}`} {...register(`applicationQuestions.${i}.question`)} />
+                  <Input placeholder={`Question ${i + 1}`} maxLength={FIELD_LIMITS.question} {...register(`applicationQuestions.${i}.question`)} />
                   <label className="flex items-center gap-2 text-xs">
                     <input type="checkbox" {...register(`applicationQuestions.${i}.required`)} /> Required
                   </label>

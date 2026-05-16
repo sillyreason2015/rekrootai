@@ -1,40 +1,16 @@
 import { Router } from 'express'
 import { JobModel } from '../models/Job.model.js'
-import { CompanyModel } from '../models/Company.model.js'
-import { UserModel } from '../models/User.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
+import { notify } from '../lib/notify.js'
+import { buildTeamScopedJobFilter, pickRoundRobinRecruiter, resolveWorkspaceScope } from '../lib/workspace.js'
 
 export const jobsRouter = Router()
 
-async function resolveCompanyScope(userId: string) {
-  const me = await UserModel.findById(userId, { companyName: 1 }).lean()
-  const rawCompanyName = me?.companyName?.trim()
-
-  const ownedCompany = await CompanyModel.findOne({
-    $or: [
-      { createdBy: userId },
-      ...(rawCompanyName ? [{ name: rawCompanyName }, { legalName: rawCompanyName }] : []),
-    ],
-  }).lean()
-
-  if (ownedCompany?._id) {
-    return {
-      companyId: String(ownedCompany._id),
-      companyNames: [ownedCompany.name, ownedCompany.legalName, rawCompanyName].filter(Boolean) as string[],
-    }
-  }
-
-  return {
-    companyId: null,
-    companyNames: rawCompanyName ? [rawCompanyName] : [],
-  }
-}
-
 async function buildScopedJobFilter(userId: string) {
-  const { companyId } = await resolveCompanyScope(userId)
-  return companyId ? { company: companyId } : { createdBy: userId }
+  const scope = await resolveWorkspaceScope(userId)
+  return buildTeamScopedJobFilter(scope, userId)
 }
 
 async function findScopedJob(userId: string, jobId: string) {
@@ -109,7 +85,7 @@ jobsRouter.get('/:id', async (req, res, next) => {
 jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const body = req.body as Record<string, unknown>
-    const { companyId } = await resolveCompanyScope(req.user!._id)
+    const { companyId, teamName } = await resolveWorkspaceScope(req.user!._id)
     if (!companyId) throw new HttpError(400, 'Create or complete your company profile before posting a job.')
 
     const normalisedDepartmentHiring = Array.isArray(body.departmentHiring)
@@ -135,9 +111,17 @@ jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin
           })
       : []
 
+    const selectedTeamName =
+      (typeof body.teamName === 'string' && body.teamName.trim()) ||
+      teamName ||
+      undefined
+
+    const { assignedRecruiter } = await pickRoundRobinRecruiter(req.user!._id)
+
     const jobPayload = {
       ...body,
       company: companyId,
+      teamName: selectedTeamName,
       status: body.status === 'published' ? 'published' : 'draft',
       aiMode: ['assist', 'veto', 'override'].includes(String(body.aiMode ?? ''))
         ? body.aiMode
@@ -145,9 +129,28 @@ jobsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super_admin
       departmentHiring: normalisedDepartmentHiring,
       assessmentModules: normalisedAssessmentModules,
       createdBy: req.user!._id,
+      assignedRecruiter: assignedRecruiter?._id,
+      assignedRecruiterAt: assignedRecruiter?._id ? new Date().toISOString() : undefined,
     }
     const job = await JobModel.create(jobPayload as Record<string, unknown>)
-    await logAction({ actor: 'user', action: 'job-created', jobId: String(job._id), mode: 'assist' })
+    await logAction({
+      actor: 'user',
+      action: 'job-created',
+      jobId: String(job._id),
+      mode: 'assist',
+      payload: {
+        teamName: selectedTeamName ?? '',
+        assignedRecruiterId: assignedRecruiter?._id ?? '',
+      },
+    })
+    if (assignedRecruiter?._id) {
+      notify(assignedRecruiter._id, {
+        type: 'job_assigned',
+        title: 'New job assigned',
+        body: `${String(body.title ?? 'A new job')} has been assigned to you${selectedTeamName ? ` for the ${selectedTeamName} team` : ''}.`,
+        link: '/recruiter/jobs',
+      })
+    }
     res.status(201).json({ ...job.toObject(), _id: String(job._id) })
   } catch (err) { next(err) }
 })

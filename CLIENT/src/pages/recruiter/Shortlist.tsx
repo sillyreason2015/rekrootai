@@ -256,7 +256,7 @@ function AssistantPanel({ appId, name, scores, onClose }: {
 }
 
 /** Inline CV viewer + AI analysis panel */
-function CvViewerPanel({ appId, name, onClose }: { appId: string; name: string; onClose: () => void }) {
+function CvViewerPanel({ appId, name, onClose, enableAi }: { appId: string; name: string; onClose: () => void; enableAi: boolean }) {
   const { data: cvData, isLoading: cvLoading } = useQuery({
     queryKey: ['recruiter-cv', appId],
     queryFn: () => recruiterService.getApplicationCv(appId),
@@ -304,7 +304,7 @@ function CvViewerPanel({ appId, name, onClose }: { appId: string; name: string; 
       )}
 
       {/* AI Analysis */}
-      <div className="border-t pt-3 space-y-3">
+      {enableAi && <div className="border-t pt-3 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />
@@ -315,12 +315,6 @@ function CvViewerPanel({ appId, name, onClose }: { appId: string; name: string; 
             {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             {isFetched ? 'Run Again' : 'Analyse CV'}
           </Button>
-          {false && !isFetched && (
-            <Button size="sm" variant="outline" onClick={() => runAnalysis()} disabled={analysisLoading} className="gap-1">
-              {analysisLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              Analyse CV
-            </Button>
-          )}
         </div>
 
         {analysisLoading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Gemini is analysing the CV…</div>}
@@ -356,7 +350,7 @@ function CvViewerPanel({ appId, name, onClose }: { appId: string; name: string; 
             )}
           </div>
         )}
-      </div>
+      </div>}
     </div>
   )
 }
@@ -385,6 +379,8 @@ export default function Shortlist() {
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
   const [selectedJob, setSelectedJob] = useState(jobId)
   const selectedJobData = jobs?.data?.find((job) => job._id === selectedJob)
+  const isOverrideMode = mode === 'Override'
+  const isVetoMode = mode === 'Veto'
   useEffect(() => {
     const nextMode = selectedJobData?.aiMode
     if (nextMode === 'assist' || nextMode === 'veto' || nextMode === 'override') {
@@ -456,9 +452,13 @@ export default function Shortlist() {
   const modeMutation = useMutation({
     mutationFn: ({ jobId: id, nextMode }: { jobId: string; nextMode: Mode }) =>
       jobService.update(id, { aiMode: nextMode.toLowerCase() as 'assist' | 'veto' | 'override' }),
-    onSuccess: () => {
+    onSuccess: (_resp, vars) => {
       qc.invalidateQueries({ queryKey: ['my-jobs'] })
       setPendingMode(null)
+      setAssistantCandidate(null)
+      if (vars.nextMode === 'Veto') {
+        vetoMutation.mutate()
+      }
     },
   })
 
@@ -526,7 +526,7 @@ export default function Shortlist() {
         </div>
       )}
 
-      {mode === 'Veto' && vetoSummary && (
+      {isVetoMode && vetoSummary && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-primary">
           Veto run complete: processed {vetoSummary.processed}, shortlisted {vetoSummary.shortlisted}, rejected {vetoSummary.rejected}, manual review {vetoSummary.review}.
         </div>
@@ -574,31 +574,29 @@ export default function Shortlist() {
               }}>
               <Download className="h-3.5 w-3.5" /> Download All CVs
             </Button>
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowTriage((v) => !v)}>
-              <Layers className="h-3.5 w-3.5" /> {showTriage ? 'Hide Triage' : 'AI Triage'}
-            </Button>
-            {mode === 'Veto' && (
-              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => vetoMutation.mutate()} disabled={vetoMutation.isPending}>
-                {vetoMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Ban className="h-3.5 w-3.5" />}
-                Run Auto-Triage
+            {!isOverrideMode && (
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setShowTriage((v) => !v)}>
+                <Layers className="h-3.5 w-3.5" /> {showTriage ? 'Hide Triage' : 'AI Triage'}
               </Button>
             )}
-            <Button size="sm" variant="outline" className="gap-1.5" onClick={() => biasAuditMutation.mutate()} disabled={biasAuditMutation.isPending}>
-              {biasAuditMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Shield className="h-3.5 w-3.5" />}
-              Demographic Parity
-            </Button>
+            {!isOverrideMode && (
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => biasAuditMutation.mutate()} disabled={biasAuditMutation.isPending}>
+                {biasAuditMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Shield className="h-3.5 w-3.5" />}
+                Demographic Parity
+              </Button>
+            )}
           </>
         )}
       </div>
 
-      {auditNotice && (
+      {!isOverrideMode && auditNotice && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-800 flex items-center gap-2">
           <Shield className="h-4 w-4 shrink-0" /> {auditNotice}
         </div>
       )}
 
       {/* AI Triage panel */}
-      {showTriage && selectedJob && (
+      {!isOverrideMode && showTriage && selectedJob && (
         <div className="rounded-xl border bg-muted/20 p-4 space-y-4">
           <div className="flex items-center gap-2">
             <AiBadge label="AI Triage Analysis" size="md" />
@@ -722,11 +720,13 @@ export default function Shortlist() {
                       )}
 
                       {/* Action buttons */}
-                      <Button size="sm" variant="outline" className="gap-1"
-                        onClick={() => setShowExplanation(isExplaining ? null : app._id)}>
-                        <FileText className="h-3.5 w-3.5" />
-                        {isExplaining ? 'Hide' : 'AI Explanation'}
-                      </Button>
+                      {!isOverrideMode && (
+                        <Button size="sm" variant="outline" className="gap-1"
+                          onClick={() => setShowExplanation(isExplaining ? null : app._id)}>
+                          <FileText className="h-3.5 w-3.5" />
+                          {isExplaining ? 'Hide' : 'AI Explanation'}
+                        </Button>
+                      )}
 
                       <Button size="sm" variant="outline" className="gap-1"
                         onClick={() => setShowCvViewer(showCvViewer === app._id ? null : app._id)}>
@@ -755,7 +755,7 @@ export default function Shortlist() {
                         </Button>
                       )}
 
-                      <AiBadge />
+                      {!isOverrideMode && <AiBadge />}
 
                       {/* Pipeline action buttons */}
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -842,30 +842,32 @@ export default function Shortlist() {
                     </div>
 
                     {/* AI suggestion strip */}
-                    <div className="border-t px-4 py-3">
-                      {latestBiasAudit && (
-                        <div className={cn('mb-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs',
-                          latestBiasAudit.flagged ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700')}>
-                          <Shield className="h-3.5 w-3.5 shrink-0" />
-                          Latest demographic parity audit:
-                          <span className="font-semibold">{latestBiasAudit.flagged ? 'Flagged for review' : 'Passed'}</span>
-                          <span className="text-current/80">
-                            gender {(Number(latestBiasAudit.disparateImpact?.gender ?? 1) * 100).toFixed(0)}%,
-                            age {(Number((latestBiasAudit.disparateImpact as any)?.ageRange ?? latestBiasAudit.disparateImpact?.age ?? 1) * 100).toFixed(0)}%,
-                            ethnicity {(Number(latestBiasAudit.disparateImpact?.ethnicity ?? 1) * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                      )}
-                      <AiSuggestion
-                        stage={app.stage}
-                        scores={app.scores}
-                        fairnessComputedAt={extApp.fairnessComputedAt}
-                        decision={(app as any).decision}
-                      />
-                    </div>
+                    {!isOverrideMode && (
+                      <div className="border-t px-4 py-3">
+                        {latestBiasAudit && (
+                          <div className={cn('mb-3 flex items-center gap-2 rounded-lg border px-3 py-2 text-xs',
+                            latestBiasAudit.flagged ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700')}>
+                            <Shield className="h-3.5 w-3.5 shrink-0" />
+                            Latest demographic parity audit:
+                            <span className="font-semibold">{latestBiasAudit.flagged ? 'Flagged for review' : 'Passed'}</span>
+                            <span className="text-current/80">
+                              gender {(Number(latestBiasAudit.disparateImpact?.gender ?? 1) * 100).toFixed(0)}%,
+                              age {(Number((latestBiasAudit.disparateImpact as any)?.ageRange ?? latestBiasAudit.disparateImpact?.age ?? 1) * 100).toFixed(0)}%,
+                              ethnicity {(Number(latestBiasAudit.disparateImpact?.ethnicity ?? 1) * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        )}
+                        <AiSuggestion
+                          stage={app.stage}
+                          scores={app.scores}
+                          fairnessComputedAt={extApp.fairnessComputedAt}
+                          decision={(app as any).decision}
+                        />
+                      </div>
+                    )}
 
                     {/* Inline AI Explanation panel */}
-                    {isExplaining && (
+                    {!isOverrideMode && isExplaining && (
                       <div className="border-t px-4 pb-4 pt-3">
                         <ExplanationPanel appId={app._id} candidateName={name} />
                       </div>
@@ -874,7 +876,7 @@ export default function Shortlist() {
                     {/* CV Viewer + AI Analysis panel */}
                     {showCvViewer === app._id && (
                       <div className="border-t px-4 pb-4 pt-3">
-                        <CvViewerPanel appId={app._id} name={name} onClose={() => setShowCvViewer(null)} />
+                        <CvViewerPanel appId={app._id} name={name} enableAi={!isOverrideMode} onClose={() => setShowCvViewer(null)} />
                       </div>
                     )}
 
@@ -908,7 +910,7 @@ export default function Shortlist() {
                     {/* Expanded SHAP score details */}
                     {isExpand && (
                       <div className="border-t px-4 pb-4 pt-3 space-y-3">
-                        <AiBadge label="Stage Score Breakdown" size="md" />
+                        {!isOverrideMode && <AiBadge label="Stage Score Breakdown" size="md" />}
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                           {[
                             { label: 'Resume',     value: app.scores?.resume },

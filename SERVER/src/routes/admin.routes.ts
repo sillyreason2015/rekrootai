@@ -4,12 +4,12 @@ import { JobModel } from '../models/Job.model.js'
 import { ApplicationModel } from '../models/Application.model.js'
 import { AuditLogModel } from '../models/AuditLog.model.js'
 import { BiasAuditModel } from '../models/BiasAudit.model.js'
-import { CompanyModel } from '../models/Company.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError, paginate } from '../lib/http.js'
 import { logAction } from '../data/store.js'
 import { computeJobBiasAudit } from '../lib/fairness.js'
 import { env } from '../config/env.js'
+import { buildTeamScopedUserFilter, resolveWorkspaceScope } from '../lib/workspace.js'
 
 export const adminRouter = Router()
 
@@ -103,15 +103,11 @@ adminRouter.post('/team/invite/accept', async (req, res, next) => {
     if (existing) throw new HttpError(409, 'A user with this email already exists')
 
     let companyName = invite.companyName
+    let teamName = invite.teamName
     if (!companyName && invite.invitedBy) {
-      const inviter = await UserModel.findById(invite.invitedBy, { companyName: 1 }).lean()
-      const inviterCompany = await CompanyModel.findOne({
-        $or: [
-          { createdBy: invite.invitedBy },
-          ...(inviter?.companyName ? [{ name: inviter.companyName }, { legalName: inviter.companyName }] : []),
-        ],
-      }).lean()
-      companyName = inviterCompany?.name ?? inviterCompany?.legalName ?? inviter?.companyName
+      const scope = await resolveWorkspaceScope(invite.invitedBy)
+      companyName = scope.canonicalCompanyName ?? undefined
+      teamName = teamName ?? scope.teamName ?? undefined
     }
 
     const argon2 = await import('argon2')
@@ -124,6 +120,7 @@ adminRouter.post('/team/invite/accept', async (req, res, next) => {
       firstName: firstName?.trim() || 'Team',
       lastName: lastName?.trim() || 'Member',
       companyName,
+      teamName,
       isVerified: true,
       onboardingComplete: invitedRole !== 'candidate',
     })
@@ -133,7 +130,7 @@ adminRouter.post('/team/invite/accept', async (req, res, next) => {
       actor: 'user',
       action: 'team-invite-accepted',
       mode: 'assist',
-      payload: { email: invite.email, role: invitedRole, companyName: companyName ?? '' },
+      payload: { email: invite.email, role: invitedRole, companyName: companyName ?? '', teamName: teamName ?? '' },
     })
     res.status(201).json({ ok: true, userId: String(user._id) })
   } catch (err) { next(err) }
@@ -213,17 +210,11 @@ adminRouter.post('/bias-audits/run', async (req, res, next) => {
 
 adminRouter.get('/team', async (_req, res, next) => {
   try {
-    const me = await UserModel.findById(_req.user!._id, { companyName: 1 }).lean()
-    const company = await CompanyModel.findOne({
-      $or: [
-        { createdBy: _req.user!._id },
-        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
-      ],
-    }).lean()
-    const companyNames = [company?.name, company?.legalName, me?.companyName].filter(Boolean)
+    const scope = await resolveWorkspaceScope(_req.user!._id)
+    const companyNames = scope.companyNames
     const users = await UserModel.find({
       role: { $ne: 'candidate' },
-      ...(companyNames.length ? { companyName: { $in: companyNames } } : { _id: _req.user!._id }),
+      ...(companyNames.length ? buildTeamScopedUserFilter(scope) : { _id: _req.user!._id }),
     } as Record<string, unknown>, { password: 0 }).lean()
     const members = users.map((u) => ({ ...u, _id: String(u._id) }))
     res.json({ members, data: members })
@@ -232,18 +223,13 @@ adminRouter.get('/team', async (_req, res, next) => {
 
 adminRouter.post('/team/invite', async (req, res, next) => {
   try {
-    const { email, role } = req.body as { email?: string; role?: string }
+    const { email, role, teamName: requestedTeamName } = req.body as { email?: string; role?: string; teamName?: string }
     if (!email || !role) throw new HttpError(400, 'email and role are required')
     const existing = await UserModel.findOne({ email: email.toLowerCase() }).lean()
     if (existing) throw new HttpError(409, 'User already exists with that email')
-    const me = await UserModel.findById(req.user!._id, { companyName: 1 }).lean()
-    const company = await CompanyModel.findOne({
-      $or: [
-        { createdBy: req.user!._id },
-        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
-      ],
-    }).lean()
-    const companyName = company?.name ?? company?.legalName ?? me?.companyName
+    const scope = await resolveWorkspaceScope(req.user!._id)
+    const companyName = scope.canonicalCompanyName
+    const inviteTeamName = (typeof requestedTeamName === 'string' && requestedTeamName.trim()) || scope.teamName || companyName
     const { EmailTokenModel } = await import('../models/EmailToken.model.js')
     const crypto = await import('node:crypto')
     const token = crypto.randomUUID()
@@ -252,7 +238,8 @@ adminRouter.post('/team/invite', async (req, res, next) => {
       kind: 'invite',
       token,
       role: role as 'candidate' | 'recruiter' | 'admin' | 'super_admin',
-      companyName,
+      companyName: companyName ?? undefined,
+      teamName: inviteTeamName ?? undefined,
       invitedBy: req.user!._id,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     })
@@ -265,33 +252,27 @@ adminRouter.post('/team/invite', async (req, res, next) => {
     } catch (mailErr) {
       console.error('[admin] Failed to send invite email:', mailErr)
     }
-    await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role } })
+    await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role, teamName: inviteTeamName } })
     res.status(201).json({ ok: true, token, inviteToken: token })
   } catch (err) { next(err) }
 })
 
 adminRouter.get('/billing', async (_req, res, next) => {
   try {
-    const me = await UserModel.findById(_req.user!._id, { companyName: 1 }).lean()
-    const company = await CompanyModel.findOne({
-      $or: [
-        { createdBy: _req.user!._id },
-        ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
-      ],
-    }).lean()
-    const companyId = company?._id ? String(company._id) : null
-    const companyNames = [company?.name, company?.legalName, me?.companyName].filter(Boolean)
+    const scope = await resolveWorkspaceScope(_req.user!._id)
+    const companyId = scope.companyId
+    const companyNames = scope.companyNames
     const [seats, jobs, applications] = await Promise.all([
-      UserModel.countDocuments((companyNames.length ? { companyName: { $in: companyNames } } : { _id: _req.user!._id }) as Record<string, unknown>),
-      JobModel.countDocuments(companyId ? { company: companyId } : { createdBy: _req.user!._id }),
-      ApplicationModel.countDocuments(companyId ? { job: { $in: await JobModel.find({ company: companyId }).distinct('_id') } } : {}),
+      UserModel.countDocuments((companyNames.length ? buildTeamScopedUserFilter(scope) : { _id: _req.user!._id }) as Record<string, unknown>),
+      JobModel.countDocuments(companyId ? { company: companyId, ...(scope.teamName ? { teamName: scope.teamName } : {}) } : { createdBy: _req.user!._id }),
+      ApplicationModel.countDocuments(companyId ? { job: { $in: await JobModel.find({ company: companyId, ...(scope.teamName ? { teamName: scope.teamName } : {}) }).distinct('_id') } } : {}),
     ])
     res.json({
       plan: 'Pro',
       seats,
       usage: { jobs, applications, aiCalls: applications + jobs },
       nextBillingDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-      company: company ? { id: String(company._id), name: company.name } : null,
+      company: scope.company ? { id: scope.company._id, name: scope.company.name ?? scope.company.legalName ?? '' } : null,
     })
   } catch (err) { next(err) }
 })

@@ -14,6 +14,7 @@ const moduleConfigSchema = new Schema<AssessmentModuleConfig>(
 const jobSchema = new Schema<Omit<Job, 'createdAt'>>(
   {
     company: { type: String, ref: 'Company', required: true },
+    teamName: String,
     title: { type: String, required: true },
     department: String,
     level: { type: String, enum: ['graduate', 'entry', 'mid', 'senior', 'lead', 'executive'], default: 'mid' },
@@ -73,6 +74,8 @@ const jobSchema = new Schema<Omit<Job, 'createdAt'>>(
     },
     alpha: { type: Number, default: 0.4 },
     createdBy: { type: String, ref: 'User', required: true },
+    assignedRecruiter: { type: String, ref: 'User' },
+    assignedRecruiterAt: String,
   },
   baseSchemaOptions,
 )

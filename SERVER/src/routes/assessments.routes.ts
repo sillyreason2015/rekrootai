@@ -59,6 +59,9 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleType/submit', requireAuth,
   try {
     const assessment = await AssessmentModel.findById(req.params.assessmentId)
     if (!assessment) throw new HttpError(404, 'Assessment not found')
+    if (assessment.status === 'completed') {
+      throw new HttpError(409, 'Assessment has already been completed')
+    }
     const mod = assessment.modules.find((m) => m.type === req.params.moduleType)
     if (!mod) throw new HttpError(404, 'Module not found')
     const body = req.body as { answers?: unknown[]; score?: number }
@@ -77,6 +80,9 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
   try {
     const assessment = await AssessmentModel.findById(req.params.assessmentId)
     if (!assessment) throw new HttpError(404, 'Assessment not found')
+    if (assessment.status === 'completed') {
+      return res.json({ ...assessment.toObject(), _id: String(assessment._id) })
+    }
     assessment.status = 'completed'
     assessment.completedAt = new Date().toISOString()
     const scores = assessment.modules.map((m) => m.score ?? 0).filter((s) => s > 0)
@@ -91,9 +97,10 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
       interview: currentScores.interview,
     }, 'assessment')
     await ApplicationModel.findByIdAndUpdate(assessment.application, {
-      stage: 'assessment',
-      status: 'assessment_sent',
+      stage: 'screening',
+      status: 'assessment_completed',
       assessmentStatus: 'completed',
+      currentAssessmentId: null,
       assessmentExpiresAt: assessment.expiresAt,
       'scores.assessment': assessment.score,
       'scores.final': finalScore,

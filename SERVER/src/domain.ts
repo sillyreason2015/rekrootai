@@ -11,6 +11,7 @@ export interface User {
   onboardingComplete: boolean
   createdAt: string
   companyName?: string
+  teamName?: string
   phone?: string
   avatarUrl?: string
   avatarDataUrl?: string
@@ -53,6 +54,7 @@ export interface EducationEntry {
 export interface Company {
   _id: string
   name: string
+  teamName?: string
   legalName?: string
   industry: string
   size: string
@@ -82,6 +84,7 @@ export interface AssessmentModuleConfig {
 export interface Job {
   _id: string
   company: string | Company
+  teamName?: string
   title: string
   department: string
   level?: 'graduate' | 'entry' | 'mid' | 'senior' | 'lead' | 'executive'
@@ -119,6 +122,8 @@ export interface Job {
   }
   alpha: number
   createdBy: string
+  assignedRecruiter?: string
+  assignedRecruiterAt?: string
   createdAt: string
 }
 

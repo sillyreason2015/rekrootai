@@ -17,6 +17,7 @@ import { sendEmail } from '../lib/mail.js'
 import { computeJobBiasAudit } from '../lib/fairness.js'
 import { generateQuestions } from '../lib/questionGen.js'
 import { computeCompositeScore } from '../lib/scoring.js'
+import { buildTeamScopedUserFilter, resolveWorkspaceScope } from '../lib/workspace.js'
 
 export const applicationsRouter = Router()
 
@@ -57,16 +58,25 @@ async function emailCandidate(candidateId: string, input: { subject: string; tex
 }
 
 async function getRecruitersForApplication(application: { job: string }) {
-  const job = await JobModel.findById(String(application.job), { company: 1, createdBy: 1 }).lean()
+  const job = await JobModel.findById(String(application.job), { company: 1, createdBy: 1, assignedRecruiter: 1 }).lean()
   if (!job) return []
+  if (job.assignedRecruiter) {
+    const assigned = await UserModel.findById(String(job.assignedRecruiter), { _id: 1, firstName: 1, lastName: 1, email: 1 }).lean()
+    if (assigned) return [assigned]
+  }
   const company = await CompanyModel.findById(String(job.company), { name: 1, legalName: 1 }).lean()
   const companyNames = [company?.name, company?.legalName].filter(Boolean)
+  const scope = await resolveWorkspaceScope(String(job.createdBy))
+  const teamScopedFilter = buildTeamScopedUserFilter({
+    companyNames: companyNames.length ? (companyNames as string[]) : scope.companyNames,
+    teamName: scope.teamName,
+  })
   return UserModel.find(
     {
       role: { $in: ['recruiter', 'admin', 'super_admin'] },
       $or: [
         { _id: String(job.createdBy) },
-        ...(companyNames.length ? [{ companyName: { $in: companyNames } }] : []),
+        ...(Object.keys(teamScopedFilter).length ? [teamScopedFilter] : []),
       ],
     },
     { _id: 1, firstName: 1, lastName: 1, email: 1 },

@@ -30,6 +30,14 @@ export default function Assessment() {
   const [autoSubmitting, setAutoSubmitting] = useState(false)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
 
+  const finishAssessmentSession = (assessmentId: string, moduleCount: number) => {
+    Array.from({ length: moduleCount }).forEach((_, index) => localStorage.removeItem(getAssessmentStorageKey(assessmentId, index)))
+    sessionStorage.removeItem(`assessment-active-module:${assessmentId}`)
+    setAnswers({})
+    setAutoSubmitting(false)
+    setActiveModule(null)
+  }
+
   const { data: assessment, isLoading, refetch } = useQuery({
     queryKey: ['assessment', applicationId],
     queryFn: () => assessmentService.getMine(applicationId!),
@@ -80,9 +88,7 @@ export default function Assessment() {
 
       if (!hasRemainingModules) {
         void assessmentService.complete(assessment._id).finally(() => {
-          assessment.modules.forEach((_module, index) => localStorage.removeItem(getAssessmentStorageKey(assessment._id, index)))
-          sessionStorage.removeItem(`assessment-active-module:${assessment._id}`)
-          setAutoSubmitting(false)
+          finishAssessmentSession(assessment._id, assessment.modules.length)
           navigate('/candidate/applications')
         })
         return
@@ -107,11 +113,20 @@ export default function Assessment() {
     submitModule.mutate({ type: mod.type, ans })
   }
 
+  const submitWholeAssessment = () => {
+    if (!assessment || autoSubmitting || submitModule.isPending) return
+    setAutoSubmitting(true)
+    void assessmentService.complete(assessment._id).finally(() => {
+      finishAssessmentSession(assessment._id, assessment.modules.length)
+      navigate('/candidate/applications')
+    })
+  }
+
   // Proctoring monitor — only active once assessment is started
   const { violations, lastViolationReason, showWarning, dismissWarning } = useProctoringMonitor({
     enabled: started && activeModule !== null,
     maxViolations: MAX_VIOLATIONS,
-    onMaxViolations: forceSubmit,
+    onMaxViolations: submitWholeAssessment,
   })
 
   // Timer

@@ -25,11 +25,42 @@ const DEFAULT_CRITERIA = ['Communication', 'Technical Knowledge', 'Problem Solvi
 
 interface RubricEntry { criterion: string; score: number; notes: string }
 interface TranscriptLine { speaker: string; text: string; ts: string }
+interface LiveSuggestion {
+  title: string
+  detail: string
+}
 
 function mapTranscriptSpeaker(speaker: string) {
   if (speaker === 'recruiter') return 'You'
   if (speaker === 'candidate') return 'Candidate'
   return speaker
+}
+
+function buildLiveSuggestions(transcript: TranscriptLine[], collaborationMode: 'veto' | 'assist' | 'override'): LiveSuggestion[] {
+  if (collaborationMode === 'override') return []
+  const candidateLines = transcript.filter((line) => line.speaker === 'Candidate').map((line) => line.text.trim()).filter(Boolean)
+  if (!candidateLines.length) {
+    return [{ title: 'Waiting for signal', detail: 'Suggestions will appear after the candidate gives a few substantive answers.' }]
+  }
+
+  const lastAnswer = candidateLines[candidateLines.length - 1] ?? ''
+  const combined = candidateLines.join(' ').toLowerCase()
+  const suggestions: LiveSuggestion[] = []
+
+  if (lastAnswer.length < 60) {
+    suggestions.push({ title: 'Probe deeper', detail: 'The latest answer is brief. Ask for a concrete example, metrics, or the candidate’s exact contribution.' })
+  }
+  if (!/\b(i|my|me)\b/i.test(lastAnswer)) {
+    suggestions.push({ title: 'Clarify ownership', detail: 'The response sounds team-level. Ask what the candidate personally owned and delivered.' })
+  }
+  if (!/\b(result|impact|improve|reduced|increased|saved|delivered|launched|metric)\b/i.test(combined)) {
+    suggestions.push({ title: 'Ask for outcomes', detail: 'There are few measurable outcomes so far. Ask what changed because of their work.' })
+  }
+  if (!/\b(challenge|problem|issue|conflict|bug|risk|constraint|deadline)\b/i.test(combined)) {
+    suggestions.push({ title: 'Test problem solving', detail: 'Ask about a difficult constraint, tradeoff, or failure and how they handled it.' })
+  }
+
+  return suggestions.slice(0, 3)
 }
 
 export default function RecruiterInterviewRoom() {
@@ -66,6 +97,7 @@ export default function RecruiterInterviewRoom() {
   })
   const collaborationMode = (searchParams.get('mode') ?? interview?.collaborationMode ?? 'assist') as 'veto' | 'assist' | 'override'
   const proctoringCount = interview?.proctoringEvents?.length ?? 0
+  const liveSuggestions = buildLiveSuggestions(transcript, collaborationMode)
 
   useEffect(() => {
     if (Array.isArray(interview?.rubric) && interview.rubric.length > 0) {
@@ -533,6 +565,21 @@ export default function RecruiterInterviewRoom() {
               ))}
             </div>
           </Card>
+          {liveSuggestions.length > 0 && (
+            <Card className="overflow-hidden">
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm">Live AI Suggestions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2 text-xs">
+                {liveSuggestions.map((item) => (
+                  <div key={item.title} className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-blue-900">
+                    <p className="font-medium">{item.title}</p>
+                    <p className="mt-0.5 text-[11px] text-blue-800">{item.detail}</p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 

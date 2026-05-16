@@ -10,21 +10,15 @@ import { CandidateModel } from '../models/Candidate.model.js'
 import { presignedDownloadUrl } from '../lib/blob.js'
 import { UserModel } from '../models/User.model.js'
 import { BiasAuditModel } from '../models/BiasAudit.model.js'
-import { CompanyModel } from '../models/Company.model.js'
 import { computeJobBiasAudit } from '../lib/fairness.js'
+import { buildTeamScopedJobFilter, resolveWorkspaceScope } from '../lib/workspace.js'
 
 export const recruiterRouter = Router()
 recruiterRouter.use(requireAuth, requireRole('recruiter', 'admin', 'super_admin'))
 
 async function resolveScopedJobIds(userId: string) {
-  const me = await UserModel.findById(userId, { companyName: 1 }).lean()
-  const company = await CompanyModel.findOne({
-    $or: [
-      { createdBy: userId },
-      ...(me?.companyName ? [{ name: me.companyName }, { legalName: me.companyName }] : []),
-    ],
-  }, { _id: 1 }).lean()
-  const filter = company?._id ? { company: String(company._id) } : { createdBy: userId }
+  const scope = await resolveWorkspaceScope(userId)
+  const filter = buildTeamScopedJobFilter(scope, userId)
   const jobs = await JobModel.find(filter, { _id: 1 }).lean()
   return jobs.map((job) => String(job._id))
 }

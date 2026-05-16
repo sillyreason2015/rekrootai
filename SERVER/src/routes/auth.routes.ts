@@ -250,7 +250,8 @@ authRouter.post('/register', async (req, res, next) => {
     if (existing) throw new HttpError(409, 'Email already registered')
 
     const hashed = await argon2.hash(password)
-    const user = await UserModel.create({ email, password: hashed, firstName, lastName, role })
+    const userRole = role === 'recruiter' ? 'admin' : role
+    const user = await UserModel.create({ email, password: hashed, firstName, lastName, role: userRole })
 
     // Auto-create candidate profile
     if (role === 'candidate') {
@@ -671,6 +672,7 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
     const {
       legalName,
       companyName,
+      teamName,
       website,
       hqCountry,
       jobTitle,
@@ -690,6 +692,7 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
     if (
       typeof legalName !== 'string' || legalName.trim().length < 2 ||
       typeof companyName !== 'string' || companyName.trim().length < 2 ||
+      (teamName !== undefined && typeof teamName !== 'string') ||
       typeof hqCountry !== 'string' || hqCountry.trim().length < 2 ||
       typeof jobTitle !== 'string' || jobTitle.trim().length < 2 ||
       typeof registrationNumber !== 'string' || registrationNumber.trim().length < 5 ||
@@ -699,12 +702,14 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
     }
 
     const cleanCompanyName = companyName.trim()
+    const cleanTeamName = typeof teamName === 'string' && teamName.trim() ? teamName.trim() : cleanCompanyName
     const safeValues = Array.isArray(values)
       ? values.map((value) => String(value).trim()).filter(Boolean).slice(0, 20)
       : []
 
     const companyUpdate = {
       name: cleanCompanyName,
+      teamName: cleanTeamName,
       legalName: legalName.trim(),
       industry: typeof industry === 'string' && industry.trim() ? industry.trim() : 'Other',
       size: typeof companySize === 'string' && companySize.trim() ? companySize.trim() : '1-10',
@@ -723,6 +728,7 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
 
     const userUpdate = {
       companyName: cleanCompanyName,
+      teamName: cleanTeamName,
       phone: typeof phone === 'string' && phone.trim() ? phone.trim() : undefined,
       onboardingComplete: true,
     }

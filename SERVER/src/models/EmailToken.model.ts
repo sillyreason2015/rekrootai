@@ -8,6 +8,7 @@ interface EmailTokenDoc {
   role?: 'candidate' | 'recruiter' | 'admin' | 'super_admin'
   companyName?: string
   invitedBy?: string
+  teamName?: string
   expiresAt: string
   usedAt?: string
 }
@@ -19,6 +20,7 @@ const emailTokenSchema = new Schema<EmailTokenDoc>(
     token: { type: String, required: true, unique: true, index: true },
     role: { type: String, enum: ['candidate', 'recruiter', 'admin', 'super_admin'] },
     companyName: String,
+    teamName: String,
     invitedBy: String,
     expiresAt: { type: String, required: true },
     usedAt: String,

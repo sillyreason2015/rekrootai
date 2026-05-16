@@ -35,11 +35,15 @@ export function useProctoringMonitor({
   const onViolationRef = useRef(onViolation)
   const onMaxRef = useRef(onMaxViolations)
   const onViolationReasonRef = useRef(onViolationReason)
+  const cooldownRef = useRef(0)
   onViolationRef.current = onViolation
   onMaxRef.current = onMaxViolations
   onViolationReasonRef.current = onViolationReason
 
   const recordViolation = useCallback((reason: string) => {
+    const now = Date.now()
+    if (now - cooldownRef.current < 1500) return
+    cooldownRef.current = now
     violationsRef.current += 1
     const count = violationsRef.current
     setViolations(count)
@@ -55,7 +59,14 @@ export function useProctoringMonitor({
   const dismissWarning = useCallback(() => setShowWarning(false), [])
 
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled) {
+      violationsRef.current = 0
+      cooldownRef.current = 0
+      setViolations(0)
+      setLastViolationReason('')
+      setShowWarning(false)
+      return
+    }
 
     // Tab visibility change (most reliable cross-browser signal)
     const handleVisibility = () => {
