@@ -56,10 +56,16 @@ const superAdminNav = [
 export default function Sidebar() {
   const { user } = useAuth()
   const { restart } = useTour()
-  const nav =
+  const navBase =
     user?.role === 'super_admin' ? superAdminNav :
     user?.role === 'admin' ? adminNav :
     user?.role === 'recruiter' ? recruiterNav : candidateNav
+  const nav = navBase.filter((item) => {
+    if (item.to === '/admin/jobs/create') return Boolean((user?.permissions?.canCreateJobs) ?? (user?.role === 'admin' || user?.role === 'super_admin'))
+    if (item.to === '/admin/team') return Boolean((user?.permissions?.canManageTeam) ?? (user?.role === 'admin' || user?.role === 'super_admin'))
+    if (item.to === '/admin/billing') return Boolean((user?.permissions?.canManageBilling) ?? (user?.role === 'admin' || user?.role === 'super_admin'))
+    return true
+  })
 
   return (
     <aside className="hidden w-56 shrink-0 border-r border-border bg-card md:flex md:flex-col">

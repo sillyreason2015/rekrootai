@@ -589,6 +589,15 @@ export default function Shortlist() {
         )}
       </div>
 
+      {selectedJobData && (
+        <div className="rounded-xl border bg-muted/20 px-4 py-3 text-sm">
+          <p className="font-medium">{selectedJobData.title}</p>
+          <p className="mt-1 text-muted-foreground">
+            Team: {selectedJobData.teamName || 'Workspace'} | Assignment: {selectedJobData.assignmentMethod === 'manual' ? 'Manual ownership' : selectedJobData.assignmentMethod === 'solo_owner' ? 'Workspace owner' : 'Round robin'}
+          </p>
+        </div>
+      )}
+
       {!isOverrideMode && auditNotice && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-800 flex items-center gap-2">
           <Shield className="h-4 w-4 shrink-0" /> {auditNotice}

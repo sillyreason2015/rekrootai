@@ -188,7 +188,7 @@ applicationsRouter.get('/mine', requireAuth, requireRole('candidate', 'admin', '
     const candidate = await CandidateModel.findOne({ user: req.user!._id }).lean()
     if (!candidate) return res.json([])
     const apps = await ApplicationModel.find({ candidate: candidate._id })
-      .populate('job', 'title department location type status')
+      .populate('job', 'title department location type status teamName assignedRecruiter assignedRecruiterAt assignmentMethod')
       .sort({ createdAt: -1 }).lean()
     const interviews = await InterviewModel.find({ application: { $in: apps.map((app) => String(app._id)) } }, { application: 1, status: 1, scheduledAt: 1 }).lean()
     const interviewMap = Object.fromEntries(interviews.map((item) => [String(item.application), item]))

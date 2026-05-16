@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, X, MapPin, ImagePlus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, X, MapPin, ImagePlus, Users2, Wand2 } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { jobService } from '../../services/job.service'
 import api from '../../lib/axios'
@@ -11,6 +11,7 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
 import { Progress } from '../../components/ui/progress'
+import { useAuth } from '../../contexts/AuthContext'
 
 const STEPS = ['Job Details', 'Requirements', 'Assessment', 'Review & Post']
 const FIELD_LIMITS = {
@@ -54,6 +55,7 @@ const schema = z.object({
 type FormData = z.infer<typeof schema>
 
 export default function CreateJob() {
+  const { user } = useAuth()
   const navigate = useNavigate()
   const [step, setStep] = useState(0)
   const [publishing, setPublishing] = useState(false)
@@ -127,7 +129,11 @@ export default function CreateJob() {
       const data = form.getValues()
       const job = await jobService.create(buildPayload(data, 'draft'))
       if (pendingBannerFile && job._id) await uploadBannerForJob(job._id, pendingBannerFile)
-      navigate('/recruiter/jobs')
+      navigate('/recruiter/jobs', {
+        state: {
+          flash: `Draft saved for ${job.title}. Team: ${job.teamName || user?.teamName || user?.companyName || 'Workspace'}. ${job.assignedRecruiter ? 'An owner was assigned immediately.' : 'No recruiter owner has been assigned yet.'}`,
+        },
+      })
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       setSubmitError(msg ?? 'Failed to save draft. Please try again.')
@@ -143,7 +149,11 @@ export default function CreateJob() {
       try {
         const job = await jobService.create(buildPayload(data, 'published'))
         if (pendingBannerFile && job._id) await uploadBannerForJob(job._id, pendingBannerFile)
-        navigate(`/recruiter/shortlist?job=${job._id}`)
+        navigate('/recruiter/jobs', {
+          state: {
+            flash: `${job.title} is live. Team: ${job.teamName || user?.teamName || user?.companyName || 'Workspace'}. ${job.assignmentMethod === 'manual' ? 'Assign a recruiter before pipeline work starts.' : 'The system assigned a recruiter automatically.'}`,
+          },
+        })
       } catch (err: unknown) {
         const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
         setSubmitError(msg ?? 'Failed to publish. Check the question bank has enough questions first.')
@@ -214,6 +224,16 @@ export default function CreateJob() {
         {step === 0 && (
           <>
             <h2 className="font-serif text-xl font-semibold">Job Details</h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+                <p className="inline-flex items-center gap-2 font-medium"><Users2 className="h-4 w-4 text-primary" />Team scope</p>
+                <p className="mt-1 text-muted-foreground">This role will be created inside <strong>{user?.teamName || user?.companyName || 'your current workspace'}</strong>.</p>
+              </div>
+              <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+                <p className="inline-flex items-center gap-2 font-medium"><Wand2 className="h-4 w-4 text-primary" />Ownership</p>
+                <p className="mt-1 text-muted-foreground">Assignment rules come from your workspace settings and will appear on the job immediately after creation.</p>
+              </div>
+            </div>
             <div className="space-y-1.5">
               <Label className="flex items-center justify-between gap-2">Job Title {fieldMeta(true, FIELD_LIMITS.title)}</Label>
               <Input placeholder="Senior React Developer" maxLength={FIELD_LIMITS.title} {...register('title')} />

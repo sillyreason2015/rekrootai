@@ -12,6 +12,8 @@ export const jobService = {
   close: (id: string) => api.post(`/jobs/${id}/close`).then((r) => r.data),
   myJobs: (params?: { page?: number; status?: string }) =>
     api.get<PaginatedResponse<Job>>('/jobs/mine', { params }).then((r) => r.data),
+  updateAssignment: (id: string, payload: { recruiterId?: string | null; note?: string }) =>
+    api.patch<Job>(`/jobs/${id}/assignment`, payload).then((r) => r.data),
   updateThresholds: (id: string, thresholds: { assessment?: number; fairness?: number; interview?: number }) =>
     api.patch(`/jobs/${id}/thresholds`, thresholds).then((r) => r.data),
   delete: (id: string) => api.delete(`/jobs/${id}`).then((r) => r.data),

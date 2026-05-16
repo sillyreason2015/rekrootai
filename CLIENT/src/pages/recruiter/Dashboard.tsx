@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Briefcase, Users, Video, TrendingUp, ChevronRight, Sparkles } from 'lucide-react'
+import { Briefcase, Users, Video, TrendingUp, ChevronRight, Sparkles, UserRound, Wand2 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { jobService } from '../../services/job.service'
 import { recruiterService } from '../../services/recruiter.service'
@@ -44,6 +44,9 @@ export default function RecruiterDashboard() {
   ]
   const draftCount = jobs?.data.filter((j: Job) => j.status === 'draft').length ?? 0
   const closedCount = jobs?.data.filter((j: Job) => j.status === 'closed').length ?? 0
+  const assignedToMe = jobs?.data.filter((j: Job) => String(j.assignedRecruiter ?? '') === String(user?._id ?? '')).length ?? 0
+  const unassignedJobs = jobs?.data.filter((j: Job) => !j.assignedRecruiter).length ?? 0
+  const workspaceLabel = user?.teamName || user?.companyName || 'Workspace'
   const funnelStages = [
     { key: 'applied', label: 'Applied' },
     { key: 'screening', label: 'Screening' },
@@ -60,6 +63,25 @@ export default function RecruiterDashboard() {
         <h1 className="font-serif text-2xl font-semibold">Dashboard</h1>
         <p className="text-sm text-muted-foreground">Welcome back, {user?.firstName}. Here is your recruitment overview.</p>
       </div>
+      <Card>
+        <CardContent className="grid gap-4 p-5 md:grid-cols-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current team</p>
+            <p className="mt-1 text-lg font-semibold">{workspaceLabel}</p>
+            <p className="text-sm text-muted-foreground">This dashboard is scoped to your current workspace.</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Assigned to you</p>
+            <p className="mt-1 text-lg font-semibold">{assignedToMe}</p>
+            <p className="text-sm text-muted-foreground">Roles you currently own or were auto-assigned.</p>
+          </div>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Needs owner</p>
+            <p className="mt-1 text-lg font-semibold">{unassignedJobs}</p>
+            <p className="text-sm text-muted-foreground">Jobs waiting for manual assignment.</p>
+          </div>
+        </CardContent>
+      </Card>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map(({ label, value, icon: Icon, href }) => (
           <Link key={label} to={href}><Card><CardContent className="flex items-center gap-4 p-5"><div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10"><Icon className="h-5 w-5 text-primary" /></div><div><p className="text-2xl font-bold">{value}</p><p className="text-xs text-muted-foreground">{label}</p></div></CardContent></Card></Link>
@@ -125,7 +147,7 @@ export default function RecruiterDashboard() {
               <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-muted-foreground" />
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">No active jobs</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Create a job in My Jobs and set up your Question Bank before publishing.</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Create a job in My Jobs, confirm the owner, and set up your Question Bank before publishing.</p>
               </div>
             </div>
           )}
@@ -149,6 +171,24 @@ export default function RecruiterDashboard() {
               </div>
             </div>
           )}
+          {assignedToMe > 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg border bg-muted/20 px-3 py-2.5">
+              <UserRound className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">Ownership visible</p>
+                <p className="text-xs text-muted-foreground mt-0.5">You currently own {assignedToMe} job(s). Use the “Assigned to me” filter in My Jobs to focus on them quickly.</p>
+              </div>
+            </div>
+          )}
+          {unassignedJobs > 0 && (
+            <div className="flex items-start gap-2.5 rounded-lg border bg-muted/20 px-3 py-2.5">
+              <Wand2 className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-600">Ownership gap</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{unassignedJobs} job(s) have no recruiter owner yet. Assign them before external testing so no pipeline stalls.</p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -163,7 +203,7 @@ export default function RecruiterDashboard() {
           ) : (
             <div className="divide-y">
               {jobs.data.map((job: Job) => (
-                <div key={job._id} className="flex items-center justify-between py-3"><div className="min-w-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="text-xs text-muted-foreground">{job.department} | Posted {formatRelative(job.createdAt)}</p></div><div className="ml-4 flex items-center gap-2 shrink-0"><Badge variant={job.status === 'published' ? 'success' : job.status === 'closed' ? 'destructive' : 'secondary'}>{job.status}</Badge><Link to={`/recruiter/shortlist?job=${job._id}`} className="text-xs text-primary hover:underline">Review</Link></div></div>
+                <div key={job._id} className="flex items-center justify-between py-3"><div className="min-w-0"><p className="truncate text-sm font-medium">{job.title}</p><p className="text-xs text-muted-foreground">{job.department} | {job.teamName || workspaceLabel} | Posted {formatRelative(job.createdAt)}</p><p className="mt-1 text-[11px] text-muted-foreground">{String(job.assignedRecruiter ?? '') === String(user?._id ?? '') ? 'Owned by you' : job.assignedRecruiter ? 'Assigned to a recruiter' : 'No recruiter assigned yet'}</p></div><div className="ml-4 flex items-center gap-2 shrink-0"><Badge variant={job.status === 'published' ? 'success' : job.status === 'closed' ? 'destructive' : 'secondary'}>{job.status}</Badge><Link to={`/recruiter/shortlist?job=${job._id}`} className="text-xs text-primary hover:underline">Review</Link></div></div>
               ))}
             </div>
           )}

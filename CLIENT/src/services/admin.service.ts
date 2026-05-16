@@ -17,8 +17,8 @@ export const adminService = {
   runBiasAudit: (jobId: string) =>
     api.post<BiasAudit>('/admin/bias-audits/run', { jobId }).then((r) => r.data),
   getTeam: () => api.get('/admin/team').then((r) => r.data),
-  inviteTeamMember: (email: string, role: string) =>
-    api.post('/admin/team/invite', { email, role }).then((r) => r.data),
+  inviteTeamMember: (payload: { email: string; role: string; teamName?: string }) =>
+    api.post('/admin/team/invite', payload).then((r) => r.data),
   acceptInvite: (payload: { token: string; firstName: string; lastName: string; password: string }) =>
     api.post('/admin/team/invite/accept', payload).then((r) => r.data),
   getBilling: () => api.get('/admin/billing').then((r) => r.data),

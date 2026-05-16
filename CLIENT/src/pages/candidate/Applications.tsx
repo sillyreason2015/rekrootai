@@ -148,6 +148,11 @@ export default function Applications() {
             const job = app.job as Job
             const hint = stageHint[app.stage] ?? ''
             const missed = Boolean(app.interviewMissed)
+            const ownerLabel = typeof job.assignedRecruiter === 'object'
+              ? `${job.assignedRecruiter.firstName} ${job.assignedRecruiter.lastName}`.trim()
+              : job.assignedRecruiter
+                ? 'Assigned recruiter'
+                : 'Not assigned yet'
 
             return (
               <Card key={app._id} className={cn('hover:border-primary/30 transition-colors', app.stage === 'rejected' ? 'opacity-70' : '')}>
@@ -166,6 +171,9 @@ export default function Applications() {
                       </div>
                       <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
                         <Clock className="h-3 w-3" /> Applied {formatRelative(app.createdAt)}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Team: {job.teamName || 'Workspace'} | Owner: {ownerLabel}
                       </p>
                       {hint && !missed && (
                         <p className="mt-1.5 text-xs text-foreground/70 leading-relaxed">{hint}</p>

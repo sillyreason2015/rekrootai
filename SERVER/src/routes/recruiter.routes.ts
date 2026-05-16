@@ -11,13 +11,13 @@ import { presignedDownloadUrl } from '../lib/blob.js'
 import { UserModel } from '../models/User.model.js'
 import { BiasAuditModel } from '../models/BiasAudit.model.js'
 import { computeJobBiasAudit } from '../lib/fairness.js'
-import { buildTeamScopedJobFilter, resolveWorkspaceScope } from '../lib/workspace.js'
+import { buildTeamScopedJobFilter, resolveEffectiveTeamScope } from '../lib/workspace.js'
 
 export const recruiterRouter = Router()
 recruiterRouter.use(requireAuth, requireRole('recruiter', 'admin', 'super_admin'))
 
-async function resolveScopedJobIds(userId: string) {
-  const scope = await resolveWorkspaceScope(userId)
+async function resolveScopedJobIdsForTeam(userId: string, requestedTeamName?: string) {
+  const scope = await resolveEffectiveTeamScope(userId, requestedTeamName)
   const filter = buildTeamScopedJobFilter(scope, userId)
   const jobs = await JobModel.find(filter, { _id: 1 }).lean()
   return jobs.map((job) => String(job._id))
@@ -97,7 +97,8 @@ recruiterRouter.get('/audit-log', async (req, res, next) => {
     const page = Number(req.query.page ?? 1)
     const limit = Number(req.query.limit ?? 20)
     const action = String(req.query.action ?? '').toLowerCase()
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     const filter: Record<string, unknown> = { jobId: { $in: jobIds } }
     if (action) filter.action = { $regex: action, $options: 'i' }
     const entries = await AuditLogModel.find(filter).sort({ timestamp: -1 }).lean()
@@ -112,7 +113,8 @@ recruiterRouter.get('/audit-log', async (req, res, next) => {
 
 recruiterRouter.get('/pipeline-summary', async (req, res, next) => {
   try {
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     const grouped = await ApplicationModel.aggregate([
       { $match: { job: { $in: jobIds } } },
       { $group: { _id: '$stage', count: { $sum: 1 } } },
@@ -128,7 +130,8 @@ recruiterRouter.get('/pipeline-summary', async (req, res, next) => {
 recruiterRouter.get('/jobs/:jobId/cvs', async (req, res, next) => {
   try {
     const jobId = String(req.params.jobId)
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(jobId)) throw new HttpError(404, 'Job not found')
     const apps = await ApplicationModel.find({ job: jobId }).lean()
     const candidateIds = [...new Set(apps.map((a) => String(a.candidate)))]
@@ -153,7 +156,8 @@ recruiterRouter.get('/applications/:id/cv', async (req, res, next) => {
   try {
     const app = await ApplicationModel.findById(String(req.params.id)).lean()
     if (!app) return res.status(404).json({ message: 'Application not found' })
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(String(app.job))) return res.status(404).json({ message: 'Application not found' })
     const candidate = await CandidateModel.findById(String(app.candidate)).lean()
     if (!candidate?.cvUrl) return res.status(404).json({ message: 'CV not found' })
@@ -166,7 +170,8 @@ recruiterRouter.post('/applications/:id/cv-analysis', async (req, res, next) => 
   try {
     const app = await ApplicationModel.findById(String(req.params.id)).lean()
     if (!app) throw new HttpError(404, 'Application not found')
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(String(app.job))) throw new HttpError(404, 'Application not found')
     const candidate = await CandidateModel.findById(String(app.candidate)).lean()
     const job = await JobModel.findById(String(app.job), { title: 1, requirements: 1, skills: 1, description: 1 }).lean()
@@ -222,7 +227,8 @@ recruiterRouter.post('/applications/:id/assistant', async (req, res, next) => {
 
     const app = await ApplicationModel.findById(req.params.id).lean()
     if (!app) throw new HttpError(404, 'Application not found')
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(String(app.job))) throw new HttpError(404, 'Application not found')
 
     const candidate = await CandidateModel.findById(String(app.candidate)).lean()
@@ -290,7 +296,8 @@ Respond in 2-4 concise sentences. Be direct, professional, and evidence-based. R
 recruiterRouter.get('/jobs/:jobId/triage', async (req, res, next) => {
   try {
     const jobId = String(req.params.jobId)
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(jobId)) throw new HttpError(404, 'Job not found')
     const mode = String(req.query.mode ?? 'assist').toLowerCase()
     const apps = await ApplicationModel.find({ job: jobId }).lean()
@@ -332,7 +339,8 @@ recruiterRouter.get('/jobs/:jobId/triage', async (req, res, next) => {
 recruiterRouter.post('/jobs/:jobId/bias-audit', async (req, res, next) => {
   try {
     const jobId = String(req.params.jobId)
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(jobId)) throw new HttpError(404, 'Job not found')
     const computation = await computeJobBiasAudit(jobId)
 
@@ -352,7 +360,8 @@ recruiterRouter.post('/jobs/:jobId/bias-audit', async (req, res, next) => {
 recruiterRouter.get('/jobs/:jobId/bias-audit/latest', async (req, res, next) => {
   try {
     const jobId = String(req.params.jobId)
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(jobId)) throw new HttpError(404, 'Job not found')
     const audit = await BiasAuditModel.findOne({ job: jobId }).sort({ runAt: -1 }).lean()
     if (!audit) return res.json(null)
@@ -367,7 +376,8 @@ recruiterRouter.post('/applications/:id/missed-interview/review', async (req, re
 
     const app = await ApplicationModel.findById(String(req.params.id)).lean()
     if (!app) throw new HttpError(404, 'Application not found')
-    const jobIds = await resolveScopedJobIds(req.user!._id)
+    const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
+    const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(String(app.job))) throw new HttpError(404, 'Application not found')
 
     if (approved) {

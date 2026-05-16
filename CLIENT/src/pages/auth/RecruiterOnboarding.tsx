@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -12,7 +12,7 @@ import { Label } from '../../components/ui/label'
 import { Progress } from '../../components/ui/progress'
 import { cn } from '../../lib/utils'
 
-const STEPS = ['Company', 'Mission & Values', 'Branding', 'Team', 'Review']
+const STEPS = ['Company', 'Workspace', 'Branding', 'Team', 'Review']
 
 const INDUSTRIES = [
   'Technology', 'Finance & Banking', 'Healthcare', 'Education', 'Creative & Media',
@@ -24,6 +24,7 @@ const TONES = ['Professional', 'Friendly & Approachable', 'Bold & Direct', 'Acad
 const companySchema = z.object({
   legalName: z.string().min(2, 'Legal name is required'),
   companyName: z.string().min(2, 'Trade name is required'),
+  teamName: z.string().min(2, 'First team name is required'),
   website: z.string().url('Enter a valid URL').optional().or(z.literal('')),
   hqCountry: z.string().min(2, 'HQ country is required'),
   jobTitle: z.string().min(2, 'Your job title is required'),
@@ -39,6 +40,11 @@ const missionSchema = z.object({
   vision: z.string().optional(),
 })
 type MissionForm = z.infer<typeof missionSchema>
+type AssignmentMode = 'round_robin' | 'manual'
+type InviteDraft = {
+  email: string
+  role: 'recruiter' | 'admin'
+}
 
 // Why-we-ask sidebar content per step
 const WHY_ASK = [
@@ -84,8 +90,10 @@ export default function RecruiterOnboarding() {
   const [valueInput, setValueInput] = useState('')
   const [description, setDescription] = useState('')
   const [tone, setTone] = useState('')
-  const [inviteEmails, setInviteEmails] = useState<string[]>([])
+  const [assignmentMode, setAssignmentMode] = useState<AssignmentMode>('round_robin')
+  const [inviteRows, setInviteRows] = useState<InviteDraft[]>([])
   const [inviteInput, setInviteInput] = useState('')
+  const [inviteRole, setInviteRole] = useState<'recruiter' | 'admin'>('recruiter')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [stepError, setStepError] = useState('')
@@ -101,7 +109,9 @@ export default function RecruiterOnboarding() {
 
   const addInvite = () => {
     const e = inviteInput.trim()
-    if (e && !inviteEmails.includes(e)) setInviteEmails((p) => [...p, e])
+    if (e && !inviteRows.some((row) => row.email === e)) {
+      setInviteRows((prev) => [...prev, { email: e, role: inviteRole }])
+    }
     setInviteInput('')
   }
 
@@ -138,16 +148,21 @@ export default function RecruiterOnboarding() {
         ...companyValues,
         industry,
         companySize,
+        assignmentMode,
         mission: missionValues.mission,
         vision: missionValues.vision,
         values,
         description,
         tone,
       })
-      if (inviteEmails.length) {
+      if (inviteRows.length) {
         await Promise.all(
-          inviteEmails.map((email) =>
-            api.post('/companies/invite', { email }),
+          inviteRows.map((invite) =>
+            api.post('/admin/team/invite', {
+              email: invite.email,
+              role: invite.role,
+              teamName: companyValues.teamName,
+            }),
           ),
         )
       }
@@ -163,6 +178,10 @@ export default function RecruiterOnboarding() {
   const companyVals = companyForm.watch()
   const missionVals = missionForm.watch()
   const sidebar = WHY_ASK[Math.min(step, WHY_ASK.length - 1)]
+  const workspaceSummary = useMemo(() => {
+    if (assignmentMode === 'manual') return 'Jobs stay unassigned until an admin chooses an owner.'
+    return 'Every new job is assigned automatically to the next recruiter in this team.'
+  }, [assignmentMode])
 
   return (
     <div className="auth-doodle-bg flex min-h-screen">
@@ -196,7 +215,7 @@ export default function RecruiterOnboarding() {
           {/* Form card */}
           <div className="flex-1">
             <h1 className="mb-6 font-serif text-3xl font-semibold">
-              {['Company Profile', 'Mission & Values', 'Brand Identity', 'Invite Your Team', 'Almost there!'][step]}
+              {['Company Profile', 'Workspace Setup', 'Brand Identity', 'Invite Your Team', 'Almost there!'][step]}
             </h1>
 
             {/* ── Step 0: Company ── */}
@@ -212,6 +231,12 @@ export default function RecruiterOnboarding() {
                     <Label>Trade name (public) <span className="text-destructive">*</span></Label>
                     <Input placeholder="The Atelier" {...companyForm.register('companyName')} />
                     {companyForm.formState.errors.companyName && <p className="text-xs text-destructive">{companyForm.formState.errors.companyName.message}</p>}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>First team / workspace <span className="text-destructive">*</span></Label>
+                    <Input placeholder="Core Hiring Team" {...companyForm.register('teamName')} />
+                    <p className="text-xs text-muted-foreground">This keeps jobs and recruiters grouped safely from day one.</p>
+                    {companyForm.formState.errors.teamName && <p className="text-xs text-destructive">{companyForm.formState.errors.teamName.message}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label>Industry</Label>
@@ -291,6 +316,40 @@ export default function RecruiterOnboarding() {
             {/* ── Step 1: Mission & Values ── */}
             {step === 1 && (
               <div className="space-y-5">
+                <div className="rounded-2xl border bg-muted/30 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">Workspace flow</p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    Create company, define the first team, choose how jobs get owned, then invite the right people into that team.
+                  </p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssignmentMode('round_robin')}
+                    className={cn(
+                      'rounded-2xl border p-4 text-left transition-colors',
+                      assignmentMode === 'round_robin' ? 'border-primary bg-primary/10' : 'hover:border-primary/40',
+                    )}
+                  >
+                    <p className="font-medium">Round robin by team</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Best for agencies or shared hiring pods. New jobs rotate automatically between recruiters.</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssignmentMode('manual')}
+                    className={cn(
+                      'rounded-2xl border p-4 text-left transition-colors',
+                      assignmentMode === 'manual' ? 'border-primary bg-primary/10' : 'hover:border-primary/40',
+                    )}
+                  >
+                    <p className="font-medium">Manual ownership</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Best when one person wants to decide ownership for every role before pipeline work starts.</p>
+                  </button>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                  <p className="font-medium">What this means for your team</p>
+                  <p className="mt-1">{workspaceSummary}</p>
+                </div>
                 <div className="space-y-1.5">
                   <Label>Mission statement <span className="text-destructive">*</span></Label>
                   <textarea
@@ -378,9 +437,9 @@ export default function RecruiterOnboarding() {
             {step === 3 && (
               <div className="space-y-5">
                 <p className="text-sm text-muted-foreground">
-                  Invite colleagues to collaborate on hiring. They'll receive an email invitation to join your workspace.
+                  Invite colleagues to collaborate on hiring. Choose whether each person can only manage pipeline work or administer the workspace too.
                 </p>
-                <div className="flex gap-2">
+                <div className="grid gap-3 md:grid-cols-[1fr_180px_auto]">
                   <Input
                     type="email"
                     placeholder="colleague@company.com"
@@ -388,22 +447,41 @@ export default function RecruiterOnboarding() {
                     onChange={(e) => setInviteInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addInvite())}
                   />
+                  <select
+                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as 'recruiter' | 'admin')}
+                  >
+                    <option value="recruiter">Recruiter only</option>
+                    <option value="admin">Admin + job creation</option>
+                  </select>
                   <Button type="button" variant="outline" onClick={addInvite}>Invite</Button>
                 </div>
-                {inviteEmails.length > 0 ? (
+                <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+                  <p className="font-medium">Team destination</p>
+                  <p className="mt-1 text-muted-foreground">
+                    Everyone invited here will join <strong>{companyVals.teamName || 'your first team'}</strong>. You can add more teams later.
+                  </p>
+                </div>
+                {inviteRows.length > 0 ? (
                   <div className="space-y-2">
-                    {inviteEmails.map((e) => (
-                      <div key={e} className="flex items-center justify-between rounded-lg border px-4 py-2 text-sm">
-                        <span>{e}</span>
-                        <button type="button" onClick={() => setInviteEmails((p) => p.filter((x) => x !== e))} className="text-muted-foreground hover:text-destructive">
+                    {inviteRows.map((invite) => (
+                      <div key={invite.email} className="flex items-center justify-between rounded-lg border px-4 py-2 text-sm">
+                        <div>
+                          <p className="font-medium">{invite.email}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {invite.role === 'admin' ? 'Workspace admin, can create jobs and manage assignments' : 'Recruiter, can manage assigned pipeline work'}
+                          </p>
+                        </div>
+                        <button type="button" onClick={() => setInviteRows((p) => p.filter((x) => x.email !== invite.email))} className="text-muted-foreground hover:text-destructive">
                           <X className="h-4 w-4" />
                         </button>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-xl border-2 border-dashed p-8 text-center text-sm text-muted-foreground">
-                    No invites added yet — you can always do this later from Settings.
+                    <div className="rounded-xl border-2 border-dashed p-8 text-center text-sm text-muted-foreground">
+                    No invites added yet — solo teams are supported, and you can always add people later.
                   </div>
                 )}
               </div>
@@ -415,15 +493,17 @@ export default function RecruiterOnboarding() {
                 <div className="space-y-2 rounded-xl bg-muted/50 p-5 text-sm">
                   {[
                     ['Company', companyVals.companyName || '—'],
+                    ['Team', companyVals.teamName || '—'],
                     ['Legal name', companyVals.legalName || '—'],
                     ['Industry', industry || '—'],
                     ['Size', companySize || '—'],
                     ['Country', companyVals.hqCountry || '—'],
                     ['Website', companyVals.website || '—'],
+                    ['Assignment mode', assignmentMode === 'manual' ? 'Manual ownership' : 'Round robin by team'],
                     ['Mission', missionVals.mission ? `${missionVals.mission.slice(0, 60)}…` : '—'],
                     ['Values', values.length ? values.join(', ') : 'None added'],
                     ['Tone', tone || 'Not selected'],
-                    ['Team invites', inviteEmails.length ? `${inviteEmails.length} pending` : 'None'],
+                    ['Team invites', inviteRows.length ? `${inviteRows.length} pending` : 'None'],
                   ].map(([label, value]) => (
                     <div key={label} className="flex justify-between gap-4 border-b pb-2 last:border-0">
                       <span className="shrink-0 text-muted-foreground">{label}</span>
@@ -433,7 +513,7 @@ export default function RecruiterOnboarding() {
                 </div>
                 <div className="flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                  <p>Your company profile is ready. You can update any of this from <strong>Settings → Company</strong> at any time.</p>
+                  <p>Your workspace is ready. Jobs will stay inside <strong>{companyVals.teamName || 'your first team'}</strong>, and you can update these rules later from <strong>Settings → Company</strong>.</p>
                 </div>
                 {saveError && (
                   <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">

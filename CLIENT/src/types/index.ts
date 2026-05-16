@@ -11,6 +11,14 @@ export interface User {
   onboardingComplete: boolean
   createdAt: string
   companyName?: string
+  teamName?: string
+  permissions?: {
+    canCreateJobs?: boolean
+    canManageBilling?: boolean
+    canManageTeam?: boolean
+    canViewAllCandidates?: boolean
+  }
+  availabilityStatus?: 'available' | 'busy'
   phone?: string
   avatarUrl?: string
   avatarPreviewUrl?: string
@@ -55,6 +63,9 @@ export interface EducationEntry {
 export interface Company {
   _id: string
   name: string
+  teamName?: string
+  assignmentMode?: 'round_robin' | 'manual'
+  assignAvailableOnly?: boolean
   industry: string
   size: string
   website?: string
@@ -66,6 +77,7 @@ export interface Company {
 export interface Job {
   _id: string
   company: string | Company
+  teamName?: string
   title: string
   department: string
   level?: 'graduate' | 'entry' | 'mid' | 'senior' | 'lead' | 'executive'
@@ -90,6 +102,16 @@ export interface Job {
   thresholds?: { screening?: number; assessment?: number; fairness?: number; interview?: number; tau1?: number; tau2?: number }
   alpha: number
   createdBy: string | User
+  assignedRecruiter?: string | User
+  assignedRecruiterAt?: string
+  assignmentMethod?: 'round_robin' | 'manual' | 'solo_owner'
+  assignmentHistory?: Array<{
+    recruiterId?: string
+    assignedBy?: string
+    method: 'round_robin' | 'manual' | 'solo_owner'
+    note?: string
+    at: string
+  }>
   createdAt: string
 }
 

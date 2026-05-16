@@ -1,15 +1,18 @@
+import type React from 'react'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Briefcase, Lock, ChevronDown, ChevronUp, Settings2, CheckCircle2, Globe, Pencil, Trash2 } from 'lucide-react'
+import { Briefcase, Lock, ChevronDown, ChevronUp, Settings2, CheckCircle2, Globe, Pencil, Trash2, UserRound, Users2, Wand2 } from 'lucide-react'
 import { jobService } from '../../services/job.service'
+import { adminService } from '../../services/admin.service'
 import api from '../../lib/axios'
 import { Card, CardContent } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
 import { Button } from '../../components/ui/button'
+import { Input } from '../../components/ui/input'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
 import { formatRelative, cn } from '../../lib/utils'
 import type { Job } from '../../types'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 
 interface ThresholdDraft {
@@ -20,14 +23,23 @@ interface ThresholdDraft {
 
 export default function RecruiterJobs() {
   const { user } = useAuth()
+  const location = useLocation()
+  const navigate = useNavigate()
   const canManageJobs = ['recruiter', 'admin', 'super_admin'].includes(user?.role ?? '')
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin'
   const [status, setStatus] = useState<string>('all')
+  const [ownershipFilter, setOwnershipFilter] = useState<'all' | 'mine' | 'unassigned'>('all')
   const [expandedThresh, setExpandedThresh] = useState<string | null>(null)
   const [threshDrafts, setThreshDrafts] = useState<Record<string, ThresholdDraft>>({})
   const [savedId, setSavedId] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [assignmentDrafts, setAssignmentDrafts] = useState<Record<string, { recruiterId: string; note: string }>>({})
   const qc = useQueryClient()
+  const { data: teamData } = useQuery({
+    queryKey: ['admin-team-lite'],
+    queryFn: adminService.getTeam,
+    enabled: isAdmin,
+  })
 
   const { data, isLoading } = useQuery({
     queryKey: ['my-jobs', status],
@@ -62,6 +74,10 @@ export default function RecruiterJobs() {
       setTimeout(() => setSavedId(null), 2500)
     },
   })
+  const assignmentMutation = useMutation({
+    mutationFn: ({ id, recruiterId, note }: { id: string; recruiterId?: string | null; note?: string }) => jobService.updateAssignment(id, { recruiterId, note }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['my-jobs'] }),
+  })
 
   const getDraft = (job: Job): ThresholdDraft => {
     if (threshDrafts[job._id]) return threshDrafts[job._id]
@@ -80,8 +96,40 @@ export default function RecruiterJobs() {
     }))
   }
 
+  const visibleJobs = (data?.data ?? []).filter((job) => {
+    if (ownershipFilter === 'mine') return String(job.assignedRecruiter ?? '') === String(user?._id ?? '')
+    if (ownershipFilter === 'unassigned') return !job.assignedRecruiter
+    return true
+  })
+
+  const getAssignedRecruiterLabel = (job: Job) => {
+    const assigned = job.assignedRecruiter
+    if (assigned && typeof assigned === 'object') return `${assigned.firstName} ${assigned.lastName}`.trim()
+    if (assigned && String(assigned) === String(user?._id ?? '')) return 'You'
+    if (assigned) return 'Assigned recruiter'
+    return 'Not assigned yet'
+  }
+  const teamMembers = ((teamData as { members?: Array<{ _id: string; firstName: string; lastName: string; role: string; teamName?: string }> } | undefined)?.members ?? [])
+    .filter((member) => ['recruiter', 'admin', 'super_admin'].includes(member.role))
+
+  const flashMessage = (location.state as { flash?: string } | null)?.flash
+
   return (
     <div className="space-y-6">
+      {flashMessage && (
+        <Card className="border-emerald-200 bg-emerald-50">
+          <CardContent className="flex items-start justify-between gap-4 p-4 text-sm text-emerald-900">
+            <p>{flashMessage}</p>
+            <button
+              type="button"
+              className="text-xs font-medium text-emerald-700"
+              onClick={() => navigate(location.pathname, { replace: true })}
+            >
+              Dismiss
+            </button>
+          </CardContent>
+        </Card>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-serif text-2xl font-semibold">My Jobs</h1>
@@ -112,6 +160,25 @@ export default function RecruiterJobs() {
         ))}
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        {[
+          { key: 'all', label: 'All ownership' },
+          { key: 'mine', label: 'Assigned to me' },
+          { key: 'unassigned', label: 'Unassigned' },
+        ].map((item) => (
+          <button
+            key={item.key}
+            onClick={() => setOwnershipFilter(item.key as 'all' | 'mine' | 'unassigned')}
+            className={cn(
+              'rounded-full border px-3 py-1 text-sm transition-colors',
+              ownershipFilter === item.key ? 'border-primary bg-primary/10 text-primary' : 'hover:bg-accent',
+            )}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
       {isLoading ? <LoadingSpinner /> : !data?.data.length ? (
         <Card>
           <CardContent className="py-16 text-center">
@@ -124,9 +191,21 @@ export default function RecruiterJobs() {
             )}
           </CardContent>
         </Card>
+      ) : !visibleJobs.length ? (
+        <Card>
+          <CardContent className="py-16 text-center">
+            <UserRound className="mx-auto mb-3 h-10 w-10 text-muted-foreground/40" />
+            <p className="font-medium">No jobs match this ownership filter</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {ownershipFilter === 'mine'
+                ? 'No roles are currently assigned to you. New round-robin jobs will appear here automatically.'
+                : 'Every visible role already has an owner.'}
+            </p>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-3">
-          {data.data.map((job: Job) => {
+          {visibleJobs.map((job: Job) => {
             const draft = getDraft(job)
             const isExpand = expandedThresh === job._id
             const isSaved = savedId === job._id
@@ -146,6 +225,23 @@ export default function RecruiterJobs() {
                       <p className="mt-0.5 text-sm text-muted-foreground">
                         {job.department} | {job.location} | Posted {formatRelative(job.createdAt)}
                       </p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        <Badge variant="outline" className="gap-1">
+                          <Users2 className="h-3 w-3" />
+                          Team: {job.teamName || user?.teamName || user?.companyName || 'Workspace'}
+                        </Badge>
+                        <Badge variant="outline" className="gap-1">
+                          <UserRound className="h-3 w-3" />
+                          Owner: {getAssignedRecruiterLabel(job)}
+                        </Badge>
+                        <Badge variant="outline" className="gap-1">
+                          <Wand2 className="h-3 w-3" />
+                          {job.assignmentMethod === 'manual' ? 'Manual assignment' : job.assignmentMethod === 'solo_owner' ? 'Auto-assigned to workspace owner' : 'Round robin assignment'}
+                        </Badge>
+                        {job.assignedRecruiterAt && (
+                          <Badge variant="outline">Assigned {formatRelative(job.assignedRecruiterAt)}</Badge>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                       {job.status !== 'draft' && (
@@ -200,6 +296,16 @@ export default function RecruiterJobs() {
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         )
+                      )}
+                      {isAdmin && (
+                        <button
+                          onClick={() => setExpandedThresh(isExpand ? null : job._id)}
+                          className="flex items-center gap-1 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-accent transition-colors"
+                          title="Assignment controls"
+                        >
+                          <UserRound className="h-3.5 w-3.5" />
+                          Assignment
+                        </button>
                       )}
                     </div>
                   </div>
@@ -283,6 +389,52 @@ export default function RecruiterJobs() {
                           Save Thresholds
                         </Button>
                       </div>
+                      {isAdmin && (
+                        <div className="rounded-xl border bg-background p-4 space-y-3">
+                          <p className="text-sm font-semibold">Owner handoff</p>
+                          <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                            <select
+                              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                              value={assignmentDrafts[job._id]?.recruiterId ?? String(job.assignedRecruiter ?? '')}
+                              onChange={(e) => setAssignmentDrafts((prev) => ({ ...prev, [job._id]: { recruiterId: e.target.value, note: prev[job._id]?.note ?? '' } }))}
+                            >
+                              <option value="">No recruiter assigned</option>
+                              {teamMembers
+                                .filter((member) => !job.teamName || !member.teamName || member.teamName === job.teamName)
+                                .map((member) => (
+                                  <option key={member._id} value={member._id}>{member.firstName} {member.lastName}</option>
+                                ))}
+                            </select>
+                            <Input
+                              placeholder="Handoff note"
+                              value={assignmentDrafts[job._id]?.note ?? ''}
+                              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAssignmentDrafts((prev) => ({ ...prev, [job._id]: { recruiterId: prev[job._id]?.recruiterId ?? String(job.assignedRecruiter ?? ''), note: e.target.value } }))}
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => assignmentMutation.mutate({
+                                id: job._id,
+                                recruiterId: (assignmentDrafts[job._id]?.recruiterId ?? String(job.assignedRecruiter ?? '')) || null,
+                                note: assignmentDrafts[job._id]?.note ?? '',
+                              })}
+                              disabled={assignmentMutation.isPending}
+                            >
+                              Save owner
+                            </Button>
+                          </div>
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">Assignment history</p>
+                            {job.assignmentHistory?.length ? job.assignmentHistory.slice().reverse().map((entry, index) => (
+                              <div key={`${entry.at}-${index}`} className="rounded-lg border bg-muted/20 px-3 py-2 text-xs">
+                                <p>{entry.method === 'manual' ? 'Manual handoff' : entry.method === 'solo_owner' ? 'Assigned to workspace owner' : 'Round robin assignment'} on {formatRelative(entry.at)}</p>
+                                {entry.note && <p className="mt-1 text-muted-foreground">{entry.note}</p>}
+                              </div>
+                            )) : (
+                              <p className="text-xs text-muted-foreground">No assignment activity yet.</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>

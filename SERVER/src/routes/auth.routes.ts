@@ -76,6 +76,9 @@ async function findOrProvisionOauthUser(profile: {
     role: profile.role,
     isVerified: true,
     onboardingComplete: false,
+    permissions: profile.role === 'candidate'
+      ? undefined
+      : { canCreateJobs: false, canManageBilling: false, canManageTeam: false, canViewAllCandidates: false },
   })
   if (profile.role === 'candidate') {
     await CandidateModel.create({ user: user._id, skills: [], experience: [], education: [] })
@@ -251,7 +254,17 @@ authRouter.post('/register', async (req, res, next) => {
 
     const hashed = await argon2.hash(password)
     const userRole = role === 'recruiter' ? 'admin' : role
-    const user = await UserModel.create({ email, password: hashed, firstName, lastName, role: userRole })
+    const user = await UserModel.create({
+      email,
+      password: hashed,
+      firstName,
+      lastName,
+      role: userRole,
+      permissions: userRole === 'admin'
+        ? { canCreateJobs: true, canManageBilling: true, canManageTeam: true, canViewAllCandidates: true }
+        : undefined,
+      availabilityStatus: userRole === 'candidate' ? undefined : 'available',
+    })
 
     // Auto-create candidate profile
     if (role === 'candidate') {
@@ -349,7 +362,9 @@ authRouter.delete('/linked-providers/:provider', requireAuth, async (req, res, n
 
 authRouter.patch('/me', requireAuth, async (req, res, next) => {
   try {
-    const { firstName, lastName, email } = req.body as { firstName?: string; lastName?: string; email?: string }
+    const { firstName, lastName, email, availabilityStatus } = req.body as {
+      firstName?: string; lastName?: string; email?: string; availabilityStatus?: 'available' | 'busy'
+    }
     if (!firstName || !lastName || !email) throw new HttpError(400, 'firstName, lastName and email are required')
 
     const existing = await UserModel.findOne({
@@ -360,7 +375,12 @@ authRouter.patch('/me', requireAuth, async (req, res, next) => {
 
     const user = await UserModel.findByIdAndUpdate(
       req.user!._id,
-      { firstName: firstName.trim(), lastName: lastName.trim(), email: email.toLowerCase().trim() },
+      {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        email: email.toLowerCase().trim(),
+        ...(availabilityStatus ? { availabilityStatus } : {}),
+      },
       { new: true, projection: { password: 0 } },
     ).lean()
     if (!user) throw new HttpError(404, 'User not found')
@@ -673,6 +693,8 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
       legalName,
       companyName,
       teamName,
+      assignmentMode,
+      assignAvailableOnly,
       website,
       hqCountry,
       jobTitle,
@@ -693,6 +715,8 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
       typeof legalName !== 'string' || legalName.trim().length < 2 ||
       typeof companyName !== 'string' || companyName.trim().length < 2 ||
       (teamName !== undefined && typeof teamName !== 'string') ||
+      (assignmentMode !== undefined && !['round_robin', 'manual'].includes(String(assignmentMode))) ||
+      (assignAvailableOnly !== undefined && typeof assignAvailableOnly !== 'boolean') ||
       typeof hqCountry !== 'string' || hqCountry.trim().length < 2 ||
       typeof jobTitle !== 'string' || jobTitle.trim().length < 2 ||
       typeof registrationNumber !== 'string' || registrationNumber.trim().length < 5 ||
@@ -710,6 +734,8 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
     const companyUpdate = {
       name: cleanCompanyName,
       teamName: cleanTeamName,
+      assignmentMode: assignmentMode === 'manual' ? 'manual' : 'round_robin',
+      assignAvailableOnly: Boolean(assignAvailableOnly),
       legalName: legalName.trim(),
       industry: typeof industry === 'string' && industry.trim() ? industry.trim() : 'Other',
       size: typeof companySize === 'string' && companySize.trim() ? companySize.trim() : '1-10',
@@ -729,6 +755,9 @@ authRouter.post('/onboarding', requireAuth, async (req, res, next) => {
     const userUpdate = {
       companyName: cleanCompanyName,
       teamName: cleanTeamName,
+      permissions: req.user!.role === 'admin' || req.user!.role === 'super_admin'
+        ? { canCreateJobs: true, canManageBilling: true, canManageTeam: true, canViewAllCandidates: true }
+        : { canCreateJobs: false, canManageBilling: false, canManageTeam: false, canViewAllCandidates: false },
       phone: typeof phone === 'string' && phone.trim() ? phone.trim() : undefined,
       onboardingComplete: true,
     }

@@ -76,6 +76,22 @@ const jobSchema = new Schema<Omit<Job, 'createdAt'>>(
     createdBy: { type: String, ref: 'User', required: true },
     assignedRecruiter: { type: String, ref: 'User' },
     assignedRecruiterAt: String,
+    assignmentMethod: { type: String, enum: ['round_robin', 'manual', 'solo_owner'] },
+    assignmentHistory: {
+      type: [
+        new Schema(
+          {
+            recruiterId: String,
+            assignedBy: String,
+            method: { type: String, enum: ['round_robin', 'manual', 'solo_owner'], required: true },
+            note: String,
+            at: { type: String, required: true },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
   },
   baseSchemaOptions,
 )

@@ -13,6 +13,8 @@ const api = axios.create({
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('accessToken')
   if (token) config.headers.Authorization = `Bearer ${token}`
+  const teamScope = localStorage.getItem('selectedTeamScope')
+  if (teamScope) config.headers['X-Team-Scope'] = teamScope
   return config
 })
 

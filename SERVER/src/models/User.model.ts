@@ -16,6 +16,13 @@ const userSchema = new Schema<UserDoc>(
     onboardingComplete: { type: Boolean, default: false },
     companyName: { type: String, trim: true },
     teamName: { type: String, trim: true },
+    permissions: {
+      canCreateJobs: { type: Boolean, default: false },
+      canManageBilling: { type: Boolean, default: false },
+      canManageTeam: { type: Boolean, default: false },
+      canViewAllCandidates: { type: Boolean, default: false },
+    },
+    availabilityStatus: { type: String, enum: ['available', 'busy'], default: 'available' },
     phone: { type: String, trim: true },
     avatarUrl: { type: String, trim: true },
     avatarDataUrl: { type: String },

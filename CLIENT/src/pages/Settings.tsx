@@ -30,6 +30,7 @@ const passwordSchema = z.object({
 
 const companySchema = z.object({
   name: z.string().min(2, 'Company name required'),
+  teamName: z.string().optional(),
   legalName: z.string().optional(),
   industry: z.string().optional(),
   size: z.string().optional(),
@@ -38,6 +39,8 @@ const companySchema = z.object({
   mission: z.string().optional(),
   vision: z.string().optional(),
   description: z.string().optional(),
+  assignmentMode: z.enum(['round_robin', 'manual']).default('round_robin'),
+  assignAvailableOnly: z.boolean().default(false),
 })
 
 type ProfileForm = z.infer<typeof profileSchema>
@@ -227,6 +230,7 @@ export default function Settings() {
     resolver: zodResolver(companySchema),
     values: company ? {
       name: company.name ?? '',
+      teamName: company.teamName ?? '',
       legalName: company.legalName ?? '',
       industry: company.industry ?? '',
       size: company.size ?? '',
@@ -235,6 +239,8 @@ export default function Settings() {
       mission: company.mission ?? '',
       vision: company.vision ?? '',
       description: company.description ?? '',
+      assignmentMode: (company.assignmentMode as 'round_robin' | 'manual' | undefined) ?? 'round_robin',
+      assignAvailableOnly: Boolean(company.assignAvailableOnly),
     } : undefined,
   })
   const companyVerified = Boolean(company?.isVerified)
@@ -258,6 +264,17 @@ export default function Settings() {
       qc.invalidateQueries({ queryKey: ['my-company'] })
       setCompanySaved(true)
       setTimeout(() => setCompanySaved(false), 3000)
+    },
+  })
+  const updateAvailability = useMutation({
+    mutationFn: (availabilityStatus: 'available' | 'busy') => api.patch('/auth/me', {
+      firstName: user?.firstName,
+      lastName: user?.lastName,
+      email: user?.email,
+      availabilityStatus,
+    }),
+    onSuccess: async () => {
+      await refreshUser()
     },
   })
   const unlinkProvider = useMutation({
@@ -821,11 +838,15 @@ export default function Settings() {
                       {companyForm.formState.errors.name && <p className="text-xs text-destructive">{companyForm.formState.errors.name.message}</p>}
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Legal entity name</Label>
-                      <Input {...companyForm.register('legalName')} disabled={recruiterPendingReview} />
+                      <Label>Primary team / workspace</Label>
+                      <Input {...companyForm.register('teamName')} disabled={recruiterPendingReview} />
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label>Legal entity name</Label>
+                      <Input {...companyForm.register('legalName')} disabled={recruiterPendingReview} />
+                    </div>
                     <div className="space-y-1.5">
                       <Label>Industry</Label>
                       <Input {...companyForm.register('industry')} disabled={recruiterPendingReview} />
@@ -857,6 +878,25 @@ export default function Settings() {
                   <div className="space-y-1.5">
                     <Label>Company description</Label>
                     <textarea rows={3} className="w-full rounded-md border border-input bg-background p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring" {...companyForm.register('description')} disabled={recruiterPendingReview} />
+                  </div>
+                  <div className="rounded-xl border bg-muted/30 p-4 space-y-4">
+                    <div>
+                      <p className="text-sm font-medium">Assignment controls</p>
+                      <p className="text-xs text-muted-foreground">Choose how new jobs get owners and whether busy recruiters should be skipped during auto-assignment.</p>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>Assignment mode</Label>
+                        <select className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" {...companyForm.register('assignmentMode')} disabled={recruiterPendingReview}>
+                          <option value="round_robin">Round robin by team</option>
+                          <option value="manual">Manual assignment</option>
+                        </select>
+                      </div>
+                      <label className="flex items-center gap-2 pt-7 text-sm">
+                        <input type="checkbox" {...companyForm.register('assignAvailableOnly')} disabled={recruiterPendingReview} />
+                        Assign only recruiters marked available
+                      </label>
+                    </div>
                   </div>
                   <Button type="submit" disabled={saveCompany.isPending || recruiterPendingReview}>
                     {saveCompany.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -971,6 +1011,30 @@ export default function Settings() {
               </form>
             </CardContent>
           </Card>
+          {user?.role !== 'candidate' && (
+            <Card className="mt-4">
+              <CardHeader><CardTitle>Assignment Availability</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">When round robin is set to available-only, busy recruiters are skipped for new job ownership.</p>
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant={user?.availabilityStatus === 'available' ? 'default' : 'outline'}
+                    onClick={() => updateAvailability.mutate('available')}
+                    disabled={updateAvailability.isPending}
+                  >
+                    Available
+                  </Button>
+                  <Button
+                    variant={user?.availabilityStatus === 'busy' ? 'default' : 'outline'}
+                    onClick={() => updateAvailability.mutate('busy')}
+                    disabled={updateAvailability.isPending}
+                  >
+                    Busy
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {user?.role === 'candidate' && (
             <Card className="mt-4 border-destructive/30">
               <CardHeader><CardTitle>Danger Zone</CardTitle></CardHeader>

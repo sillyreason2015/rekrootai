@@ -6,6 +6,8 @@ const companySchema = new Schema<Company>(
   {
     name: { type: String, required: true },
     teamName: String,
+    assignmentMode: { type: String, enum: ['round_robin', 'manual'], default: 'round_robin' },
+    assignAvailableOnly: { type: Boolean, default: false },
     legalName: String,
     industry: String,
     size: String,

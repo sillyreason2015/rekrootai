@@ -17,12 +17,33 @@ export interface WorkspaceScope {
     name?: string
     legalName?: string
     teamName?: string
+    assignmentMode?: 'round_robin' | 'manual'
+    assignAvailableOnly?: boolean
     logoUrl?: string
     createdBy?: string
   } | null
   companyNames: string[]
   canonicalCompanyName: string | null
   teamName: string | null
+}
+
+export async function resolveAccessibleTeamNames(userId: string) {
+  const scope = await resolveWorkspaceScope(userId)
+  const userFilter = scope.companyNames.length ? { companyName: { $in: scope.companyNames } } : { _id: userId }
+  const [userTeams, jobTeams] = await Promise.all([
+    UserModel.distinct('teamName', userFilter),
+    scope.companyId ? JobModel.distinct('teamName', { company: scope.companyId }) : [],
+  ])
+  return [...new Set([...userTeams, ...jobTeams].map((value) => String(value ?? '').trim()).filter(Boolean))]
+}
+
+export async function resolveEffectiveTeamScope(userId: string, requestedTeamName?: string | null) {
+  const scope = await resolveWorkspaceScope(userId)
+  const requested = requestedTeamName?.trim()
+  if (!requested) return scope
+  const teams = await resolveAccessibleTeamNames(userId)
+  if (!teams.includes(requested)) return scope
+  return { ...scope, teamName: requested }
 }
 
 export async function resolveWorkspaceScope(userId: string): Promise<WorkspaceScope> {
@@ -60,6 +81,8 @@ export async function resolveWorkspaceScope(userId: string): Promise<WorkspaceSc
           name: company.name,
           legalName: company.legalName,
           teamName: company.teamName,
+          assignmentMode: company.assignmentMode as 'round_robin' | 'manual' | undefined,
+          assignAvailableOnly: company.assignAvailableOnly,
           logoUrl: company.logoUrl,
           createdBy: company.createdBy,
         }
@@ -86,9 +109,11 @@ export function buildTeamScopedJobFilter(scope: Pick<WorkspaceScope, 'companyId'
 export async function findAssignableRecruiters(userId: string) {
   const scope = await resolveWorkspaceScope(userId)
   const userFilter = buildTeamScopedUserFilter(scope)
+  const onlyAvailable = scope.company?.assignmentMode === 'round_robin' && scope.company?.assignAvailableOnly
   const recruiters = await UserModel.find(
     {
       role: { $in: ['recruiter', 'admin', 'super_admin'] },
+      ...(onlyAvailable ? { availabilityStatus: 'available' } : {}),
       ...(Object.keys(userFilter).length ? userFilter : { _id: userId }),
     },
     { _id: 1, firstName: 1, lastName: 1, email: 1, role: 1 },

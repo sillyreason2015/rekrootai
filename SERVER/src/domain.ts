@@ -12,6 +12,13 @@ export interface User {
   createdAt: string
   companyName?: string
   teamName?: string
+  permissions?: {
+    canCreateJobs?: boolean
+    canManageBilling?: boolean
+    canManageTeam?: boolean
+    canViewAllCandidates?: boolean
+  }
+  availabilityStatus?: 'available' | 'busy'
   phone?: string
   avatarUrl?: string
   avatarDataUrl?: string
@@ -55,6 +62,8 @@ export interface Company {
   _id: string
   name: string
   teamName?: string
+  assignmentMode?: 'round_robin' | 'manual'
+  assignAvailableOnly?: boolean
   legalName?: string
   industry: string
   size: string
@@ -124,6 +133,14 @@ export interface Job {
   createdBy: string
   assignedRecruiter?: string
   assignedRecruiterAt?: string
+  assignmentMethod?: 'round_robin' | 'manual' | 'solo_owner'
+  assignmentHistory?: Array<{
+    recruiterId?: string
+    assignedBy?: string
+    method: 'round_robin' | 'manual' | 'solo_owner'
+    note?: string
+    at: string
+  }>
   createdAt: string
 }
 

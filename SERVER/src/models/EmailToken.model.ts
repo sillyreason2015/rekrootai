@@ -9,6 +9,12 @@ interface EmailTokenDoc {
   companyName?: string
   invitedBy?: string
   teamName?: string
+  permissions?: {
+    canCreateJobs?: boolean
+    canManageBilling?: boolean
+    canManageTeam?: boolean
+    canViewAllCandidates?: boolean
+  }
   expiresAt: string
   usedAt?: string
 }
@@ -21,6 +27,12 @@ const emailTokenSchema = new Schema<EmailTokenDoc>(
     role: { type: String, enum: ['candidate', 'recruiter', 'admin', 'super_admin'] },
     companyName: String,
     teamName: String,
+    permissions: {
+      canCreateJobs: Boolean,
+      canManageBilling: Boolean,
+      canManageTeam: Boolean,
+      canViewAllCandidates: Boolean,
+    },
     invitedBy: String,
     expiresAt: { type: String, required: true },
     usedAt: String,

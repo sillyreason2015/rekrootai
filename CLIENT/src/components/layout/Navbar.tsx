@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Bell, ChevronDown, LogOut, Settings, User, CheckCheck, X, Moon, Sun, HelpCircle } from 'lucide-react'
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
@@ -9,6 +10,8 @@ import { notificationService, type Notification } from '../../services/notificat
 import { formatDistanceToNow } from 'date-fns'
 import { useTheme } from '../../contexts/ThemeContext'
 import BrandMark from '../brand/BrandMark'
+import api from '../../lib/axios'
+import { Button } from '../ui/button'
 
 function useNotifications() {
   return useQuery({
@@ -32,6 +35,7 @@ const typeIcon: Record<string, string> = {
   interview_scored: '📈',
   decision_made: '🏆',
   offer_extended: '🎉',
+  job_assigned: '🧭',
 }
 
 export default function Navbar() {
@@ -52,11 +56,30 @@ export default function Navbar() {
     mutationFn: (id: string) => notificationService.dismiss(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
   })
+  const [expandedNotification, setExpandedNotification] = useState<Notification | null>(null)
+  const [selectedTeamScope, setSelectedTeamScope] = useState(() => localStorage.getItem('selectedTeamScope') ?? '')
+  const { data: teamScopeData } = useQuery({
+    queryKey: ['company-teams'],
+    queryFn: () => api.get<{ teams: string[]; currentTeam: string | null }>('/companies/teams').then((r) => r.data),
+    enabled: Boolean(user?.companyName && user?.role !== 'candidate'),
+    retry: false,
+  })
   const { mode, resolved, setMode, toggleResolved } = useTheme()
 
   const handleNotifClick = (n: Notification) => {
     if (!n.read) markRead.mutate([n._id])
+    if (n.body.length > 180) {
+      setExpandedNotification(n)
+      return
+    }
     if (n.link) navigate(n.link)
+  }
+
+  const applyTeamScope = (value: string) => {
+    setSelectedTeamScope(value)
+    if (value) localStorage.setItem('selectedTeamScope', value)
+    else localStorage.removeItem('selectedTeamScope')
+    qc.invalidateQueries()
   }
 
   return (
@@ -72,6 +95,24 @@ export default function Navbar() {
 
         {/* Right */}
         <div className="flex items-center gap-2">
+          {user?.companyName && (
+            <div className="hidden items-center gap-2 rounded-full border border-border bg-background px-3 py-1 text-[11px] text-muted-foreground lg:flex">
+              <div className="flex flex-col">
+                <span className="font-medium text-foreground">{selectedTeamScope || user.teamName || user.companyName}</span>
+                <span>{user.companyName}</span>
+              </div>
+              {teamScopeData?.teams?.length ? (
+                <select
+                  className="rounded border border-input bg-background px-2 py-1 text-[11px]"
+                  value={selectedTeamScope}
+                  onChange={(e) => applyTeamScope(e.target.value)}
+                >
+                  <option value="">All accessible teams</option>
+                  {teamScopeData.teams.map((team) => <option key={team} value={team}>{team}</option>)}
+                </select>
+              ) : null}
+            </div>
+          )}
           <button
             aria-label="Toggle theme"
             onClick={toggleResolved}
@@ -143,7 +184,18 @@ export default function Navbar() {
                         <span className="mt-0.5 text-base">{typeIcon[n.type] ?? '🔔'}</span>
                         <div className="min-w-0 flex-1">
                           <p className={cn('text-sm', !n.read ? 'font-medium' : '')}>{n.title}</p>
-                          <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">{n.body}</p>
+                          <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                            {n.body.length > 180 ? `${n.body.slice(0, 180)}...` : n.body}
+                          </p>
+                          {n.body.length > 180 && (
+                            <button
+                              type="button"
+                              className="mt-1 text-[11px] font-medium text-primary"
+                              onClick={(e) => { e.stopPropagation(); setExpandedNotification(n) }}
+                            >
+                              Read more
+                            </button>
+                          )}
                           <p className="mt-1 text-[11px] text-muted-foreground">
                             {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
                           </p>
@@ -226,6 +278,27 @@ export default function Navbar() {
           </DropdownMenu.Root>
         </div>
       </div>
+      {expandedNotification && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-lg rounded-xl border bg-card shadow-xl">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <div>
+                <p className="font-medium">{expandedNotification.title}</p>
+                <p className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(expandedNotification.createdAt), { addSuffix: true })}</p>
+              </div>
+              <button type="button" onClick={() => setExpandedNotification(null)}><X className="h-4 w-4" /></button>
+            </div>
+            <div className="space-y-4 px-4 py-4">
+              <p className="whitespace-pre-wrap text-sm text-foreground/80">{expandedNotification.body}</p>
+              {expandedNotification.link && (
+                <Button size="sm" onClick={() => { const link = expandedNotification.link; setExpandedNotification(null); navigate(link!) }}>
+                  Open
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   )
 }

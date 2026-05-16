@@ -71,6 +71,19 @@ companyRouter.get('/team', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+companyRouter.get('/teams', async (req, res, next) => {
+  try {
+    const scope = await resolveCompanyContext(req.user!._id)
+    if (!scope.companyNames.length) return res.json({ teams: [], currentTeam: scope.teamName ?? null })
+    const [userTeams, jobTeams] = await Promise.all([
+      UserModel.distinct('teamName', { companyName: { $in: scope.companyNames } }),
+      scope.company?._id ? JobModel.distinct('teamName', { company: scope.company._id }) : [],
+    ])
+    const teams = [...new Set([...userTeams, ...jobTeams].map((value) => String(value ?? '').trim()).filter(Boolean))]
+    res.json({ teams, currentTeam: scope.teamName ?? null })
+  } catch (err) { next(err) }
+})
+
 // POST /companies/mine/logo - upload company logo (creates company doc if needed)
 companyRouter.post('/mine/logo', upload.single('logo'), async (req, res, next) => {
   try {

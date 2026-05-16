@@ -121,6 +121,10 @@ adminRouter.post('/team/invite/accept', async (req, res, next) => {
       lastName: lastName?.trim() || 'Member',
       companyName,
       teamName,
+      permissions: invite.permissions ?? (invitedRole === 'admin'
+        ? { canCreateJobs: true, canManageBilling: true, canManageTeam: true, canViewAllCandidates: true }
+        : { canCreateJobs: false, canManageBilling: false, canManageTeam: false, canViewAllCandidates: false }),
+      availabilityStatus: invitedRole === 'candidate' ? undefined : 'available',
       isVerified: true,
       onboardingComplete: invitedRole !== 'candidate',
     })
@@ -223,7 +227,9 @@ adminRouter.get('/team', async (_req, res, next) => {
 
 adminRouter.post('/team/invite', async (req, res, next) => {
   try {
-    const { email, role, teamName: requestedTeamName } = req.body as { email?: string; role?: string; teamName?: string }
+    const { email, role, teamName: requestedTeamName, permissions } = req.body as {
+      email?: string; role?: string; teamName?: string; permissions?: Record<string, boolean>
+    }
     if (!email || !role) throw new HttpError(400, 'email and role are required')
     const existing = await UserModel.findOne({ email: email.toLowerCase() }).lean()
     if (existing) throw new HttpError(409, 'User already exists with that email')
@@ -240,6 +246,9 @@ adminRouter.post('/team/invite', async (req, res, next) => {
       role: role as 'candidate' | 'recruiter' | 'admin' | 'super_admin',
       companyName: companyName ?? undefined,
       teamName: inviteTeamName ?? undefined,
+      permissions: permissions ?? (role === 'admin'
+        ? { canCreateJobs: true, canManageBilling: true, canManageTeam: true, canViewAllCandidates: true }
+        : { canCreateJobs: false, canManageBilling: false, canManageTeam: false, canViewAllCandidates: false }),
       invitedBy: req.user!._id,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     })
@@ -252,7 +261,7 @@ adminRouter.post('/team/invite', async (req, res, next) => {
     } catch (mailErr) {
       console.error('[admin] Failed to send invite email:', mailErr)
     }
-    await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role, teamName: inviteTeamName } })
+    await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role, teamName: inviteTeamName, permissions: permissions ?? {} } })
     res.status(201).json({ ok: true, token, inviteToken: token })
   } catch (err) { next(err) }
 })
