@@ -37,11 +37,7 @@ const schema = z.object({
   MICROSOFT_CLIENT_SECRET: z.string().optional(),
   MICROSOFT_TENANT_ID: z.string().default('common'),
   MICROSOFT_CALLBACK_URL: z.string().url().optional(),
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().optional(),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASS: z.string().optional(),
-  EMAIL_FROM: z.string().optional(),
+  MAILERSEND_API_KEY: z.string().optional(),
 })
 
 const parsedEnv = schema.parse(process.env)
