@@ -1,74 +1,44 @@
-import nodemailer from 'nodemailer'
+import { MailerSend, EmailParams, Sender, Recipient } from 'mailersend'
 import { env } from '../config/env.js'
 
-function makeTransport() {
-  if (!env.SMTP_HOST || !env.SMTP_USER || !env.SMTP_PASS) return null
+const FROM_EMAIL = 'noreply@test-r83ql3p3dvxgzw1j.mlsender.net'
+const FROM_NAME = 'RekrootAI'
 
-  const isGmail = env.SMTP_HOST.toLowerCase().includes('gmail')
-  const isOutlook = env.SMTP_HOST.toLowerCase().includes('outlook') || env.SMTP_HOST.toLowerCase().includes('office365')
-
-  // Gmail and Outlook work best with their named service shortcuts
-  if (isGmail) {
-    return nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    })
-  }
-
-  if (isOutlook) {
-    return nodemailer.createTransport({
-      service: 'Outlook365',
-      auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 15000,
-    })
-  }
-
-  // Generic SMTP
-  return nodemailer.createTransport({
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT ?? 587,
-    secure: (env.SMTP_PORT ?? 587) === 465,
-    auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-  })
+function getClient() {
+  if (!env.MAILERSEND_API_KEY) throw new Error('MAILERSEND_API_KEY is not configured')
+  return new MailerSend({ apiKey: env.MAILERSEND_API_KEY })
 }
 
-const transport = makeTransport()
+async function send(to: string, subject: string, text: string, html?: string) {
+  const mailer = getClient()
+  const params = new EmailParams()
+    .setFrom(new Sender(FROM_EMAIL, FROM_NAME))
+    .setTo([new Recipient(to)])
+    .setSubject(subject)
+    .setText(text)
+  if (html) params.setHtml(html)
+  await mailer.email.send(params)
+}
 
-/** Quick connectivity test — call once at startup to log whether SMTP is reachable. */
 export async function verifySmtpConnection(): Promise<boolean> {
-  if (!transport) {
-    console.warn('[mail] SMTP not configured — emails will be logged to console only')
+  if (!env.MAILERSEND_API_KEY) {
+    console.warn('[mail] MAILERSEND_API_KEY not configured — emails will be logged to console only')
     return false
   }
-  try {
-    await transport.verify()
-    console.log('[mail] SMTP connection verified ✓')
-    return true
-  } catch (err) {
-    console.error('[mail] SMTP connection FAILED:', err)
-    return false
-  }
+  console.log('[mail] MailerSend configured ✓')
+  return true
 }
 
 export async function sendOtpEmail(to: string, otp: string, firstName: string): Promise<void> {
-  if (!transport) {
-    console.warn(`[mail] SMTP not configured — OTP for ${to}: ${otp}`)
+  if (!env.MAILERSEND_API_KEY) {
+    console.warn(`[mail] MailerSend not configured — OTP for ${to}: ${otp}`)
     return
   }
-  await transport.sendMail({
-    from: `"RekrootAI" <${env.EMAIL_FROM ?? env.SMTP_USER}>`,
+  await send(
     to,
-    subject: `${otp} is your RekrootAI verification code`,
-    text: `Hi ${firstName},\n\nYour verification code is: ${otp}\n\nIt expires in 10 minutes.\n\nIf you didn't create an account, ignore this email.`,
-    html: `
+    `${otp} is your RekrootAI verification code`,
+    `Hi ${firstName},\n\nYour verification code is: ${otp}\n\nIt expires in 10 minutes.\n\nIf you didn't create an account, ignore this email.`,
+    `
       <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px">
         <h2 style="margin:0 0 8px;font-size:22px;color:#0f172a">Verify your email</h2>
         <p style="margin:0 0 24px;color:#475569">Hi ${firstName}, enter this code to activate your account:</p>
@@ -78,35 +48,28 @@ export async function sendOtpEmail(to: string, otp: string, firstName: string): 
         <p style="color:#94a3b8;font-size:13px;margin:0">Expires in <strong>10 minutes</strong>. Didn't sign up? You can safely ignore this.</p>
       </div>
     `,
-  })
+  )
 }
 
 export async function sendEmail(input: { to: string; subject: string; text: string; html?: string }): Promise<void> {
-  if (!transport) {
-    console.warn(`[mail] SMTP not configured — would have sent to ${input.to}: ${input.subject}`)
+  if (!env.MAILERSEND_API_KEY) {
+    console.warn(`[mail] MailerSend not configured — would have sent to ${input.to}: ${input.subject}`)
     return
   }
-  await transport.sendMail({
-    from: `"RekrootAI" <${env.EMAIL_FROM ?? env.SMTP_USER}>`,
-    to: input.to,
-    subject: input.subject,
-    text: input.text,
-    html: input.html,
-  })
+  await send(input.to, input.subject, input.text, input.html)
 }
 
 export async function sendInviteEmail(to: string, inviteUrl: string, inviterName?: string): Promise<void> {
-  if (!transport) {
-    console.warn(`[mail] SMTP not configured - invite for ${to}: ${inviteUrl}`)
+  if (!env.MAILERSEND_API_KEY) {
+    console.warn(`[mail] MailerSend not configured — invite for ${to}: ${inviteUrl}`)
     return
   }
   const inviter = inviterName?.trim() || 'A RekrootAI admin'
-  await transport.sendMail({
-    from: `"RekrootAI" <${env.EMAIL_FROM ?? env.SMTP_USER}>`,
+  await send(
     to,
-    subject: 'You have been invited to join a RekrootAI workspace',
-    text: `Hello,\n\n${inviter} invited you to join their RekrootAI hiring workspace.\n\nAccept invite: ${inviteUrl}\n\nIf you were not expecting this, you can ignore this email.`,
-    html: `
+    'You have been invited to join a RekrootAI workspace',
+    `Hello,\n\n${inviter} invited you to join their RekrootAI hiring workspace.\n\nAccept invite: ${inviteUrl}\n\nIf you were not expecting this, you can ignore this email.`,
+    `
       <div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px">
         <h2 style="margin:0 0 8px;color:#0f172a">Workspace Invitation</h2>
         <p style="color:#334155">${inviter} invited you to join their RekrootAI hiring workspace.</p>
@@ -114,5 +77,5 @@ export async function sendInviteEmail(to: string, inviteUrl: string, inviterName
         <p style="color:#64748b;font-size:13px">If the button does not work, copy this link:<br/>${inviteUrl}</p>
       </div>
     `,
-  })
+  )
 }

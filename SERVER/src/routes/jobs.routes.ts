@@ -6,7 +6,7 @@ import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
 import { notify } from '../lib/notify.js'
 import { buildTeamScopedJobFilter, pickRoundRobinRecruiter, resolveEffectiveTeamScope, resolveWorkspaceScope } from '../lib/workspace.js'
-import { sendEmail } from '../lib/email.js'
+import { sendEmail } from '../lib/mail.js'
 
 export const jobsRouter = Router()
 
