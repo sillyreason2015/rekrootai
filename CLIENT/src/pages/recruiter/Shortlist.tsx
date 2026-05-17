@@ -704,18 +704,6 @@ export default function Shortlist() {
                         <span className={cn('inline-block rounded-full px-2 py-0.5 text-[11px] font-medium mt-0.5', stageBadge(app.stage))}>
                           {stageLabel(app.stage)}
                         </span>
-                        {thresholdBreaches.length > 0 && (
-                          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                            {thresholdBreaches.map((breach) => (
-                              <span
-                                key={`${breach.label}-${breach.threshold}`}
-                                className="inline-block rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700"
-                              >
-                                {breach.label} below threshold ({breach.value.toFixed(0)}% {'<'} {breach.threshold.toFixed(0)}%)
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
 
                       {/* Score */}
@@ -849,6 +837,20 @@ export default function Shortlist() {
                         {isExpand ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                       </button>
                     </div>
+
+                    {/* Threshold breach strip */}
+                    {thresholdBreaches.length > 0 && (
+                      <div className="border-t px-4 py-2 flex flex-wrap gap-2">
+                        {thresholdBreaches.map((breach) => (
+                          <span
+                            key={`${breach.label}-${breach.threshold}`}
+                            className="inline-block rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700"
+                          >
+                            {breach.label} below threshold ({breach.value.toFixed(0)}% &lt; {breach.threshold.toFixed(0)}%)
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
                     {/* AI suggestion strip */}
                     {!isOverrideMode && (
