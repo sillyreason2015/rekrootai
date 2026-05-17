@@ -409,8 +409,8 @@ export default function Shortlist() {
 
   const mutOpts = { onSuccess: () => qc.invalidateQueries({ queryKey: ['applications', selectedJob] }) }
 
-  const shortlistMutation  = useMutation({ mutationFn: (id: string) => applicationService.shortlist(id), ...mutOpts })
-  const rejectMutation     = useMutation({ mutationFn: (id: string) => applicationService.reject(id), ...mutOpts })
+  const shortlistMutation  = useMutation({ mutationFn: (id: string) => applicationService.shortlist(id, mode.toLowerCase()), ...mutOpts })
+  const rejectMutation     = useMutation({ mutationFn: (id: string) => applicationService.reject(id, undefined, mode.toLowerCase()), ...mutOpts })
   const sendAssessmentMutation = useMutation({ mutationFn: (id: string) => applicationService.sendAssessment(id, 60), ...mutOpts })
   const undoAssessmentMutation = useMutation({ mutationFn: (id: string) => applicationService.undoAssessment(id), ...mutOpts })
   const fairnessMutation   = useMutation({ mutationFn: (id: string) => applicationService.runFairnessGate(id), ...mutOpts })
@@ -785,11 +785,16 @@ export default function Shortlist() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                              className="text-blue-700 border-blue-200 hover:bg-blue-50 disabled:opacity-50"
                               onClick={() => setScheduleFor(isScheduling ? null : app._id)}
+                              disabled={!extApp.fairnessComputedAt}
+                              title={!extApp.fairnessComputedAt ? 'Run the Fairness gate before advancing to interview' : undefined}
                             >
                               <Calendar className="h-3.5 w-3.5" /> Advance to Interview
                             </Button>
+                            {!extApp.fairnessComputedAt && (
+                              <span className="text-[11px] text-amber-600 font-medium">⚠ Fairness check required</span>
+                            )}
                             {/* Only allow reset if candidate hasn't started yet */}
                             {(!app.assessmentStatus || app.assessmentStatus === 'pending') && (
                             <Button
@@ -940,7 +945,6 @@ export default function Shortlist() {
                           {[
                             { label: 'Resume',     value: app.scores?.resume },
                             { label: 'Assessment', value: app.scores?.assessment },
-                            { label: 'Fairness',   value: app.scores?.penalty },
                             { label: 'Interview',  value: app.scores?.interview },
                           ].map(({ label, value }) => (
                             <div key={label} className="rounded-lg border bg-muted/30 p-3 text-center">
@@ -950,6 +954,19 @@ export default function Shortlist() {
                               </p>
                             </div>
                           ))}
+                          {/* Fairness — special display: penalty=0 means passed */}
+                          <div className="rounded-lg border bg-muted/30 p-3 text-center">
+                            <p className="text-xs text-muted-foreground">Fairness</p>
+                            {extApp.fairnessComputedAt ? (
+                              app.scores?.penalty !== undefined && app.scores.penalty > 0 ? (
+                                <p className="mt-1 text-lg font-bold text-red-600">-{app.scores.penalty.toFixed(0)}%</p>
+                              ) : (
+                                <p className="mt-1 text-sm font-bold text-emerald-600">✓ Passed</p>
+                              )
+                            ) : (
+                              <p className="mt-1 text-sm text-amber-600 font-medium">Pending</p>
+                            )}
+                          </div>
                         </div>
                         {extApp.interviewScheduledAt && (
                           <p className="text-xs text-muted-foreground">
