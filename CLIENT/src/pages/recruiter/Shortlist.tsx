@@ -884,22 +884,45 @@ export default function Shortlist() {
                         )}
 
                         {app.stage === 'assessment' && (
-                          <>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {/* Assessment status badge */}
+                            {app.assessmentStatus && (
+                              <span className={cn(
+                                'rounded-full px-2 py-0.5 text-[11px] font-medium border',
+                                app.assessmentStatus === 'completed' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+                                app.assessmentStatus === 'in_progress' ? 'bg-blue-50 border-blue-200 text-blue-700' :
+                                app.assessmentStatus === 'expired' ? 'bg-red-50 border-red-200 text-red-700' :
+                                'bg-amber-50 border-amber-200 text-amber-700'
+                              )}>
+                                Assessment: {app.assessmentStatus === 'in_progress' ? 'In progress' : app.assessmentStatus === 'completed' ? 'Completed' : app.assessmentStatus === 'expired' ? 'Expired' : 'Sent — awaiting start'}
+                              </span>
+                            )}
                             <Button
                               size="sm"
                               variant="outline"
-                              className="gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
-                              onClick={() => undoAssessmentMutation.mutate(app._id)}
-                              disabled={undoAssessmentMutation.isPending}
+                              className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                              onClick={() => setScheduleFor(isScheduling ? null : app._id)}
                             >
-                              <ArrowRight className="h-3.5 w-3.5 rotate-180" /> Reset Assessment
+                              <Calendar className="h-3.5 w-3.5" /> Advance to Interview
                             </Button>
+                            {/* Only allow reset if candidate hasn't started yet */}
+                            {(!app.assessmentStatus || app.assessmentStatus === 'pending') && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                                onClick={() => undoAssessmentMutation.mutate(app._id)}
+                                disabled={undoAssessmentMutation.isPending}
+                              >
+                                <ArrowRight className="h-3.5 w-3.5 rotate-180" /> Reset Assessment
+                              </Button>
+                            )}
                             <Button size="sm" variant="outline" className="gap-1 text-purple-600 border-purple-200 hover:bg-purple-50"
                               onClick={() => fairnessMutation.mutate(app._id)} disabled={fairnessMutation.isPending}>
                               <Shield className="h-3.5 w-3.5" /> Run Fairness
                             </Button>
                             <InfoTip content="Checks for demographic parity before confirming a shortlist decision." />
-                          </>
+                          </div>
                         )}
                         {!['decision', 'rejected', 'offered'].includes(app.stage) && (
                           <Button size="sm" variant="outline" className="text-destructive border-destructive/20 hover:bg-destructive/5"
