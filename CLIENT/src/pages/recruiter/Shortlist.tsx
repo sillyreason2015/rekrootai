@@ -695,28 +695,31 @@ export default function Shortlist() {
                 <Card key={app._id} className={cn('transition-all', app.stage === 'rejected' ? 'opacity-50' : '', app.stage === 'decision' ? 'border-emerald-200' : '')}>
                   <CardContent className="p-0">
                     {/* Header row */}
-                    <div className="flex items-center gap-3 p-4 flex-wrap">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
-                        {initials}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium">{name}</p>
-                        <span className={cn('inline-block rounded-full px-2 py-0.5 text-[11px] font-medium mt-0.5', stageBadge(app.stage))}>
-                          {stageLabel(app.stage)}
-                        </span>
-                      </div>
-
-                      {/* Score */}
-                      {(app.scores?.final ?? 0) > 0 && (
-                        <div className="flex items-center gap-1 shrink-0">
-                          <div className={cn('rounded-full border px-3 py-1 text-sm font-bold', scoreBg(app.scores?.final ?? 0))}>
-                            {(app.scores?.final ?? 0).toFixed(0)}%
-                          </div>
-                          <InfoTip content="Weighted composite of CV match, assessment, and interview. Hover the breakdown below for details." />
+                    <div className="p-4 space-y-3">
+                      {/* Identity row — never wraps */}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
+                          {initials}
                         </div>
-                      )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium truncate">{name}</p>
+                          <span className={cn('inline-block rounded-full px-2 py-0.5 text-[11px] font-medium mt-0.5', stageBadge(app.stage))}>
+                            {stageLabel(app.stage)}
+                          </span>
+                        </div>
+                        {/* Score */}
+                        {(app.scores?.final ?? 0) > 0 && (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <div className={cn('rounded-full border px-3 py-1 text-sm font-bold', scoreBg(app.scores?.final ?? 0))}>
+                              {(app.scores?.final ?? 0).toFixed(0)}%
+                            </div>
+                            <InfoTip content="Weighted composite of CV match, assessment, and interview. Hover the breakdown below for details." />
+                          </div>
+                        )}
+                      </div>
 
-                      {/* Action buttons */}
+                      {/* Action buttons — wraps freely */}
+                      <div className="flex items-center gap-2 flex-wrap">
                       {!isOverrideMode && (
                         <Button size="sm" variant="outline" className="gap-1"
                           onClick={() => setShowExplanation(isExplaining ? null : app._id)}>
@@ -753,9 +756,6 @@ export default function Shortlist() {
                       )}
 
                       {!isOverrideMode && <AiBadge />}
-
-                      {/* Pipeline action buttons */}
-                      <div className="flex items-center gap-1.5 flex-wrap">
                         {app.stage === 'applied' && (
                           <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
                             onClick={() => shortlistMutation.mutate(app._id)} disabled={shortlistMutation.isPending}>
@@ -831,11 +831,10 @@ export default function Shortlist() {
                             <ArrowRight className="h-3.5 w-3.5 rotate-180" /> Undo Veto
                           </Button>
                         )}
+                        <button onClick={() => setExpanded(isExpand ? null : app._id)} className="p-1 text-muted-foreground shrink-0 ml-auto">
+                          {isExpand ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </button>
                       </div>
-
-                      <button onClick={() => setExpanded(isExpand ? null : app._id)} className="p-1 text-muted-foreground shrink-0">
-                        {isExpand ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                      </button>
                     </div>
 
                     {/* Threshold breach strip */}
