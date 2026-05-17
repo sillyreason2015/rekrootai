@@ -84,20 +84,24 @@ export default function Assessment() {
       if (!assessment || activeModule === null) return
       setSubmitError('')
       localStorage.removeItem(getAssessmentStorageKey(assessment._id, activeModule))
-      const refreshed = await refetch()
-      const latest = refreshed.data
-      // Only complete if we have confirmed data showing no remaining modules
-      const hasRemainingModules = latest
-        ? latest.modules.some((module) => !module.completedAt)
-        : true // assume remaining if refetch failed — don't prematurely complete
 
-      if (!hasRemainingModules) {
+      // Determine remaining modules locally — don't trust refetch timing
+      // The module at activeModule was just submitted so exclude it from remaining count
+      const remainingModules = assessment.modules.filter(
+        (m, i) => i !== activeModule && !m.completedAt
+      )
+
+      if (remainingModules.length === 0) {
+        // Last module done — complete the assessment and redirect
         void assessmentService.complete(assessment._id).finally(() => {
           finishAssessmentSession(assessment._id, assessment.modules.length)
           navigate('/candidate/applications')
         })
         return
       }
+
+      // More modules remain — refresh data and return to lobby
+      await refetch()
       setAnswers({})
       setAutoSubmitting(false)
       setActiveModule(null)
