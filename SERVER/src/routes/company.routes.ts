@@ -155,7 +155,16 @@ companyRouter.post('/invite', async (req, res, next) => {
     })
     const frontendBase = env.CORS_ORIGINS[0] ?? 'http://localhost:3000'
     const inviteUrl = `${frontendBase}/accept-invite?token=${encodeURIComponent(token)}`
-    await sendInviteEmail(email.toLowerCase(), inviteUrl, me ? `${me.firstName} ${me.lastName}` : 'A RekrootAI recruiter')
-    res.status(201).json({ ok: true, inviteUrl, expiresAt })
+    let emailSent = true
+    let emailError: string | undefined
+    try {
+      await sendInviteEmail(email.toLowerCase(), inviteUrl, me ? `${me.firstName} ${me.lastName}` : 'A RekrootAI recruiter')
+    } catch (mailErr: unknown) {
+      emailSent = false
+      const msg = (mailErr as { message?: string })?.message ?? String(mailErr)
+      emailError = msg
+      console.error('[invite] MailerSend error:', msg)
+    }
+    res.status(201).json({ ok: true, inviteUrl, expiresAt, emailSent, emailError })
   } catch (err) { next(err) }
 })

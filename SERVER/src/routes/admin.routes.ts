@@ -274,9 +274,18 @@ adminRouter.post('/team/invite', async (req, res, next) => {
     const { sendInviteEmail } = await import('../lib/mail.js')
     const inviteBase = env.CORS_ORIGINS[0] ?? process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'
     const inviteUrl = `${inviteBase}/accept-invite?token=${encodeURIComponent(token)}`
-    await sendInviteEmail(email, inviteUrl, req.user?.email)
+    let emailSent = true
+    let emailError: string | undefined
+    try {
+      await sendInviteEmail(email, inviteUrl, req.user?.email)
+    } catch (mailErr: unknown) {
+      emailSent = false
+      const msg = (mailErr as { message?: string })?.message ?? String(mailErr)
+      emailError = msg
+      console.error('[admin] MailerSend error:', msg)
+    }
     await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role, teamName: inviteTeamName, permissions: permissions ?? {} } })
-    res.status(201).json({ ok: true, token, inviteToken: token })
+    res.status(201).json({ ok: true, token, inviteToken: token, inviteUrl, emailSent, emailError })
   } catch (err) { next(err) }
 })
 

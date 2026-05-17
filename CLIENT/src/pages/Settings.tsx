@@ -289,6 +289,8 @@ export default function Settings() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteError, setInviteError] = useState('')
   const [inviteSent, setInviteSent] = useState(false)
+  const [inviteUrl, setInviteUrl] = useState('')
+  const [inviteEmailFailed, setInviteEmailFailed] = useState(false)
 
   const { data: teamData } = useQuery<{ members: Array<{ _id: string; firstName: string; lastName: string; email: string; role: string }> }>({
     queryKey: ['company-team'],
@@ -297,13 +299,15 @@ export default function Settings() {
   })
 
   const sendInvite = useMutation({
-    mutationFn: (email: string) => api.post('/companies/invite', { email }),
-    onSuccess: () => {
+    mutationFn: (email: string) => api.post<{ ok: boolean; inviteUrl?: string; emailSent?: boolean }>('/companies/invite', { email }).then(r => r.data),
+    onSuccess: (data) => {
       setInviteEmail('')
       setInviteError('')
       setInviteSent(true)
+      setInviteEmailFailed(!data.emailSent)
+      setInviteUrl(data.inviteUrl ?? '')
       qc.invalidateQueries({ queryKey: ['company-team'] })
-      setTimeout(() => setInviteSent(false), 4000)
+      if (data.emailSent) setTimeout(() => setInviteSent(false), 5000)
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -918,9 +922,19 @@ export default function Settings() {
                 <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
                   <p className="text-sm font-medium">Invite a colleague</p>
                   <p className="text-xs text-muted-foreground">They'll receive an email with a link to join your workspace as a recruiter.</p>
-                  {inviteSent && (
+                  {inviteSent && !inviteEmailFailed && (
                     <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                      <CheckCircle2 className="h-4 w-4" /> Invite sent successfully!
+                      <CheckCircle2 className="h-4 w-4" /> Invite email sent successfully!
+                    </div>
+                  )}
+                  {inviteSent && inviteEmailFailed && inviteUrl && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 space-y-1">
+                      <p className="font-medium">Invite created — email could not be delivered.</p>
+                      <p className="text-xs">Share this link manually with the invitee:</p>
+                      <div className="flex items-center gap-2">
+                        <span className="break-all text-xs font-mono bg-white border rounded px-2 py-1 flex-1">{inviteUrl}</span>
+                        <button onClick={() => navigator.clipboard.writeText(inviteUrl)} className="shrink-0 text-xs underline">Copy</button>
+                      </div>
                     </div>
                   )}
                   {inviteError && (

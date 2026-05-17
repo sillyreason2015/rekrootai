@@ -20,6 +20,7 @@ export default function TeamManagement() {
   const [inviteSent, setInviteSent] = useState(false)
   const [inviteSummary, setInviteSummary] = useState('')
   const [inviteLink, setInviteLink] = useState('')
+  const [inviteEmailFailed, setInviteEmailFailed] = useState(false)
 
   const { data: team, isLoading } = useQuery({
     queryKey: ['admin-team'],
@@ -29,11 +30,13 @@ export default function TeamManagement() {
   const inviteMutation = useMutation({
     mutationFn: () => adminService.inviteTeamMember({ email, role, teamName }),
     onSuccess: (data) => {
+      const d = data as { inviteToken?: string; inviteUrl?: string; emailSent?: boolean }
       setInviteSent(true)
+      setInviteEmailFailed(d.emailSent === false)
       setInviteSummary(`${role === 'admin' ? 'Admin + job creator' : 'Recruiter'} invited to ${teamName || 'this team'}.`)
       setEmail('')
-      const token = (data as { inviteToken?: string })?.inviteToken
-      if (token) setInviteLink(`${window.location.origin}/accept-invite?token=${encodeURIComponent(token)}`)
+      const url = d.inviteUrl ?? (d.inviteToken ? `${window.location.origin}/accept-invite?token=${encodeURIComponent(d.inviteToken)}` : '')
+      setInviteLink(url)
     },
   })
 
@@ -63,10 +66,20 @@ export default function TeamManagement() {
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader><CardTitle>Invite Team Member</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          {inviteSent && (
+          {inviteSent && !inviteEmailFailed && (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-              Invitation sent successfully. {inviteSummary}
-              {inviteLink && <div className="mt-1 break-all text-xs">{inviteLink}</div>}
+              Invitation email sent. {inviteSummary}
+              {inviteLink && <div className="mt-1 break-all text-xs font-mono">{inviteLink}</div>}
+            </div>
+          )}
+          {inviteSent && inviteEmailFailed && inviteLink && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 space-y-1">
+              <p className="font-medium">Invite created — email could not be delivered.</p>
+              <p className="text-xs">{inviteSummary} Share this link manually:</p>
+              <div className="flex items-center gap-2">
+                <span className="break-all text-xs font-mono bg-white border rounded px-2 py-1 flex-1">{inviteLink}</span>
+                <button onClick={() => navigator.clipboard.writeText(inviteLink)} className="shrink-0 text-xs underline">Copy</button>
+              </div>
             </div>
           )}
           <div className="grid gap-4 md:grid-cols-3">
