@@ -271,15 +271,10 @@ adminRouter.post('/team/invite', async (req, res, next) => {
       invitedBy: req.user!._id,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     })
-    // Best-effort email — don't let SMTP failure block the invite creation
-    try {
-      const { sendInviteEmail } = await import('../lib/mail.js')
-      const inviteBase = env.CORS_ORIGINS[0] ?? process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'
-      const inviteUrl = `${inviteBase}/accept-invite?token=${encodeURIComponent(token)}`
-      await sendInviteEmail(email, inviteUrl, req.user?.email)
-    } catch (mailErr) {
-      console.error('[admin] Failed to send invite email:', mailErr)
-    }
+    const { sendInviteEmail } = await import('../lib/mail.js')
+    const inviteBase = env.CORS_ORIGINS[0] ?? process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'
+    const inviteUrl = `${inviteBase}/accept-invite?token=${encodeURIComponent(token)}`
+    await sendInviteEmail(email, inviteUrl, req.user?.email)
     await logAction({ actor: 'user', action: 'team-invite', mode: 'assist', payload: { email, role, teamName: inviteTeamName, permissions: permissions ?? {} } })
     res.status(201).json({ ok: true, token, inviteToken: token })
   } catch (err) { next(err) }

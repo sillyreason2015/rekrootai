@@ -5,7 +5,7 @@ const FROM_EMAIL = 'noreply@test-r83ql3p3dvxgzw1j.mlsender.net'
 const FROM_NAME = 'RekrootAI'
 
 function getClient() {
-  if (!env.MAILERSEND_API_KEY) throw new Error('MAILERSEND_API_KEY is not configured')
+  if (!env.MAILERSEND_API_KEY) throw new Error('Email service is not configured — MAILERSEND_API_KEY is missing')
   return new MailerSend({ apiKey: env.MAILERSEND_API_KEY })
 }
 
@@ -22,7 +22,7 @@ async function send(to: string, subject: string, text: string, html?: string) {
 
 export async function verifySmtpConnection(): Promise<boolean> {
   if (!env.MAILERSEND_API_KEY) {
-    console.warn('[mail] MAILERSEND_API_KEY not configured — emails will be logged to console only')
+    console.error('[mail] MAILERSEND_API_KEY is not set — email sending will fail')
     return false
   }
   console.log('[mail] MailerSend configured ✓')
@@ -30,10 +30,6 @@ export async function verifySmtpConnection(): Promise<boolean> {
 }
 
 export async function sendOtpEmail(to: string, otp: string, firstName: string): Promise<void> {
-  if (!env.MAILERSEND_API_KEY) {
-    console.warn(`[mail] MailerSend not configured — OTP for ${to}: ${otp}`)
-    return
-  }
   await send(
     to,
     `${otp} is your RekrootAI verification code`,
@@ -52,18 +48,10 @@ export async function sendOtpEmail(to: string, otp: string, firstName: string): 
 }
 
 export async function sendEmail(input: { to: string; subject: string; text: string; html?: string }): Promise<void> {
-  if (!env.MAILERSEND_API_KEY) {
-    console.warn(`[mail] MailerSend not configured — would have sent to ${input.to}: ${input.subject}`)
-    return
-  }
   await send(input.to, input.subject, input.text, input.html)
 }
 
 export async function sendInviteEmail(to: string, inviteUrl: string, inviterName?: string): Promise<void> {
-  if (!env.MAILERSEND_API_KEY) {
-    console.warn(`[mail] MailerSend not configured — invite for ${to}: ${inviteUrl}`)
-    return
-  }
   const inviter = inviterName?.trim() || 'A RekrootAI admin'
   await send(
     to,
