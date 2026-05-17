@@ -267,13 +267,15 @@ applicationsRouter.get('/:id', requireAuth, async (req, res, next) => {
 
 applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
+    const { mode: actionMode } = req.body as { mode?: string }
+    const logMode = ['assist', 'veto', 'override'].includes(actionMode ?? '') ? actionMode as 'assist' | 'veto' | 'override' : 'assist'
     const current = await ApplicationModel.findById(req.params.id).lean()
     if (!current) throw new HttpError(404, 'Application not found')
     assertStage(current.stage, ['applied'], 'Shortlisting')
     const app = await ApplicationModel.findByIdAndUpdate(req.params.id, { status: 'shortlisted', stage: 'screening' }, { new: true }).lean()
     if (!app) throw new HttpError(404, 'Application not found')
     const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
-    await logAction({ actor: 'user', action: 'shortlisted', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist' })
+    await logAction({ actor: 'user', action: logMode === 'override' ? 'override-shortlisted' : 'shortlisted', candidateId: String(app.candidate), jobId: String(app.job), mode: logMode, payload: logMode === 'override' ? { note: 'Recruiter manually overrode AI recommendation' } : undefined })
     await notifyCandidate(String(app.candidate), { type: 'shortlisted', title: 'Application progressed', body: 'A recruiter has started reviewing your application.', link: '/candidate/applications' })
     await emailCandidate(String(app.candidate), {
       subject: `[${job?.title ?? 'Your application'}] Application shortlisted`,
@@ -286,7 +288,8 @@ applicationsRouter.post('/:id/shortlist', requireAuth, requireRole('recruiter', 
 
 applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const { reason } = req.body as { reason?: string }
+    const { reason, mode: actionMode } = req.body as { reason?: string; mode?: string }
+    const logMode = ['assist', 'veto', 'override'].includes(actionMode ?? '') ? actionMode as 'assist' | 'veto' | 'override' : 'assist'
     const app = await ApplicationModel.findByIdAndUpdate(
       req.params.id,
       { status: 'rejected', stage: 'rejected', recruiterNotes: reason },
@@ -294,7 +297,7 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
     ).lean()
     if (!app) throw new HttpError(404, 'Application not found')
     const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
-    await logAction({ actor: 'user', action: 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { decision: reason } })
+    await logAction({ actor: 'user', action: logMode === 'override' ? 'override-rejected' : 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: logMode, payload: { decision: reason, ...(logMode === 'override' ? { note: 'Recruiter manually overrode AI recommendation' } : {}) } })
     await notifyCandidate(String(app.candidate), { type: 'fairness_rejected', title: 'Application closed', body: reason?.trim() || 'Your application was not progressed further for this role.', link: `/candidate/explanation/${String(app._id)}` })
     await emailCandidate(String(app.candidate), {
       subject: `[${job?.title ?? 'Your application'}] Application update`,

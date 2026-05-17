@@ -446,14 +446,14 @@ export default function Shortlist() {
   const mutOpts = { onSuccess: () => invalidateApplications(), onError: mutationError('Please try again in a moment.') }
 
   const shortlistMutation  = useMutation({
-    mutationFn: (id: string) => applicationService.shortlist(id),
+    mutationFn: (id: string) => applicationService.shortlist(id, mode.toLowerCase()),
     ...mutOpts,
     onMutate: (id: string) => patchApplicationStage(id, { stage: 'screening' }),
     onError: (error, _id, context) => { rollbackApplications(context); mutationError('Please try again in a moment.')(error) },
     onSuccess: () => { invalidateApplications(); toast({ title: 'Candidate shortlisted', description: 'The candidate moved into screening.' }) },
   })
   const rejectMutation     = useMutation({
-    mutationFn: (id: string) => applicationService.reject(id),
+    mutationFn: (id: string) => applicationService.reject(id, undefined, mode.toLowerCase()),
     ...mutOpts,
     onMutate: (id: string) => patchApplicationStage(id, { stage: 'rejected', status: 'rejected' }),
     onError: (error, _id, context) => { rollbackApplications(context); mutationError('Please try again in a moment.')(error) },
@@ -900,11 +900,16 @@ export default function Shortlist() {
                             <Button
                               size="sm"
                               variant="outline"
-                              className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                              className="text-blue-700 border-blue-200 hover:bg-blue-50 disabled:opacity-50"
                               onClick={() => setScheduleFor(isScheduling ? null : app._id)}
+                              disabled={!extApp.fairnessComputedAt}
+                              title={!extApp.fairnessComputedAt ? 'Run the Fairness gate before advancing to interview' : undefined}
                             >
                               <Calendar className="h-3.5 w-3.5" /> Advance to Interview
                             </Button>
+                            {!extApp.fairnessComputedAt && (
+                              <span className="text-[11px] text-amber-600 font-medium">⚠ Fairness check required</span>
+                            )}
                             {/* Only allow reset if candidate hasn't started yet */}
                             {(!app.assessmentStatus || app.assessmentStatus === 'pending') && (
                               <Button
@@ -1037,7 +1042,6 @@ export default function Shortlist() {
                           {[
                             { label: 'Resume',     value: app.scores?.resume },
                             { label: 'Assessment', value: app.scores?.assessment },
-                            { label: 'Fairness',   value: app.scores?.penalty },
                             { label: 'Interview',  value: app.scores?.interview },
                           ].map(({ label, value }) => (
                             <div key={label} className="rounded-lg border bg-muted/30 p-3 text-center">
@@ -1047,6 +1051,19 @@ export default function Shortlist() {
                               </p>
                             </div>
                           ))}
+                          {/* Fairness — special display: penalty=0 means passed */}
+                          <div className="rounded-lg border bg-muted/30 p-3 text-center">
+                            <p className="text-xs text-muted-foreground">Fairness</p>
+                            {extApp.fairnessComputedAt ? (
+                              app.scores?.penalty !== undefined && app.scores.penalty > 0 ? (
+                                <p className="mt-1 text-lg font-bold text-red-600">-{app.scores.penalty.toFixed(0)}%</p>
+                              ) : (
+                                <p className="mt-1 text-sm font-bold text-emerald-600">✓ Passed</p>
+                              )
+                            ) : (
+                              <p className="mt-1 text-sm text-amber-600 font-medium">Pending</p>
+                            )}
+                          </div>
                         </div>
                         {extApp.interviewScheduledAt && (
                           <p className="text-xs text-muted-foreground">
