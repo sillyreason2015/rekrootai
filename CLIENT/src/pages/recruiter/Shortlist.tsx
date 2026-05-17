@@ -709,7 +709,7 @@ export default function Shortlist() {
                             {thresholdBreaches.map((breach) => (
                               <span
                                 key={`${breach.label}-${breach.threshold}`}
-                                className="inline-block rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700"
+                                className="inline-block rounded-md border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-700"
                               >
                                 {breach.label} below threshold ({breach.value.toFixed(0)}% {'<'} {breach.threshold.toFixed(0)}%)
                               </span>
