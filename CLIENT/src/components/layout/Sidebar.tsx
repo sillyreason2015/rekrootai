@@ -32,7 +32,7 @@ const recruiterNav = [
 
 const adminNav = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, tour: 'admin-dashboard' },
-  { to: '/recruiter/jobs', label: 'Manage Jobs', icon: Briefcase },
+  { to: '/admin/jobs', label: 'Manage Jobs', icon: Briefcase },
   { to: '/admin/jobs/create', label: 'Post a Job', icon: PlusCircle },
   { to: '/admin/candidates', label: 'Candidates', icon: Users, tour: 'admin-candidates' },
   { to: '/admin/team', label: 'Team', icon: UserCog },
@@ -73,7 +73,7 @@ export default function Sidebar() {
   const navGroups: NavGroup[] =
     user?.role === 'admin'
       ? [
-          { title: 'Workspace', items: nav.filter((item) => ['/admin/dashboard', '/recruiter/jobs', '/admin/jobs/create', '/admin/candidates'].includes(item.to)) },
+          { title: 'Workspace', items: nav.filter((item) => ['/admin/dashboard', '/admin/jobs', '/admin/jobs/create', '/admin/candidates'].includes(item.to)) },
           { title: 'Operations', items: nav.filter((item) => ['/admin/team', '/admin/audit-log', '/admin/bias-audit', '/admin/ai-validation', '/admin/livekit-test', '/admin/company-settings', '/admin/billing'].includes(item.to)) },
           { title: 'Support', items: nav.filter((item) => ['/settings', '/help'].includes(item.to)) },
         ]

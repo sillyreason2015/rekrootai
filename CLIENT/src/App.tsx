@@ -132,6 +132,7 @@ export default function App() {
           <Route element={<ProtectedRoute allowedRoles={['admin']} requireOnboarding={false} />}>
             <Route element={<Layout />}>
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
+              <Route path="/admin/jobs" element={<RecruiterJobs />} />
               <Route path="/admin/candidates" element={<AdminCandidates />} />
               <Route path="/admin/team" element={<TeamManagement />} />
               <Route path="/admin/audit-log" element={<AuditLog />} />
