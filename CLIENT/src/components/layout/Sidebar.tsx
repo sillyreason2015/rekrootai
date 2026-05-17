@@ -32,6 +32,7 @@ const recruiterNav = [
 
 const adminNav = [
   { to: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, tour: 'admin-dashboard' },
+  { to: '/recruiter/jobs', label: 'Manage Jobs', icon: Briefcase },
   { to: '/admin/jobs/create', label: 'Post a Job', icon: PlusCircle },
   { to: '/admin/candidates', label: 'Candidates', icon: Users, tour: 'admin-candidates' },
   { to: '/admin/team', label: 'Team', icon: UserCog },

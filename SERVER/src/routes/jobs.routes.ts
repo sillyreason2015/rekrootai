@@ -260,6 +260,50 @@ jobsRouter.patch('/:id/assignment', requireAuth, requireRole('admin', 'super_adm
   } catch (err) { next(err) }
 })
 
+// POST /jobs/:id/auto-assign — trigger round robin on an existing job
+jobsRouter.post('/:id/auto-assign', requireAuth, requireRole('admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const jobId = String(req.params.id)
+    const existing = await findScopedJob(req.user!._id, jobId)
+    if (!existing) throw new HttpError(404, 'Job not found')
+    const { assignedRecruiter } = await pickRoundRobinRecruiter(req.user!._id)
+    if (!assignedRecruiter) throw new HttpError(400, 'No available recruiters found in this team')
+    const updated = await JobModel.findByIdAndUpdate(
+      jobId,
+      {
+        assignedRecruiter: String(assignedRecruiter._id),
+        assignedRecruiterAt: new Date().toISOString(),
+        assignmentMethod: 'round_robin',
+        $push: {
+          assignmentHistory: {
+            recruiterId: String(assignedRecruiter._id),
+            assignedBy: req.user!._id,
+            method: 'round_robin',
+            at: new Date().toISOString(),
+          },
+        },
+      },
+      { new: true },
+    ).lean()
+    notify(String(assignedRecruiter._id), {
+      type: 'job_assigned',
+      title: 'Job assigned to you',
+      body: `${existing.title} has been assigned to you via round robin.`,
+      link: '/recruiter/jobs',
+    })
+    if (assignedRecruiter.email) {
+      sendEmail({
+        to: assignedRecruiter.email,
+        subject: `[${existing.title}] Job assigned to you`,
+        text: `${existing.title} has been assigned to you via round robin auto-assignment.`,
+        html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p><strong>${existing.title}</strong> has been assigned to you via round robin.</p></div>`,
+      }).catch((err) => console.error('[jobs] Failed to send auto-assign email:', err))
+    }
+    await logAction({ actor: 'user', action: 'job-assignment-updated', jobId, mode: 'assist', payload: { recruiterId: String(assignedRecruiter._id), method: 'round_robin' } })
+    res.json({ ...updated, _id: String(updated!._id) })
+  } catch (err) { next(err) }
+})
+
 // PATCH /jobs/:id
 jobsRouter.patch('/:id', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {

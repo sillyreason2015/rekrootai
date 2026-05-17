@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Briefcase, Lock, ChevronDown, ChevronUp, Settings2, CheckCircle2, Globe, Pencil, Trash2, UserRound, Users2, Wand2 } from 'lucide-react'
+import { Briefcase, Lock, ChevronDown, ChevronUp, Settings2, CheckCircle2, Globe, Pencil, Trash2, UserRound, Users2, Wand2, RotateCw } from 'lucide-react'
 import { jobService } from '../../services/job.service'
 import { adminService } from '../../services/admin.service'
 import api from '../../lib/axios'
@@ -76,6 +76,11 @@ export default function RecruiterJobs() {
   })
   const assignmentMutation = useMutation({
     mutationFn: ({ id, recruiterId, note }: { id: string; recruiterId?: string | null; note?: string }) => jobService.updateAssignment(id, { recruiterId, note }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['my-jobs'] }),
+  })
+
+  const autoAssignMutation = useMutation({
+    mutationFn: (id: string) => api.post(`/jobs/${id}/auto-assign`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['my-jobs'] }),
   })
 
@@ -410,17 +415,29 @@ export default function RecruiterJobs() {
                               value={assignmentDrafts[job._id]?.note ?? ''}
                               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAssignmentDrafts((prev) => ({ ...prev, [job._id]: { recruiterId: prev[job._id]?.recruiterId ?? String(job.assignedRecruiter ?? ''), note: e.target.value } }))}
                             />
-                            <Button
-                              size="sm"
-                              onClick={() => assignmentMutation.mutate({
-                                id: job._id,
-                                recruiterId: (assignmentDrafts[job._id]?.recruiterId ?? String(job.assignedRecruiter ?? '')) || null,
-                                note: assignmentDrafts[job._id]?.note ?? '',
-                              })}
-                              disabled={assignmentMutation.isPending}
-                            >
-                              Save owner
-                            </Button>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => assignmentMutation.mutate({
+                                  id: job._id,
+                                  recruiterId: (assignmentDrafts[job._id]?.recruiterId ?? String(job.assignedRecruiter ?? '')) || null,
+                                  note: assignmentDrafts[job._id]?.note ?? '',
+                                })}
+                                disabled={assignmentMutation.isPending}
+                              >
+                                Save owner
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="gap-1"
+                                title="Auto-assign via round robin"
+                                onClick={() => autoAssignMutation.mutate(job._id)}
+                                disabled={autoAssignMutation.isPending}
+                              >
+                                <RotateCw className="h-3.5 w-3.5" /> Round Robin
+                              </Button>
+                            </div>
                           </div>
                           <div className="space-y-2">
                             <p className="text-xs font-medium text-muted-foreground">Assignment history</p>
