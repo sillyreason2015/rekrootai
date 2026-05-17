@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { Clock, CheckCircle2, AlertTriangle, Loader2, ChevronRight, ShieldAlert, X } from 'lucide-react'
@@ -23,6 +23,7 @@ export default function Assessment() {
   const { applicationId } = useParams<{ applicationId: string }>()
   const navigate = useNavigate()
   const [activeModule, setActiveModule] = useState<number | null>(null)
+  const activeModuleRef = useRef<number | null>(null) // ref to avoid stale closures in timer
   const [answers, setAnswers] = useState<Record<string, number | string>>({})
   const [timeLeft, setTimeLeft] = useState<number>(0)
   const [started, setStarted] = useState(false)
@@ -30,6 +31,9 @@ export default function Assessment() {
   const [autoSubmitting, setAutoSubmitting] = useState(false)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
   const [submitError, setSubmitError] = useState('')
+
+  // Keep ref in sync so timer callbacks always see the latest value
+  useEffect(() => { activeModuleRef.current = activeModule }, [activeModule])
 
   const finishAssessmentSession = (assessmentId: string, moduleCount: number) => {
     Array.from({ length: moduleCount }).forEach((_, index) => localStorage.removeItem(getAssessmentStorageKey(assessmentId, index)))
@@ -93,10 +97,14 @@ export default function Assessment() {
 
       if (remainingModules.length === 0) {
         // Last module done — complete the assessment and redirect
-        void assessmentService.complete(assessment._id).finally(() => {
+        try {
+          await assessmentService.complete(assessment._id)
+        } catch {
+          // complete() returns 200 even if already done, so any error here is unexpected
+        } finally {
           finishAssessmentSession(assessment._id, assessment.modules.length)
           navigate('/candidate/applications')
-        })
+        }
         return
       }
 
@@ -115,9 +123,10 @@ export default function Assessment() {
 
   // Auto-submit current module answers (called on max violations or timer expiry)
   const forceSubmit = () => {
-    if (!assessment || activeModule === null || submitModule.isPending || autoSubmitting) return
+    const currentModule = activeModuleRef.current
+    if (!assessment || currentModule === null || submitModule.isPending || autoSubmitting) return
     setAutoSubmitting(true)
-    const mod = assessment.modules[activeModule]
+    const mod = assessment.modules[currentModule]
     const questions: Question[] = mod.questions
     const ans = questions.map((q) => ({
       questionId: q._id,
@@ -127,13 +136,17 @@ export default function Assessment() {
     submitModule.mutate({ type: mod.type, ans })
   }
 
-  const submitWholeAssessment = () => {
+  const submitWholeAssessment = async () => {
     if (!assessment || autoSubmitting || submitModule.isPending) return
     setAutoSubmitting(true)
-    void assessmentService.complete(assessment._id).finally(() => {
+    try {
+      await assessmentService.complete(assessment._id)
+    } catch {
+      // no-op — complete returns 200 even if already done
+    } finally {
       finishAssessmentSession(assessment._id, assessment.modules.length)
       navigate('/candidate/applications')
-    })
+    }
   }
 
   // Proctoring monitor — only active once assessment is started
