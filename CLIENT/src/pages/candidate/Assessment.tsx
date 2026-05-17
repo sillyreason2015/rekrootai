@@ -29,6 +29,7 @@ export default function Assessment() {
   const [showProctoringModal, setShowProctoringModal] = useState(false)
   const [autoSubmitting, setAutoSubmitting] = useState(false)
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
   const finishAssessmentSession = (assessmentId: string, moduleCount: number) => {
     Array.from({ length: moduleCount }).forEach((_, index) => localStorage.removeItem(getAssessmentStorageKey(assessmentId, index)))
@@ -81,10 +82,14 @@ export default function Assessment() {
       assessmentService.submitModule(assessment!._id, type, ans),
     onSuccess: async () => {
       if (!assessment || activeModule === null) return
+      setSubmitError('')
       localStorage.removeItem(getAssessmentStorageKey(assessment._id, activeModule))
       const refreshed = await refetch()
       const latest = refreshed.data
-      const hasRemainingModules = latest?.modules.some((module) => !module.completedAt)
+      // Only complete if we have confirmed data showing no remaining modules
+      const hasRemainingModules = latest
+        ? latest.modules.some((module) => !module.completedAt)
+        : true // assume remaining if refetch failed — don't prematurely complete
 
       if (!hasRemainingModules) {
         void assessmentService.complete(assessment._id).finally(() => {
@@ -96,6 +101,11 @@ export default function Assessment() {
       setAnswers({})
       setAutoSubmitting(false)
       setActiveModule(null)
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      setSubmitError(msg ?? 'Failed to submit module. Please try again.')
+      setAutoSubmitting(false)
     },
   })
 
@@ -401,10 +411,19 @@ export default function Assessment() {
         </div>
       )}
 
-      <div className="flex justify-end">
+      {submitError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {submitError}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">
+          {Object.keys(answers).length} / {questions.length} answered
+        </p>
         <Button
           disabled={Object.keys(answers).length < questions.length || submitModule.isPending || autoSubmitting}
-          onClick={() => setShowSubmitConfirm(true)}
+          onClick={() => { setSubmitError(''); setShowSubmitConfirm(true) }}
         >
           {submitModule.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
           Submit Module <ChevronRight className="h-4 w-4" />
