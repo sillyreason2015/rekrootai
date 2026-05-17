@@ -207,7 +207,7 @@ Respond ONLY with valid JSON. No markdown, no code fences.`.trim()
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim()
     let parsed: Record<string, unknown> = {}
@@ -286,7 +286,7 @@ Respond in 2-4 concise sentences. Be direct, professional, and evidence-based. R
 
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
     const result = await model.generateContent(context)
     const answer = result.response.text().trim()
     res.json({ answer })

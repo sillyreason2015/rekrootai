@@ -80,7 +80,7 @@ export async function buildInterviewAnalysis(interview: {
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
     const prompt = [
       'You are an interview analysis assistant for a hiring system.',
       'Return compact JSON only with keys: summary, strengths, concerns, recommendation.',
@@ -103,7 +103,7 @@ export async function buildInterviewAnalysis(interview: {
     return {
       ...fallback,
       provider: 'gemini',
-      modelVersion: 'gemini-2.0-flash',
+      modelVersion: 'gemini-2.5-flash',
       summary: parsed.summary ?? fallback.summary,
       strengths: Array.isArray(parsed.strengths) ? parsed.strengths : fallback.strengths,
       concerns: Array.isArray(parsed.concerns) ? parsed.concerns : fallback.concerns,

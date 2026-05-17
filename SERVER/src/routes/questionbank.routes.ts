@@ -67,7 +67,7 @@ Respond with ONLY a valid JSON array. No markdown, no explanation. Example forma
 [{"text":"...","type":"mcq","options":["A","B","C","D"],"correctIndex":1,"points":2,"category":"${moduleType}","difficulty":"${difficulty}","tags":["tag1","tag2"]}]`
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY!)
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
   const result = await model.generateContent(prompt)
   const raw = result.response.text()
 

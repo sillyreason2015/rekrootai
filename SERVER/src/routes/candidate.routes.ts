@@ -216,7 +216,7 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
     try {
       const { GoogleGenerativeAI } = await import('@google/generative-ai')
       const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY)
-      const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
       const result = await model.generateContent([
         { inlineData: { mimeType: 'application/pdf', data: buffer.toString('base64') } },
         'Extract all text from this CV/resume. Preserve section headers (Experience, Education, Skills) on their own lines with content beneath. Output full text verbatim, no summarising.',
@@ -280,7 +280,7 @@ Respond ONLY with valid JSON. No markdown fences.`
   try {
     const { GoogleGenerativeAI } = await import('@google/generative-ai')
     const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' })
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '')
     const parsed = JSON.parse(text)
