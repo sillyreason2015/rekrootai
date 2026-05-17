@@ -102,7 +102,10 @@ export function buildTeamScopedUserFilter(scope: Pick<WorkspaceScope, 'companyNa
 
 export function buildTeamScopedJobFilter(scope: Pick<WorkspaceScope, 'companyId' | 'teamName'>, fallbackUserId: string) {
   const filter: Record<string, unknown> = scope.companyId ? { company: scope.companyId } : { createdBy: fallbackUserId }
-  if (scope.teamName) filter.teamName = scope.teamName
+  if (scope.teamName) {
+    // Jobs with no teamName are legacy/unassigned — visible to all workspace members
+    filter.$or = [{ teamName: scope.teamName }, { teamName: { $exists: false } }, { teamName: null }, { teamName: '' }]
+  }
   return filter
 }
 
