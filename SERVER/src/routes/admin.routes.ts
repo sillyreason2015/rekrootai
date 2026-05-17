@@ -170,6 +170,23 @@ adminRouter.get('/audit-log', async (req, res, next) => {
     const action = String(req.query.action ?? '')
     const filter: Record<string, unknown> = {}
     if (action) filter.action = { $regex: action, $options: 'i' }
+
+    // Super admin sees everything; company admin sees only their own scope
+    if (req.user?.role !== 'super_admin') {
+      const scope = await resolveWorkspaceScope(req.user!._id)
+      const companyJobIds = scope.companyId
+        ? await JobModel.find({ company: scope.companyId }).distinct('_id').then((ids) => ids.map(String))
+        : []
+      // Scope to jobs in their company, or entries with no jobId (user-level actions) by their team users
+      const companyUserIds = scope.companyId
+        ? await UserModel.find({ companyName: { $in: scope.companyNames ?? [] } }).distinct('_id').then((ids) => ids.map(String))
+        : []
+      filter.$or = [
+        { jobId: { $in: companyJobIds } },
+        { candidateId: { $in: companyUserIds } },
+      ]
+    }
+
     const all = await AuditLogModel.find(filter).sort({ timestamp: -1 }).lean()
     const candidateIds = [...new Set(all
       .map((entry) => entry.candidateId)

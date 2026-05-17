@@ -155,7 +155,12 @@ companyRouter.post('/invite', async (req, res, next) => {
     })
     const frontendBase = env.CORS_ORIGINS[0] ?? 'http://localhost:3000'
     const inviteUrl = `${frontendBase}/accept-invite?token=${encodeURIComponent(token)}`
-    sendInviteEmail(email.toLowerCase(), inviteUrl, me ? `${me.firstName} ${me.lastName}` : 'A RekrootAI recruiter').catch(console.error)
+    try {
+      await sendInviteEmail(email.toLowerCase(), inviteUrl, me ? `${me.firstName} ${me.lastName}` : 'A RekrootAI recruiter')
+    } catch (mailErr) {
+      console.error('[invite] Failed to send invite email:', mailErr)
+      // Return success anyway — token was created, admin can share the URL manually
+    }
     res.status(201).json({ ok: true, inviteUrl, expiresAt })
   } catch (err) { next(err) }
 })
