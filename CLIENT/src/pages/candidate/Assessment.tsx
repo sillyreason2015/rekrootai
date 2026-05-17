@@ -77,8 +77,8 @@ export default function Assessment() {
   })
 
   const submitModule = useMutation({
-    mutationFn: ({ type, ans }: { type: string; ans: unknown[] }) =>
-      assessmentService.submitModule(assessment!._id, type, ans),
+    mutationFn: ({ moduleIndex, ans }: { moduleIndex: number; ans: unknown[] }) =>
+      assessmentService.submitModule(assessment!._id, moduleIndex, ans),
     onSuccess: async () => {
       if (!assessment || activeModule === null) return
       localStorage.removeItem(getAssessmentStorageKey(assessment._id, activeModule))
@@ -110,7 +110,7 @@ export default function Assessment() {
       selected: typeof answers[q._id] === 'number' ? answers[q._id] as number : undefined,
       text: typeof answers[q._id] === 'string' ? answers[q._id] as string : undefined,
     }))
-    submitModule.mutate({ type: mod.type, ans })
+    submitModule.mutate({ moduleIndex: activeModule, ans })
   }
 
   const submitWholeAssessment = () => {
@@ -391,7 +391,7 @@ export default function Assessment() {
                     selected: typeof answers[q._id] === 'number' ? answers[q._id] as number : undefined,
                     text: typeof answers[q._id] === 'string' ? answers[q._id] as string : undefined,
                   }))
-                  submitModule.mutate({ type: mod.type, ans })
+                  submitModule.mutate({ moduleIndex: activeModule, ans })
                 }}
               >
                 Yes, Submit

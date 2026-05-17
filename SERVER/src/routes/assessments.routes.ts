@@ -55,14 +55,18 @@ assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, nex
   } catch (err) { next(err) }
 })
 
-assessmentsRouter.post('/:assessmentId/modules/:moduleType/submit', requireAuth, async (req, res, next) => {
+assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth, async (req, res, next) => {
   try {
     const assessment = await AssessmentModel.findById(req.params.assessmentId)
     if (!assessment) throw new HttpError(404, 'Assessment not found')
     if (assessment.status === 'completed') {
       throw new HttpError(409, 'Assessment has already been completed')
     }
-    const mod = assessment.modules.find((m) => m.type === req.params.moduleType)
+    const moduleIndex = Number(req.params.moduleIndex)
+    if (!Number.isInteger(moduleIndex) || moduleIndex < 0 || moduleIndex >= assessment.modules.length) {
+      throw new HttpError(404, 'Module not found')
+    }
+    const mod = assessment.modules[moduleIndex]
     if (!mod) throw new HttpError(404, 'Module not found')
     const body = req.body as { answers?: unknown[]; score?: number }
     mod.answers = body.answers as never
