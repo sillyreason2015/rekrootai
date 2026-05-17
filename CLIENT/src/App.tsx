@@ -110,8 +110,8 @@ export default function App() {
             <Route path="/candidate/interview/:id" element={<CandidateInterviewRoom />} />
           </Route>
 
-          {/* Recruiter routes */}
-          <Route element={<ProtectedRoute allowedRoles={['recruiter']} />}>
+          {/* Shared hiring workspace routes */}
+          <Route element={<ProtectedRoute allowedRoles={['recruiter', 'admin', 'super_admin']} requireOnboarding={false} />}>
             <Route element={<Layout />}>
               <Route path="/recruiter/dashboard" element={<RecruiterDashboard />} />
               <Route path="/recruiter/jobs" element={<RecruiterJobs />} />

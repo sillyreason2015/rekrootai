@@ -14,10 +14,12 @@ import api from '../../lib/axios'
 import { Card, CardContent } from '../../components/ui/card'
 import { Button } from '../../components/ui/button'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
+import WorkspaceEmptyState from '../../components/layout/WorkspaceEmptyState'
 import AiBadge from '../../components/shared/AiBadge'
 import AiSuggestion from '../../components/shared/AiSuggestion'
 import { scoreBg, cn } from '../../lib/utils'
 import type { Application, BiasAudit, Candidate, User } from '../../types'
+import { useToast } from '../../contexts/ToastContext'
 
 type Mode = 'Assist' | 'Veto' | 'Override'
 
@@ -38,6 +40,16 @@ type FairnessAuditResult = {
   disparateImpact: Record<string, number>
   details?: Record<string, unknown>
 }
+
+type NextAction = {
+  label: string
+  icon: typeof CheckCircle2
+  onClick: () => void
+  disabled?: boolean
+  className?: string
+}
+
+type ApplicationsQuery = { data: Application[]; total?: number; page?: number; limit?: number; totalPages?: number }
 
 function stageLabel(stage: string) {
   const labels: Record<string, string> = {
@@ -375,6 +387,7 @@ export default function Shortlist() {
   const [auditNotice, setAuditNotice] = useState<string | null>(null)
   const [pendingMode, setPendingMode] = useState<Mode | null>(null)
   const qc = useQueryClient()
+  const { toast } = useToast()
 
   const { data: jobs } = useQuery({ queryKey: ['my-jobs'], queryFn: () => jobService.myJobs() })
   const [selectedJob, setSelectedJob] = useState(jobId)
@@ -407,34 +420,114 @@ export default function Shortlist() {
     enabled: !!selectedJob,
   })
 
-  const mutOpts = { onSuccess: () => qc.invalidateQueries({ queryKey: ['applications', selectedJob] }) }
+  const invalidateApplications = () => qc.invalidateQueries({ queryKey: ['applications', selectedJob] })
+  const patchApplicationStage = async (id: string, updates: Partial<Application>) => {
+    await qc.cancelQueries({ queryKey: ['applications', selectedJob] })
+    const previous = qc.getQueryData<ApplicationsQuery>(['applications', selectedJob])
+    qc.setQueryData<ApplicationsQuery>(['applications', selectedJob], (current) => {
+      if (!current) return current
+      return {
+        ...current,
+        data: current.data.map((app) => (app._id === id ? { ...app, ...updates } : app)),
+      }
+    })
+    return { previous }
+  }
+  const rollbackApplications = (context?: { previous?: ApplicationsQuery }) => {
+    if (context?.previous) qc.setQueryData(['applications', selectedJob], context.previous)
+  }
+  const mutationError = (fallback: string) => (error: unknown) => {
+    const message = typeof error === 'object' && error && 'response' in error
+      ? String((error as { response?: { data?: { message?: string } } }).response?.data?.message ?? fallback)
+      : fallback
+    toast({ title: 'Action could not be completed', description: message, variant: 'error' })
+  }
 
-  const shortlistMutation  = useMutation({ mutationFn: (id: string) => applicationService.shortlist(id), ...mutOpts })
-  const rejectMutation     = useMutation({ mutationFn: (id: string) => applicationService.reject(id), ...mutOpts })
-  const sendAssessmentMutation = useMutation({ mutationFn: (id: string) => applicationService.sendAssessment(id, 60), ...mutOpts })
-  const undoAssessmentMutation = useMutation({ mutationFn: (id: string) => applicationService.undoAssessment(id), ...mutOpts })
-  const fairnessMutation   = useMutation({ mutationFn: (id: string) => applicationService.runFairnessGate(id), ...mutOpts })
+  const mutOpts = { onSuccess: () => invalidateApplications(), onError: mutationError('Please try again in a moment.') }
+
+  const shortlistMutation  = useMutation({
+    mutationFn: (id: string) => applicationService.shortlist(id),
+    ...mutOpts,
+    onMutate: (id: string) => patchApplicationStage(id, { stage: 'screening' }),
+    onError: (error, _id, context) => { rollbackApplications(context); mutationError('Please try again in a moment.')(error) },
+    onSuccess: () => { invalidateApplications(); toast({ title: 'Candidate shortlisted', description: 'The candidate moved into screening.' }) },
+  })
+  const rejectMutation     = useMutation({
+    mutationFn: (id: string) => applicationService.reject(id),
+    ...mutOpts,
+    onMutate: (id: string) => patchApplicationStage(id, { stage: 'rejected', status: 'rejected' }),
+    onError: (error, _id, context) => { rollbackApplications(context); mutationError('Please try again in a moment.')(error) },
+    onSuccess: () => { invalidateApplications(); toast({ title: 'Candidate rejected', description: 'The application has been closed for this role.' }) },
+  })
+  const sendAssessmentMutation = useMutation({
+    mutationFn: (id: string) => applicationService.sendAssessment(id, 60),
+    ...mutOpts,
+    onMutate: (id: string) => patchApplicationStage(id, { stage: 'assessment', status: 'assessment_sent' }),
+    onError: (error, _id, context) => { rollbackApplications(context); mutationError('Please try again in a moment.')(error) },
+    onSuccess: () => { invalidateApplications(); toast({ title: 'Assessment sent', description: 'The candidate can now continue with the evaluation.' }) },
+  })
+  const undoAssessmentMutation = useMutation({
+    mutationFn: (id: string) => applicationService.undoAssessment(id),
+    ...mutOpts,
+    onMutate: (id: string) => patchApplicationStage(id, { stage: 'screening', status: 'shortlisted' }),
+    onError: (error, _id, context) => { rollbackApplications(context); mutationError('Please try again in a moment.')(error) },
+    onSuccess: () => { invalidateApplications(); toast({ title: 'Assessment reset', description: 'The candidate was moved back for another review cycle.' }) },
+  })
+  const fairnessMutation   = useMutation({
+    mutationFn: (id: string) => applicationService.runFairnessGate(id),
+    ...mutOpts,
+    onSuccess: () => { invalidateApplications(); toast({ title: 'Fairness gate completed', description: 'Bias checks were re-run for this candidate.' }) },
+  })
   const rejectDecisionMutation = useMutation({
     mutationFn: (id: string) => applicationService.makeDecision(id, 'reject', 'Rejected after assessment review'),
     ...mutOpts,
+    onMutate: (id: string) => patchApplicationStage(id, { stage: 'rejected', status: 'rejected', decision: 'reject' }),
+    onError: (error, _id, context) => { rollbackApplications(context); mutationError('Please try again in a moment.')(error) },
+    onSuccess: () => { invalidateApplications(); toast({ title: 'Candidate rejected', description: 'The candidate was declined after later-stage review.' }) },
   })
-  const undoVetoMutation   = useMutation({ mutationFn: (id: string) => applicationService.undoVeto(id), ...mutOpts })
+  const undoVetoMutation   = useMutation({
+    mutationFn: (id: string) => applicationService.undoVeto(id),
+    ...mutOpts,
+    onSuccess: () => { invalidateApplications(); toast({ title: 'Veto cleared', description: 'This candidate is back in manual review.' }) },
+  })
   const biasAuditMutation  = useMutation({
     mutationFn: () => recruiterService.runBiasAudit(selectedJob),
     onSuccess: (audit: FairnessAuditResult) => {
       const ratios = Object.entries(audit.disparateImpact ?? {}).map(([key, value]) => `${key}: ${(value * 100).toFixed(0)}%`).join(', ')
       setAuditNotice(audit.flagged ? `Demographic parity flagged for review. ${ratios}` : `Demographic parity check passed. ${ratios}`)
       qc.invalidateQueries({ queryKey: ['latest-bias-audit', selectedJob] })
+      toast({ title: audit.flagged ? 'Bias audit flagged this job' : 'Bias audit passed', description: ratios })
     },
+    onError: mutationError('We could not run the demographic parity audit right now.'),
   })
   const scheduleMutation   = useMutation({
     mutationFn: ({ appId, scheduledAt, durationMin }: { appId: string; scheduledAt: string; durationMin: number }) =>
       api.post('/interviews', { applicationId: appId, scheduledAt: new Date(scheduledAt).toISOString(), durationMin, mode: mode.toLowerCase() }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['applications', selectedJob] }); setScheduleFor(null) },
+    onMutate: ({ appId, scheduledAt }) => patchApplicationStage(appId, { stage: 'interview', interviewStatus: 'scheduled', interviewScheduledAt: new Date(scheduledAt).toISOString(), status: 'interview_scheduled' }),
+    onError: (error, _vars, context) => { rollbackApplications(context); mutationError('We could not schedule the interview.')(error) },
+    onSuccess: (_resp, vars) => {
+      invalidateApplications()
+      setScheduleFor(null)
+      toast({ title: 'Interview scheduled', description: `Scheduled for ${new Date(vars.scheduledAt).toLocaleString()}.` })
+    },
   })
   const completeMutation = useMutation({
     mutationFn: (interviewId: string) => api.post(`/interviews/${interviewId}/complete`, {}),
     ...mutOpts,
+    onMutate: async (interviewId: string) => {
+      await qc.cancelQueries({ queryKey: ['applications', selectedJob] })
+      const previous = qc.getQueryData<ApplicationsQuery>(['applications', selectedJob])
+      qc.setQueryData<ApplicationsQuery>(['applications', selectedJob], (current) => {
+        if (!current) return current
+        return {
+          ...current,
+          data: current.data.map((app) => (app.interviewId === interviewId ? { ...app, stage: 'decision', interviewStatus: 'completed' } : app)),
+        }
+      })
+      return { previous }
+    },
+    onError: (error, _id, context) => { rollbackApplications(context); mutationError('Please try again in a moment.')(error) },
+    onSuccess: () => { invalidateApplications(); toast({ title: 'Interview marked complete', description: 'The candidate moved into the decision stage.' }) },
   })
   const vetoMutation = useMutation({
     mutationFn: () => applicationService.aiDecide({ jobId: selectedJob }),
@@ -447,7 +540,9 @@ export default function Shortlist() {
         review: results.filter((r: any) => r.decision === 'review').length,
       })
       qc.invalidateQueries({ queryKey: ['applications', selectedJob] })
+      toast({ title: 'Veto batch completed', description: `${Number(resp?.processed ?? results.length)} candidates were re-evaluated.` })
     },
+    onError: mutationError('AI veto mode could not process this shortlist right now.'),
   })
   const modeMutation = useMutation({
     mutationFn: ({ jobId: id, nextMode }: { jobId: string; nextMode: Mode }) =>
@@ -459,7 +554,9 @@ export default function Shortlist() {
       if (vars.nextMode === 'Veto') {
         vetoMutation.mutate()
       }
+      toast({ title: 'AI mode updated', description: `${vars.nextMode} mode is now active for this job.` })
     },
+    onError: mutationError('We could not update the AI mode for this role.'),
   })
 
   const downloadCv = async (appId: string) => {
@@ -651,10 +748,20 @@ export default function Shortlist() {
       )}
 
       {!selectedJob ? (
-        <p className="text-sm text-muted-foreground">Select a job to view applications.</p>
+        <WorkspaceEmptyState
+          title="Pick a role to start reviewing candidates"
+          body="Choose a job to open its hiring workspace, compare applicants, and move the strongest candidates to the next stage."
+          secondary={{ label: 'Open jobs workspace', to: '/recruiter/jobs' }}
+          icon="search"
+        />
       ) : isLoading ? <LoadingSpinner />
       : !data?.data.length ? (
-        <Card><CardContent className="py-12 text-center text-muted-foreground">No applications yet for this role.</CardContent></Card>
+        <WorkspaceEmptyState
+          title="No applications for this role yet"
+          body="Share the published job link, double-check the role details, or switch to another open role while candidates begin applying."
+          secondary={{ label: 'Back to jobs', to: '/recruiter/jobs' }}
+          icon="users"
+        />
       ) : (
         <div className="space-y-3">
           {data.data
@@ -690,6 +797,18 @@ export default function Shortlist() {
               const isExplaining = showExplanation === app._id
               const isScheduling = scheduleFor === app._id
               const extApp = app as Application & { fairnessComputedAt?: string; explanationComputedAt?: string; interviewId?: string; interviewStatus?: string; interviewScheduledAt?: string }
+              const nextAction: NextAction | null =
+                app.stage === 'applied'
+                  ? { label: 'Shortlist', icon: CheckCircle2, onClick: () => shortlistMutation.mutate(app._id), disabled: shortlistMutation.isPending, className: 'text-emerald-600 border-emerald-200 hover:bg-emerald-50' }
+                  : app.stage === 'screening'
+                    ? { label: 'Send Assessment', icon: ArrowRight, onClick: () => sendAssessmentMutation.mutate(app._id), disabled: sendAssessmentMutation.isPending }
+                    : app.stage === 'assessment'
+                      ? { label: 'Advance to Interview', icon: Calendar, onClick: () => setScheduleFor(isScheduling ? null : app._id), className: 'text-blue-700 border-blue-200 hover:bg-blue-50' }
+                      : app.stage === 'interview' && !extApp.interviewId
+                        ? { label: 'Schedule Interview', icon: Calendar, onClick: () => setScheduleFor(isScheduling ? null : app._id), className: 'text-blue-600 border-blue-200 hover:bg-blue-50' }
+                        : app.stage === 'interview' && extApp.interviewId && extApp.interviewStatus !== 'completed'
+                          ? { label: 'Mark Complete', icon: CheckCircle2, onClick: () => completeMutation.mutate(extApp.interviewId!), disabled: completeMutation.isPending, className: 'text-emerald-600 border-emerald-200 hover:bg-emerald-50' }
+                          : null
 
               return (
                 <Card key={app._id} className={cn('transition-all', app.stage === 'rejected' ? 'opacity-50' : '', app.stage === 'decision' ? 'border-emerald-200' : '')}>
@@ -720,96 +839,66 @@ export default function Shortlist() {
 
                       {/* Action buttons — wraps freely */}
                       <div className="flex items-center gap-2 flex-wrap">
-                      {!isOverrideMode && (
-                        <Button size="sm" variant="outline" className="gap-1"
-                          onClick={() => setShowExplanation(isExplaining ? null : app._id)}>
-                          <FileText className="h-3.5 w-3.5" />
-                          {isExplaining ? 'Hide' : 'AI Explanation'}
-                        </Button>
-                      )}
-
-                      <Button size="sm" variant="outline" className="gap-1"
-                        onClick={() => setShowCvViewer(showCvViewer === app._id ? null : app._id)}>
-                        <Eye className="h-3.5 w-3.5" />
-                        {showCvViewer === app._id ? 'Hide CV' : 'View CV'}
-                      </Button>
-                      <Link to={`/recruiter/correspondence?job=${selectedJob}&app=${app._id}`}>
-                        <Button size="sm" variant="outline" className="gap-1">
-                          <MessageSquare className="h-3.5 w-3.5" />
-                          Messages
-                        </Button>
-                      </Link>
-                      <Button size="sm" variant="outline" className="gap-1"
-                        onClick={() => downloadCv(app._id)}>
-                        <Download className="h-3.5 w-3.5" />
-                      </Button>
-
-                      {mode === 'Assist' && (
-                        <Button size="sm" variant="outline" className="gap-1"
-                          onClick={() => setAssistantCandidate(
-                            assistantCandidate?.id === app._id ? null :
-                            { id: app._id, name, scores: app.scores, stage: app.stage }
-                          )}>
-                          <Bot className="h-3.5 w-3.5" />
-                          {assistantCandidate?.id === app._id ? 'Close Chat' : 'Assist Me'}
-                        </Button>
-                      )}
-
-                      {!isOverrideMode && <AiBadge />}
-                        {app.stage === 'applied' && (
-                          <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50"
-                            onClick={() => shortlistMutation.mutate(app._id)} disabled={shortlistMutation.isPending}>
-                            <CheckCircle2 className="h-3.5 w-3.5" /> Shortlist
+                        {nextAction && (
+                          <Button size="sm" variant="outline" className={cn('gap-1', nextAction.className)} onClick={nextAction.onClick} disabled={nextAction.disabled}>
+                            <nextAction.icon className="h-3.5 w-3.5" /> {nextAction.label}
                           </Button>
                         )}
-                        {app.stage === 'screening' && (
-                          <Button size="sm" variant="outline"
-                            onClick={() => sendAssessmentMutation.mutate(app._id)} disabled={sendAssessmentMutation.isPending}>
-                            <ArrowRight className="h-3.5 w-3.5" /> Send Assessment
+                        {app.stage === 'interview' && extApp.interviewId && extApp.interviewStatus !== 'completed' && (
+                          <Button size="sm" variant="outline" className="gap-1 text-purple-600 border-purple-200"
+                            onClick={() => window.open(`/recruiter/interview/${extApp.interviewId}?mode=${selectedJobData?.aiMode ?? mode.toLowerCase()}`, '_blank')}>
+                            <Video className="h-3.5 w-3.5" /> Join
                           </Button>
                         )}
+                        {!isOverrideMode && <AiBadge />}
+                        {!isOverrideMode && (
+                          <Button size="sm" variant="outline" className="gap-1" onClick={() => setShowExplanation(isExplaining ? null : app._id)}>
+                            <FileText className="h-3.5 w-3.5" />
+                            {isExplaining ? 'Hide AI Explanation' : 'AI Explanation'}
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" className="gap-1" onClick={() => setShowCvViewer(showCvViewer === app._id ? null : app._id)}>
+                          <Eye className="h-3.5 w-3.5" />
+                          {showCvViewer === app._id ? 'Hide CV' : 'View CV'}
+                        </Button>
+                        <Link to={`/recruiter/correspondence?job=${selectedJob}&app=${app._id}`}>
+                          <Button size="sm" variant="outline" className="gap-1">
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            Messages
+                          </Button>
+                        </Link>
+                        <Button size="sm" variant="outline" className="gap-1" onClick={() => downloadCv(app._id)}>
+                          <Download className="h-3.5 w-3.5" />
+                          CV
+                        </Button>
+
+                        {mode === 'Assist' && (
+                          <Button size="sm" variant="outline" className="gap-1"
+                            onClick={() => setAssistantCandidate(
+                              assistantCandidate?.id === app._id ? null :
+                              { id: app._id, name, scores: app.scores, stage: app.stage }
+                            )}>
+                            <Bot className="h-3.5 w-3.5" />
+                            {assistantCandidate?.id === app._id ? 'Close Chat' : 'Assist Me'}
+                          </Button>
+                        )}
+
                         {app.stage === 'assessment' && (
-                          <div className="flex items-center gap-1">
+                          <>
                             <Button
                               size="sm"
                               variant="outline"
-                              className="text-blue-700 border-blue-200 hover:bg-blue-50"
-                              onClick={() => setScheduleFor(isScheduling ? null : app._id)}
-                            >
-                              <Calendar className="h-3.5 w-3.5" /> Advance to Interview
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                              className="gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
                               onClick={() => undoAssessmentMutation.mutate(app._id)}
                               disabled={undoAssessmentMutation.isPending}
                             >
                               <ArrowRight className="h-3.5 w-3.5 rotate-180" /> Reset Assessment
                             </Button>
-                            <Button size="sm" variant="outline" className="text-purple-600 border-purple-200 hover:bg-purple-50"
+                            <Button size="sm" variant="outline" className="gap-1 text-purple-600 border-purple-200 hover:bg-purple-50"
                               onClick={() => fairnessMutation.mutate(app._id)} disabled={fairnessMutation.isPending}>
                               <Shield className="h-3.5 w-3.5" /> Run Fairness
                             </Button>
                             <InfoTip content="Checks for demographic parity before confirming a shortlist decision." />
-                          </div>
-                        )}
-                        {app.stage === 'interview' && !extApp.interviewId && (
-                          <Button size="sm" variant="outline" className="text-blue-600 border-blue-200 hover:bg-blue-50"
-                            onClick={() => setScheduleFor(isScheduling ? null : app._id)}>
-                            <Calendar className="h-3.5 w-3.5" /> Schedule Interview
-                          </Button>
-                        )}
-                        {app.stage === 'interview' && extApp.interviewId && extApp.interviewStatus !== 'completed' && (
-                          <>
-                            <Button size="sm" variant="outline" className="text-purple-600 border-purple-200"
-                              onClick={() => window.open(`/recruiter/interview/${extApp.interviewId}?mode=${selectedJobData?.aiMode ?? mode.toLowerCase()}`, '_blank')}>
-                              <Video className="h-3.5 w-3.5" /> Join
-                            </Button>
-                            <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200"
-                              onClick={() => completeMutation.mutate(extApp.interviewId!)}>
-                              <CheckCircle2 className="h-3.5 w-3.5" /> Mark Complete
-                            </Button>
                           </>
                         )}
                         {!['decision', 'rejected', 'offered'].includes(app.stage) && (
@@ -894,7 +983,7 @@ export default function Shortlist() {
                     {isScheduling && (
                       <div className="border-t bg-blue-50/50 px-4 py-3 space-y-3">
                         <p className="text-sm font-medium text-blue-700">Schedule interview for {name}</p>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                           <div className="space-y-1">
                             <label className="text-xs text-muted-foreground">Date & Time</label>
                             <input type="datetime-local" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"

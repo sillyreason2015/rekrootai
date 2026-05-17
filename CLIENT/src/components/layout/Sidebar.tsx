@@ -54,6 +54,9 @@ const superAdminNav = [
   { to: '/internal/super-admin/settings', label: 'Settings', icon: ShieldCheck, tour: 'super-settings' },
 ]
 
+type NavItem = { to: string; label: string; icon: React.ElementType; tour?: string }
+type NavGroup = { title: string; items: NavItem[] }
+
 export default function Sidebar() {
   const { user } = useAuth()
   const { restart } = useTour()
@@ -67,27 +70,50 @@ export default function Sidebar() {
     if (item.to === '/admin/billing') return Boolean((user?.permissions?.canManageBilling) ?? (user?.role === 'admin' || user?.role === 'super_admin'))
     return true
   })
+  const navGroups: NavGroup[] =
+    user?.role === 'admin'
+      ? [
+          { title: 'Workspace', items: nav.filter((item) => ['/admin/dashboard', '/recruiter/jobs', '/admin/jobs/create', '/admin/candidates'].includes(item.to)) },
+          { title: 'Operations', items: nav.filter((item) => ['/admin/team', '/admin/audit-log', '/admin/bias-audit', '/admin/ai-validation', '/admin/livekit-test', '/admin/company-settings', '/admin/billing'].includes(item.to)) },
+          { title: 'Support', items: nav.filter((item) => ['/settings', '/help'].includes(item.to)) },
+        ]
+      : user?.role === 'recruiter'
+        ? [
+            { title: 'Hiring Workspace', items: nav.filter((item) => ['/recruiter/dashboard', '/recruiter/jobs', '/recruiter/shortlist', '/recruiter/final-selection', '/recruiter/interviews'].includes(item.to)) },
+            { title: 'Tools', items: nav.filter((item) => ['/recruiter/question-bank', '/recruiter/correspondence', '/recruiter/audit-log'].includes(item.to)) },
+            { title: 'Support', items: nav.filter((item) => ['/settings', '/help'].includes(item.to)) },
+          ]
+        : user?.role === 'super_admin'
+          ? [{ title: 'Platform', items: nav }]
+          : [{ title: 'Workspace', items: nav }]
 
   return (
     <aside className="hidden w-56 shrink-0 border-r border-border bg-card md:flex md:flex-col">
-      <nav className="flex flex-1 flex-col gap-1 p-3 pt-4">
-        {nav.map(({ to, label, icon: Icon, tour }: { to: string; label: string; icon: React.ElementType; tour?: string }) => (
-          <NavLink
-            key={to}
-            to={to}
-            data-tour={tour}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-                isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-foreground/70 hover:bg-accent hover:text-foreground',
-              )
-            }
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </NavLink>
+      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto p-3 pt-4">
+        {navGroups.map((group) => (
+          <div key={group.title} className="space-y-1">
+            <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              {group.title}
+            </p>
+            {group.items.map(({ to, label, icon: Icon, tour }) => (
+              <NavLink
+                key={to}
+                to={to}
+                data-tour={tour}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-foreground/70 hover:bg-accent hover:text-foreground',
+                  )
+                }
+              >
+                <Icon className="h-4 w-4" />
+                {label}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 

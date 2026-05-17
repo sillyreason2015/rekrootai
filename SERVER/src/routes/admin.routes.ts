@@ -182,6 +182,8 @@ adminRouter.get('/audit-log', async (req, res, next) => {
       ...entry,
       _id: String(entry._id),
       createdAt: (entry as { timestamp?: string }).timestamp,
+      resource: entry.jobId ? 'job' : entry.candidateId ? 'candidate' : undefined,
+      resourceId: entry.jobId ?? entry.candidateId,
       narrative: await buildAuditNarrative(entry as Parameters<typeof buildAuditNarrative>[0]),
       metadata: entry.payload,
       user: entry.candidateId ? userMap.get(String(entry.candidateId)) ?? {} : {},
