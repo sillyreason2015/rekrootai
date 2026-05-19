@@ -35,12 +35,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken')
-    if (token) {
-      refreshUser().finally(() => setLoading(false))
-    } else {
-      setLoading(false)
+    // Always attempt to restore the session — either the stored token is valid,
+    // the axios interceptor will silently refresh it via the httpOnly cookie, or
+    // we try an explicit refresh so the cookie-only case (cleared localStorage) works too.
+    const restore = async () => {
+      const token = localStorage.getItem('accessToken')
+      if (token) {
+        // Token present — refreshUser will use it (and interceptor refreshes on 401)
+        await refreshUser()
+      } else {
+        // No access token stored — try refresh in case the httpOnly cookie is still valid
+        try {
+          const { data } = await api.post<{ accessToken: string }>('/auth/refresh', {})
+          localStorage.setItem('accessToken', data.accessToken)
+          await refreshUser()
+        } catch {
+          // No valid session at all — stay logged out
+          setUser(null)
+        }
+      }
     }
+    restore().finally(() => setLoading(false))
   }, [refreshUser])
 
   const login = async (email: string, password: string) => {
