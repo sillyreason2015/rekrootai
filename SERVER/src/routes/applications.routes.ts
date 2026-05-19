@@ -731,3 +731,58 @@ applicationsRouter.post('/:id/correspondence/reply', requireAuth, async (req, re
     res.json({ ok: deliveryStatus === 'sent', deliveryStatus })
   } catch (err) { next(err) }
 })
+
+// PATCH /applications/:id/notes — save recruiter notes on a candidate
+applicationsRouter.patch('/:id/notes', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { notes } = req.body as { notes?: string }
+    const app = await ApplicationModel.findByIdAndUpdate(
+      req.params.id,
+      { recruiterNotes: notes ?? '' },
+      { new: true },
+    ).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    await logAction({ actor: 'user', action: 'recruiter-note', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { length: (notes ?? '').length } })
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})
+
+// POST /applications/bulk-action — shortlist / reject / send-assessment for multiple candidates
+applicationsRouter.post('/bulk-action', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const { ids, action } = req.body as { ids?: string[]; action?: string }
+    if (!Array.isArray(ids) || !ids.length) throw new HttpError(400, 'ids must be a non-empty array')
+    if (!['shortlist', 'reject', 'send-assessment'].includes(action ?? '')) {
+      throw new HttpError(400, 'action must be shortlist, reject, or send-assessment')
+    }
+
+    const results: Array<{ id: string; ok: boolean; error?: string }> = []
+
+    for (const id of ids) {
+      try {
+        const app = await ApplicationModel.findById(id).lean()
+        if (!app) { results.push({ id, ok: false, error: 'Not found' }); continue }
+
+        if (action === 'shortlist') {
+          await ApplicationModel.findByIdAndUpdate(id, { stage: 'screening', status: 'shortlisted' })
+          await logAction({ actor: 'user', action: 'shortlisted', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { bulk: true } })
+          await notifyCandidate(String(app.candidate), { type: 'shortlisted', title: 'Application update', body: 'You have been shortlisted for the next stage.', link: '/candidate/applications' })
+        } else if (action === 'reject') {
+          await ApplicationModel.findByIdAndUpdate(id, { stage: 'rejected', status: 'rejected' })
+          await logAction({ actor: 'user', action: 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { bulk: true } })
+        } else if (action === 'send-assessment') {
+          if (app.stage !== 'screening') { results.push({ id, ok: false, error: 'Not in screening stage' }); continue }
+          const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+          await ApplicationModel.findByIdAndUpdate(id, { stage: 'assessment', status: 'assessment_sent', assessmentExpiresAt: expires, assessmentStatus: 'pending' })
+          await logAction({ actor: 'user', action: 'assessment-sent', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { bulk: true } })
+          await notifyCandidate(String(app.candidate), { type: 'assessment_sent', title: 'Assessment ready', body: 'Your assessment is ready. Log in to complete it.', link: '/candidate/applications' })
+        }
+        results.push({ id, ok: true })
+      } catch (err) {
+        results.push({ id, ok: false, error: String(err) })
+      }
+    }
+
+    res.json({ ok: true, results, succeeded: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length })
+  } catch (err) { next(err) }
+})

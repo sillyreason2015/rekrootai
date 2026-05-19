@@ -5,6 +5,7 @@ import {
   ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle,
   Calendar, Video, ArrowRight, Download, Layers, TrendingUp, TrendingDown,
   Minus, Bot, X, Send, Loader2, Info, FileText, Eye, Sparkles, ExternalLink, MessageSquare,
+  SlidersHorizontal, Search, Square, CheckSquare, Pencil, Save,
 } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { applicationService } from '../../services/application.service'
@@ -386,6 +387,15 @@ export default function Shortlist() {
   const [cvNotice, setCvNotice] = useState<string | null>(null)
   const [auditNotice, setAuditNotice] = useState<string | null>(null)
   const [pendingMode, setPendingMode] = useState<Mode | null>(null)
+  // Filters
+  const [filterStage, setFilterStage] = useState('')
+  const [filterMinScore, setFilterMinScore] = useState('')
+  const [filterSearch, setFilterSearch] = useState('')
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Notes
+  const [editingNotes, setEditingNotes] = useState<string | null>(null)
+  const [notesValue, setNotesValue] = useState('')
   const qc = useQueryClient()
   const { toast } = useToast()
 
@@ -557,6 +567,27 @@ export default function Shortlist() {
       toast({ title: 'AI mode updated', description: `${vars.nextMode} mode is now active for this job.` })
     },
     onError: mutationError('We could not update the AI mode for this role.'),
+  })
+
+  const bulkMutation = useMutation({
+    mutationFn: ({ ids, action }: { ids: string[]; action: 'shortlist' | 'reject' | 'send-assessment' }) =>
+      applicationService.bulkAction(ids, action),
+    onSuccess: (resp: any, vars) => {
+      setSelectedIds(new Set())
+      invalidateApplications()
+      toast({ title: `Bulk action complete`, description: `${resp.succeeded} succeeded${resp.failed ? `, ${resp.failed} failed` : ''}.` })
+    },
+    onError: mutationError('Bulk action failed. Please try again.'),
+  })
+
+  const notesMutation = useMutation({
+    mutationFn: ({ id, notes }: { id: string; notes: string }) => applicationService.saveNotes(id, notes),
+    onSuccess: (_resp, vars) => {
+      setEditingNotes(null)
+      invalidateApplications()
+      toast({ title: 'Notes saved' })
+    },
+    onError: mutationError('Could not save notes.'),
   })
 
   const downloadCv = async (appId: string) => {
@@ -747,6 +778,51 @@ export default function Shortlist() {
         </div>
       )}
 
+      {/* Filter bar */}
+      {selectedJob && data?.data?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/20 px-3 py-2">
+          <SlidersHorizontal className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              className="h-8 rounded-md border border-input bg-background pl-7 pr-3 text-sm w-44 focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="Search name…"
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
+            />
+          </div>
+          <select
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+            value={filterStage}
+            onChange={(e) => setFilterStage(e.target.value)}
+          >
+            <option value="">All stages</option>
+            {['applied','screening','assessment','interview','decision','offered','rejected'].map(s => (
+              <option key={s} value={s}>{stageLabel(s)}</option>
+            ))}
+          </select>
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground">Min score</span>
+            <input
+              type="number" min={0} max={100}
+              className="h-8 w-16 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              placeholder="0"
+              value={filterMinScore}
+              onChange={(e) => setFilterMinScore(e.target.value)}
+            />
+            <span className="text-xs text-muted-foreground">%</span>
+          </div>
+          {(filterSearch || filterStage || filterMinScore) && (
+            <button
+              onClick={() => { setFilterSearch(''); setFilterStage(''); setFilterMinScore('') }}
+              className="text-xs text-primary hover:underline"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
       {!selectedJob ? (
         <WorkspaceEmptyState
           title="Pick a role to start reviewing candidates"
@@ -764,7 +840,49 @@ export default function Shortlist() {
         />
       ) : (
         <div className="space-y-3">
+          {/* Bulk selection header */}
+          {(() => {
+            const minScore = filterMinScore ? Number(filterMinScore) : 0
+            const filtered = data.data.filter((app: Application) => {
+              const candidate = app.candidate as any
+              const user = typeof candidate?.user === 'object' ? candidate.user : null
+              const name = user ? `${user.firstName} ${user.lastName}` : ''
+              if (filterSearch && !name.toLowerCase().includes(filterSearch.toLowerCase())) return false
+              if (filterStage && app.stage !== filterStage) return false
+              if (minScore > 0 && (app.scores?.final ?? 0) < minScore) return false
+              return true
+            })
+            const allSelected = filtered.length > 0 && filtered.every((a: Application) => selectedIds.has(a._id))
+            if (!filtered.length) return null
+            return (
+              <div className="flex items-center gap-3 px-1 text-sm text-muted-foreground">
+                <button
+                  onClick={() => {
+                    if (allSelected) setSelectedIds(new Set())
+                    else setSelectedIds(new Set(filtered.map((a: Application) => a._id)))
+                  }}
+                  className="flex items-center gap-1.5 hover:text-foreground transition-colors"
+                >
+                  {allSelected ? <CheckSquare className="h-4 w-4 text-primary" /> : <Square className="h-4 w-4" />}
+                  {allSelected ? 'Deselect all' : `Select all (${filtered.length})`}
+                </button>
+                {selectedIds.size > 0 && (
+                  <span className="text-xs font-medium text-primary">{selectedIds.size} selected</span>
+                )}
+              </div>
+            )
+          })()}
           {data.data
+            .filter((app: Application) => {
+              const candidate = app.candidate as any
+              const user = typeof candidate?.user === 'object' ? candidate.user : null
+              const name = user ? `${user.firstName} ${user.lastName}` : ''
+              if (filterSearch && !name.toLowerCase().includes(filterSearch.toLowerCase())) return false
+              if (filterStage && app.stage !== filterStage) return false
+              const minScore = filterMinScore ? Number(filterMinScore) : 0
+              if (minScore > 0 && (app.scores?.final ?? 0) < minScore) return false
+              return true
+            })
             .sort((a: Application, b: Application) => (b.scores?.final ?? 0) - (a.scores?.final ?? 0))
             .map((app: Application) => {
               const toPercent = (value?: number) => {
@@ -817,6 +935,17 @@ export default function Shortlist() {
                     <div className="p-4 space-y-3">
                       {/* Identity row — never wraps */}
                       <div className="flex items-center gap-3 min-w-0">
+                        <button
+                          onClick={() => setSelectedIds((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(app._id)) next.delete(app._id)
+                            else next.add(app._id)
+                            return next
+                          })}
+                          className="shrink-0 text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          {selectedIds.has(app._id) ? <CheckSquare className="h-4 w-4 text-primary" /> : <Square className="h-4 w-4" />}
+                        </button>
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary">
                           {initials}
                         </div>
@@ -1034,6 +1163,45 @@ export default function Shortlist() {
                       </div>
                     )}
 
+                    {/* Recruiter notes panel */}
+                    {isExpand && (
+                      <div className="border-t px-4 py-3 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Recruiter Notes</p>
+                          {editingNotes !== app._id && (
+                            <button
+                              onClick={() => { setEditingNotes(app._id); setNotesValue(app.recruiterNotes ?? '') }}
+                              className="flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
+                              <Pencil className="h-3 w-3" /> {app.recruiterNotes ? 'Edit' : 'Add note'}
+                            </button>
+                          )}
+                        </div>
+                        {editingNotes === app._id ? (
+                          <div className="space-y-2">
+                            <textarea
+                              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+                              rows={3}
+                              placeholder="Add private notes about this candidate…"
+                              value={notesValue}
+                              onChange={(e) => setNotesValue(e.target.value)}
+                              autoFocus
+                            />
+                            <div className="flex gap-2">
+                              <Button size="sm" className="gap-1" onClick={() => notesMutation.mutate({ id: app._id, notes: notesValue })} disabled={notesMutation.isPending}>
+                                <Save className="h-3.5 w-3.5" /> Save
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingNotes(null)}>Cancel</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground italic">
+                            {app.recruiterNotes || 'No notes yet.'}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
                     {/* Expanded SHAP score details */}
                     {isExpand && (
                       <div className="border-t px-4 pb-4 pt-3 space-y-3">
@@ -1089,6 +1257,34 @@ export default function Shortlist() {
                 </Card>
               )
             })}
+        </div>
+      )}
+
+      {/* Bulk action bar — sticky at bottom */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 z-40 -translate-x-1/2">
+          <div className="flex items-center gap-3 rounded-2xl border bg-card px-5 py-3 shadow-2xl">
+            <span className="text-sm font-medium">{selectedIds.size} selected</span>
+            <div className="h-4 w-px bg-border" />
+            <Button size="sm" className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+              onClick={() => bulkMutation.mutate({ ids: [...selectedIds], action: 'shortlist' })}
+              disabled={bulkMutation.isPending}>
+              <CheckCircle2 className="h-3.5 w-3.5" /> Shortlist all
+            </Button>
+            <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => bulkMutation.mutate({ ids: [...selectedIds], action: 'send-assessment' })}
+              disabled={bulkMutation.isPending}>
+              <ArrowRight className="h-3.5 w-3.5" /> Send Assessment
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/5"
+              onClick={() => bulkMutation.mutate({ ids: [...selectedIds], action: 'reject' })}
+              disabled={bulkMutation.isPending}>
+              <Ban className="h-3.5 w-3.5" /> Reject all
+            </Button>
+            <button onClick={() => setSelectedIds(new Set())} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -209,6 +209,35 @@ adminRouter.get('/audit-log', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
+adminRouter.get('/audit-log/export', async (req, res, next) => {
+  try {
+    const filter: Record<string, unknown> = {}
+    if (req.user?.role !== 'super_admin') {
+      const scope = await resolveWorkspaceScope(req.user!._id)
+      const companyJobIds = scope.companyId
+        ? await JobModel.find({ company: scope.companyId }).distinct('_id').then((ids) => ids.map(String))
+        : []
+      const companyUserIds = scope.companyId
+        ? await UserModel.find({ companyName: { $in: scope.companyNames } }).distinct('_id').then((ids) => ids.map(String))
+        : []
+      filter.$or = [{ jobId: { $in: companyJobIds } }, { candidateId: { $in: companyUserIds } }]
+    }
+    const entries = await AuditLogModel.find(filter).sort({ timestamp: -1 }).limit(5000).lean()
+    const headers = ['timestamp', 'actor', 'action', 'mode', 'jobId', 'candidateId', 'modelVersion', 'payload']
+    const escape = (v: unknown) => {
+      const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
+      return `"${s.replace(/"/g, '""')}"`
+    }
+    const rows = entries.map((e) => [
+      e.timestamp, e.actor, e.action, e.mode ?? '', e.jobId ?? '', e.candidateId ?? '', e.modelVersion ?? '', e.payload ?? '',
+    ].map(escape).join(','))
+    const csv = [headers.join(','), ...rows].join('\r\n')
+    res.setHeader('Content-Type', 'text/csv')
+    res.setHeader('Content-Disposition', `attachment; filename="audit-log-${new Date().toISOString().slice(0, 10)}.csv"`)
+    res.send(csv)
+  } catch (err) { next(err) }
+})
+
 adminRouter.get('/bias-audits', async (_req, res, next) => {
   try {
     const audits = await BiasAuditModel.find().sort({ runAt: -1 }).lean()

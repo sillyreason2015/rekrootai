@@ -52,4 +52,8 @@ export const applicationService = {
     api.get<{ thread: Array<Record<string, unknown>> }>(`/applications/${id}/correspondence/thread`).then((r) => r.data),
   replyCorrespondence: (id: string, payload: { subject?: string; message: string }) =>
     api.post(`/applications/${id}/correspondence/reply`, payload).then((r) => r.data),
+  saveNotes: (id: string, notes: string) =>
+    api.patch(`/applications/${id}/notes`, { notes }).then((r) => r.data),
+  bulkAction: (ids: string[], action: 'shortlist' | 'reject' | 'send-assessment') =>
+    api.post('/applications/bulk-action', { ids, action }).then((r) => r.data),
 }

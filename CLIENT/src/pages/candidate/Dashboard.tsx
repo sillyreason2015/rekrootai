@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Briefcase, ClipboardList, Video, TrendingUp, ChevronRight, Sparkles, MapPin, Clock, GraduationCap, Pencil } from 'lucide-react'
+import { Briefcase, ClipboardList, Video, TrendingUp, ChevronRight, Sparkles, MapPin, Clock, GraduationCap, Pencil, AlarmClock } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { useAuth } from '../../contexts/AuthContext'
 import { candidateService } from '../../services/candidate.service'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
@@ -34,6 +35,57 @@ function stageMessage(stage: string): string {
     default:
       return 'Pipeline update available.'
   }
+}
+
+function AssessmentCountdown({ app }: { app: Application }) {
+  const remaining = useCountdown(app.assessmentExpiresAt)
+  const isUrgent = app.assessmentExpiresAt && new Date(app.assessmentExpiresAt).getTime() - Date.now() < 2 * 3_600_000
+  const job = app.job as any
+  return (
+    <Card className={`border-2 ${isUrgent ? 'border-red-300 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+      <CardContent className="flex items-center justify-between gap-4 p-4">
+        <div className="flex items-center gap-3">
+          <div className={`flex h-10 w-10 items-center justify-center rounded-full ${isUrgent ? 'bg-red-100' : 'bg-amber-100'}`}>
+            <AlarmClock className={`h-5 w-5 ${isUrgent ? 'text-red-600' : 'text-amber-600'}`} />
+          </div>
+          <div>
+            <p className={`text-xs font-semibold uppercase tracking-wide ${isUrgent ? 'text-red-700' : 'text-amber-700'}`}>
+              {isUrgent ? '⚠ Assessment expiring soon' : 'Assessment pending'}
+            </p>
+            <p className="text-sm font-medium">{job?.title ?? 'Assessment ready'}</p>
+            <p className={`text-sm font-mono font-bold ${isUrgent ? 'text-red-700' : 'text-amber-800'}`}>
+              {remaining || 'Loading…'}
+            </p>
+          </div>
+        </div>
+        <Link
+          to={`/candidate/assessment/${app._id}`}
+          className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium text-white ${isUrgent ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'}`}
+        >
+          {app.assessmentStatus === 'in_progress' ? 'Continue' : 'Start now'}
+        </Link>
+      </CardContent>
+    </Card>
+  )
+}
+
+function useCountdown(expiresAt?: string) {
+  const [remaining, setRemaining] = useState<string>('')
+  useEffect(() => {
+    if (!expiresAt) return
+    const tick = () => {
+      const diff = new Date(expiresAt).getTime() - Date.now()
+      if (diff <= 0) { setRemaining('Expired'); return }
+      const h = Math.floor(diff / 3_600_000)
+      const m = Math.floor((diff % 3_600_000) / 60_000)
+      const s = Math.floor((diff % 60_000) / 1_000)
+      setRemaining(`${h}h ${m}m ${s}s`)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [expiresAt])
+  return remaining
 }
 
 export default function CandidateDashboard() {
@@ -119,7 +171,14 @@ export default function CandidateDashboard() {
         ))}
       </div>
 
-      {/* Recent applications */}
+      {/* Assessment countdown cards */}
+      {(data?.recentApplications as Application[] | undefined)?.filter(
+        (app) => app.stage === 'assessment' && app.assessmentExpiresAt && app.assessmentStatus !== 'completed' && app.assessmentStatus !== 'expired'
+      ).map((app) => (
+        <AssessmentCountdown key={app._id} app={app} />
+      ))}
+
+      {/* Next action banner */}
       {data?.nextAction && (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="flex items-center justify-between gap-4 p-5">

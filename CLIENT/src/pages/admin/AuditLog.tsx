@@ -70,19 +70,11 @@ export default function AuditLog() {
 
   const entries = ((data as { data?: Entry[] })?.data ?? []) as Entry[]
 
-  function exportCsv() {
-    if (!entries.length) return
-    const headers = ['Action', 'Actor', 'Mode', 'Narrative', 'Date']
-    const rows = entries.map((e) => [
-      e.action,
-      e.actor ?? '',
-      e.mode ?? '',
-      (e.narrative ?? '').replace(/,/g, ';'),
-      e.createdAt ? new Date(e.createdAt).toISOString() : '',
-    ])
-    const csv = [headers, ...rows].map((r) => r.join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
+  async function exportCsv() {
+    // Hit the server-side export endpoint — returns full CSV (up to 5000 rows, scoped to company)
+    const { default: api } = await import('../../lib/axios')
+    const resp = await api.get('/admin/audit-log/export', { responseType: 'blob' })
+    const url = URL.createObjectURL(resp.data as Blob)
     const a = document.createElement('a')
     a.href = url
     a.download = `audit-log-${new Date().toISOString().slice(0, 10)}.csv`
