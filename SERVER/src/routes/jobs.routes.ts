@@ -369,6 +369,32 @@ jobsRouter.get('/:jobId/question-banks/:metric', requireAuth, requireRole('recru
   } catch (err) { next(err) }
 })
 
+// GET /jobs/templates — list this company's job templates
+jobsRouter.get('/templates', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const filter = await buildScopedJobFilterForTeam(req.user!._id, undefined)
+    const templates = await JobModel.find({ ...filter, isTemplate: true }).sort({ updatedAt: -1 }).lean()
+    res.json(templates.map((t) => ({ ...t, _id: String(t._id) })))
+  } catch (err) { next(err) }
+})
+
+// POST /jobs/:id/save-as-template — clone a job as a template
+jobsRouter.post('/:id/save-as-template', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
+  try {
+    const source = await findScopedJob(req.user!._id, req.params.id)
+    if (!source) throw new HttpError(404, 'Job not found')
+    const { _id, createdAt, ...rest } = source as any
+    const template = await JobModel.create({
+      ...rest,
+      title: req.body.name || `${source.title} (template)`,
+      status: 'draft',
+      isTemplate: true,
+      createdBy: String(req.user!._id),
+    })
+    res.status(201).json({ ...template.toObject(), _id: String(template._id) })
+  } catch (err) { next(err) }
+})
+
 // PATCH /jobs/:id/thresholds
 jobsRouter.patch('/:id/thresholds', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {

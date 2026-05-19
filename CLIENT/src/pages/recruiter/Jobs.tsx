@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Briefcase, Lock, ChevronDown, ChevronUp, Settings2, CheckCircle2, Globe, Pencil, Trash2, UserRound, Users2, Wand2, RotateCw } from 'lucide-react'
+import { Briefcase, Lock, ChevronDown, ChevronUp, Settings2, CheckCircle2, Globe, Pencil, Trash2, UserRound, Users2, Wand2, RotateCw, Copy } from 'lucide-react'
 import { jobService } from '../../services/job.service'
 import { adminService } from '../../services/admin.service'
 import api from '../../lib/axios'
@@ -82,6 +82,11 @@ export default function RecruiterJobs() {
   const autoAssignMutation = useMutation({
     mutationFn: (id: string) => api.post(`/jobs/${id}/auto-assign`, {}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['my-jobs'] }),
+  })
+  const [savedTemplate, setSavedTemplate] = useState<string | null>(null)
+  const saveTemplateMutation = useMutation({
+    mutationFn: (id: string) => jobService.saveAsTemplate(id),
+    onSuccess: (_d, id) => { setSavedTemplate(id); setTimeout(() => setSavedTemplate(null), 2500) },
   })
 
   const getDraft = (job: Job): ThresholdDraft => {
@@ -270,6 +275,14 @@ export default function RecruiterJobs() {
                         Thresholds
                         {isExpand ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                       </button>
+                      {canManageJobs && (
+                        <Button size="sm" variant="outline" className="gap-1 text-muted-foreground"
+                          onClick={() => saveTemplateMutation.mutate(job._id)} disabled={saveTemplateMutation.isPending}
+                          title="Save a copy of this job as a reusable template">
+                          <Copy className="h-3.5 w-3.5" />
+                          {savedTemplate === job._id ? 'Saved!' : 'Template'}
+                        </Button>
+                      )}
                       {job.status === 'draft' && canManageJobs && (
                         <Button size="sm" variant="outline" className="text-emerald-600 border-emerald-200 hover:bg-emerald-50 gap-1"
                           onClick={() => publishMutation.mutate(job._id)} disabled={publishMutation.isPending}>

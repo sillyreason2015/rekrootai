@@ -5,7 +5,7 @@ import {
   ChevronDown, ChevronUp, Shield, Ban, CheckCircle2, AlertTriangle,
   Calendar, Video, ArrowRight, Download, Layers, TrendingUp, TrendingDown,
   Minus, Bot, X, Send, Loader2, Info, FileText, Eye, Sparkles, ExternalLink, MessageSquare,
-  SlidersHorizontal, Search, Square, CheckSquare, Pencil, Save,
+  SlidersHorizontal, Search, Square, CheckSquare, Pencil, Save, LayoutGrid, List,
 } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { applicationService } from '../../services/application.service'
@@ -393,6 +393,7 @@ export default function Shortlist() {
   const [filterSearch, setFilterSearch] = useState('')
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list')
   // Notes
   const [editingNotes, setEditingNotes] = useState<string | null>(null)
   const [notesValue, setNotesValue] = useState('')
@@ -614,6 +615,14 @@ export default function Shortlist() {
           <p className="text-sm text-muted-foreground">AI-ranked candidates with SHAP explanations.</p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border bg-card p-0.5">
+            <button onClick={() => setViewMode('list')} className={cn('flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors', viewMode === 'list' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
+              <List className="h-3.5 w-3.5" /> List
+            </button>
+            <button onClick={() => setViewMode('kanban')} className={cn('flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors', viewMode === 'kanban' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>
+              <LayoutGrid className="h-3.5 w-3.5" /> Kanban
+            </button>
+          </div>
           <InfoTip
             size="md"
             content="Assist: you approve each candidate. Veto: AI shortlists automatically, you remove any. Override: full manual control, AI scores are advisory only."
@@ -838,6 +847,66 @@ export default function Shortlist() {
           secondary={{ label: 'Back to jobs', to: '/recruiter/jobs' }}
           icon="users"
         />
+      ) : viewMode === 'kanban' ? (
+        /* Kanban view */
+        <div className="overflow-x-auto pb-4">
+          <div className="flex gap-4 min-w-max">
+            {['applied', 'screening', 'assessment', 'interview', 'decision', 'offered', 'rejected'].map((stage) => {
+              const cols = data.data.filter((app: Application) => app.stage === stage)
+              return (
+                <div key={stage} className="w-64 shrink-0">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize', stageBadge(stage))}>{stageLabel(stage)}</span>
+                    <span className="text-xs text-muted-foreground">{cols.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {cols.map((app: Application) => {
+                      const candidate = app.candidate as any
+                      const user = typeof candidate?.user === 'object' ? candidate.user : null
+                      const name = user ? `${user.firstName} ${user.lastName}` : 'Candidate'
+                      const initials = user ? `${user.firstName[0]}${user.lastName[0]}` : '?'
+                      const score = app.scores?.final
+                      return (
+                        <div key={app._id} className="rounded-lg border bg-card p-3 space-y-2 shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">{initials}</div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{name}</p>
+                              {score != null && score > 0 && (
+                                <p className={cn('text-xs font-bold', scoreBg(score).split(' ').find(c => c.startsWith('text-')))}>{score.toFixed(0)}%</p>
+                              )}
+                            </div>
+                          </div>
+                          {stage === 'applied' && (
+                            <button onClick={() => shortlistMutation.mutate(app._id)} disabled={shortlistMutation.isPending}
+                              className="w-full rounded-md border border-emerald-200 bg-emerald-50 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50">
+                              Shortlist
+                            </button>
+                          )}
+                          {stage === 'screening' && (
+                            <button onClick={() => sendAssessmentMutation.mutate(app._id)} disabled={sendAssessmentMutation.isPending}
+                              className="w-full rounded-md border py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">
+                              Send Assessment
+                            </button>
+                          )}
+                          {!['decision', 'rejected', 'offered'].includes(stage) && (
+                            <button onClick={() => rejectMutation.mutate(app._id)} disabled={rejectMutation.isPending}
+                              className="w-full rounded-md border border-red-100 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50">
+                              Reject
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {cols.length === 0 && (
+                      <div className="rounded-lg border border-dashed bg-muted/20 p-4 text-center text-xs text-muted-foreground">Empty</div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       ) : (
         <div className="space-y-3">
           {/* Bulk selection header */}
@@ -1238,6 +1307,14 @@ export default function Shortlist() {
                             Interview: {new Date(extApp.interviewScheduledAt).toLocaleString()}
                             {extApp.interviewStatus && ` · ${extApp.interviewStatus}`}
                           </p>
+                        )}
+                        {Array.isArray((extApp as any).interviewPreferredTimes) && (extApp as any).interviewPreferredTimes.length > 0 && (
+                          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 space-y-1">
+                            <p className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Candidate availability</p>
+                            {(extApp as any).interviewPreferredTimes.map((t: string, i: number) => (
+                              <p key={i} className="text-xs text-blue-700">{new Date(t).toLocaleString()}</p>
+                            ))}
+                          </div>
                         )}
                         <div className="text-[11px] text-muted-foreground space-y-0.5">
                           <p>{extApp.fairnessComputedAt ? `✓ Fairness gate: ${new Date(extApp.fairnessComputedAt).toLocaleString()}` : '○ Fairness gate: pending'}</p>

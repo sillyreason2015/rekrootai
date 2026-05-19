@@ -1,9 +1,10 @@
 import { useState, KeyboardEvent, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, X, MapPin, ImagePlus, Users2, Wand2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, Trash2, Loader2, X, MapPin, ImagePlus, Users2, Wand2, Copy } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { jobService } from '../../services/job.service'
 import api from '../../lib/axios'
@@ -68,6 +69,43 @@ export default function CreateJob() {
   const [_bannerUploading, setBannerUploading] = useState(false)
   const [pendingBannerFile, setPendingBannerFile] = useState<File | null>(null)
   const bannerInputRef = useRef<HTMLInputElement>(null)
+
+  const { data: templates } = useQuery({ queryKey: ['job-templates'], queryFn: jobService.getTemplates, retry: false })
+
+  const loadTemplate = (templateId: string) => {
+    const t = templates?.find((tpl: any) => tpl._id === templateId)
+    if (!t) return
+    const toArr = (arr: string[] | undefined) => (arr ?? []).map((v) => ({ value: v }))
+    form.reset({
+      title: t.title?.replace(/ \(template\)$/, '') ?? '',
+      department: t.department ?? '',
+      level: t.level ?? 'mid',
+      positionsCount: t.positionsCount ?? 1,
+      location: t.location ?? 'Undisclosed',
+      type: t.type ?? 'full-time',
+      remote: t.remote ?? 'hybrid',
+      description: t.description ?? '',
+      salaryMin: t.salaryMin,
+      salaryMax: t.salaryMax,
+      salaryCurrency: t.salaryCurrency ?? '₦',
+      requirements: toArr(t.requirements),
+      responsibilities: toArr(t.responsibilities),
+      skills: toArr(t.skills),
+      departmentHiring: t.departmentHiring?.length ? t.departmentHiring : [{ department: '', seats: 1 }],
+      requiresQuestionnaire: t.requiresQuestionnaire ?? true,
+      applicationQuestions: t.applicationQuestions?.length ? t.applicationQuestions : [],
+      assessmentModules: t.assessmentModules?.length ? t.assessmentModules : [{ type: 'aptitude', timeLimit: 20, weight: 0.25 }],
+      thresholds: {
+        assessment: t.thresholds?.assessment ?? 60,
+        fairness: Math.round((t.thresholds?.fairness ?? 0.5) * 100),
+        interview: t.thresholds?.interview ?? 60,
+      },
+    })
+    if (t.location && t.location !== 'Undisclosed') {
+      const tags = t.location.split(',').map((s: string) => s.trim()).filter(Boolean)
+      setLocationTags(tags)
+    }
+  }
 
   const form = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -224,6 +262,22 @@ export default function CreateJob() {
         {step === 0 && (
           <>
             <h2 className="font-serif text-xl font-semibold">Job Details</h2>
+            {templates && templates.length > 0 && (
+              <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+                <Copy className="h-4 w-4 text-primary shrink-0" />
+                <span className="text-sm font-medium text-primary">Load from template</span>
+                <select
+                  className="ml-2 h-8 flex-1 rounded-md border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                  defaultValue=""
+                  onChange={(e) => { if (e.target.value) loadTemplate(e.target.value) }}
+                >
+                  <option value="">Select a template…</option>
+                  {(templates as any[]).map((t) => (
+                    <option key={t._id} value={t._id}>{t.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border bg-muted/30 p-4 text-sm">
                 <p className="inline-flex items-center gap-2 font-medium"><Users2 className="h-4 w-4 text-primary" />Team scope</p>

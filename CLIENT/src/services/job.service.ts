@@ -17,4 +17,6 @@ export const jobService = {
   updateThresholds: (id: string, thresholds: { assessment?: number; fairness?: number; interview?: number }) =>
     api.patch(`/jobs/${id}/thresholds`, thresholds).then((r) => r.data),
   delete: (id: string) => api.delete(`/jobs/${id}`).then((r) => r.data),
+  getTemplates: () => api.get<Job[]>('/jobs/templates').then((r) => r.data),
+  saveAsTemplate: (id: string, name?: string) => api.post(`/jobs/${id}/save-as-template`, { name }).then((r) => r.data),
 }

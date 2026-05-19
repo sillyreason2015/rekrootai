@@ -817,3 +817,35 @@ applicationsRouter.post('/bulk-action', requireAuth, requireRole('recruiter', 'a
     res.json({ ok: true, results, succeeded: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length })
   } catch (err) { next(err) }
 })
+
+// PATCH /applications/:id/interview-preference — candidate submits preferred interview times
+applicationsRouter.patch('/:id/interview-preference', requireAuth, requireRole('candidate'), async (req, res, next) => {
+  try {
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    const candidate = await CandidateModel.findOne({ user: req.user!._id }).lean()
+    if (!candidate || String(app.candidate) !== String(candidate._id)) throw new HttpError(403, 'Forbidden')
+    if (app.stage !== 'interview') throw new HttpError(409, 'Interview preference only valid at interview stage')
+
+    const times: string[] = (Array.isArray(req.body.preferredTimes) ? req.body.preferredTimes : []).slice(0, 5)
+    if (!times.length) throw new HttpError(400, 'At least one preferred time is required')
+
+    await ApplicationModel.findByIdAndUpdate(app._id, {
+      interviewPreferredTimes: times,
+      interviewPreferenceSubmittedAt: new Date().toISOString(),
+    })
+
+    const user = await UserModel.findById(req.user!._id, { firstName: 1 }).lean()
+    const job = await JobModel.findById(String(app.job), { title: 1, assignedRecruiter: 1 }).lean()
+    if (job?.assignedRecruiter) {
+      notify(String(job.assignedRecruiter), {
+        type: 'interview_preference',
+        title: 'Candidate shared availability',
+        body: `${user?.firstName ?? 'A candidate'} submitted interview time preferences for ${job.title}.`,
+        link: `/recruiter/shortlist?job=${String(job._id)}`,
+      })
+    }
+
+    res.json({ ok: true })
+  } catch (err) { next(err) }
+})

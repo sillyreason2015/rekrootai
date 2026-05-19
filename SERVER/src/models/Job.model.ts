@@ -73,6 +73,7 @@ const jobSchema = new Schema<Omit<Job, 'createdAt'>>(
       interview: { type: Number, default: 70 },
     },
     alpha: { type: Number, default: 0.4 },
+    isTemplate: { type: Boolean, default: false },
     createdBy: { type: String, ref: 'User', required: true },
     assignedRecruiter: { type: String, ref: 'User' },
     assignedRecruiterAt: String,

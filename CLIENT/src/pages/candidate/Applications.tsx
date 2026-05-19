@@ -1,6 +1,7 @@
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { FileText, ExternalLink, CheckCircle2, Circle, Clock, XCircle, ThumbsUp, ThumbsDown, Loader2 } from 'lucide-react'
+import { FileText, ExternalLink, CheckCircle2, Circle, Clock, XCircle, ThumbsUp, ThumbsDown, Loader2, Plus, Trash2 } from 'lucide-react'
 import { applicationService } from '../../services/application.service'
 import api from '../../lib/axios'
 import { Card, CardContent } from '../../components/ui/card'
@@ -119,6 +120,9 @@ function PipelineTracker({ stage, interviewMissed }: { stage: string; interviewM
 
 export default function Applications() {
   const qc = useQueryClient()
+  const [prefAppId, setPrefAppId] = useState<string | null>(null)
+  const [prefTimes, setPrefTimes] = useState<string[]>(['', '', ''])
+
   const { data: applications, isLoading } = useQuery({
     queryKey: ['my-applications'],
     queryFn: applicationService.myApplications,
@@ -127,6 +131,11 @@ export default function Applications() {
     mutationFn: ({ id, response }: { id: string; response: 'accepted' | 'declined' }) =>
       api.post(`/applications/${id}/offer-response`, { response }).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['my-applications'] }),
+  })
+  const prefMutation = useMutation({
+    mutationFn: ({ id, preferredTimes }: { id: string; preferredTimes: string[] }) =>
+      api.patch(`/applications/${id}/interview-preference`, { preferredTimes }).then((r) => r.data),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['my-applications'] }); setPrefAppId(null) },
   })
 
   if (isLoading) return <LoadingSpinner />
@@ -232,11 +241,27 @@ export default function Applications() {
                         Join Interview Room <ExternalLink className="h-3 w-3" />
                       </Link>
                     )}
-                    {app.stage === 'interview' && !missed && !app.interviewId && (
-                      <span className="inline-flex items-center gap-1 rounded-md bg-muted px-3 py-1 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" /> Interview link pending
-                      </span>
-                    )}
+                    {app.stage === 'interview' && !missed && !app.interviewId && (() => {
+                      const extApp = app as any
+                      const submitted = extApp.interviewPreferenceSubmittedAt
+                      if (submitted) return (
+                        <div className="flex flex-col gap-1">
+                          <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-3 py-1 text-xs text-emerald-700 font-medium">
+                            <CheckCircle2 className="h-3 w-3" /> Availability submitted — awaiting recruiter confirmation
+                          </span>
+                          <button onClick={() => { setPrefAppId(app._id); setPrefTimes(extApp.interviewPreferredTimes?.length ? [...extApp.interviewPreferredTimes] : ['', '', '']) }}
+                            className="self-start text-[11px] text-primary hover:underline">Update availability</button>
+                        </div>
+                      )
+                      return (
+                        <button
+                          onClick={() => { setPrefAppId(app._id); setPrefTimes(['', '', '']) }}
+                          className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                        >
+                          <Clock className="h-3 w-3" /> Share my availability
+                        </button>
+                      )
+                    })()}
 
                     {/* Explanation link — decision, rejected, or missed interview */}
                     {(app.stage === 'decision' || app.stage === 'rejected' || missed) && (
@@ -286,6 +311,50 @@ export default function Applications() {
                     })()}
                   </div>
 
+                  {/* Interview time preference form */}
+                  {prefAppId === app._id && (
+                    <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+                      <p className="text-sm font-semibold">Share your interview availability</p>
+                      <p className="text-xs text-muted-foreground">Add up to 5 time slots (e.g. Mon 10 Jan 10:00 AM). The recruiter will confirm one.</p>
+                      <div className="space-y-2">
+                        {prefTimes.map((t, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <input
+                              type="datetime-local"
+                              className="flex-1 h-8 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                              value={t}
+                              onChange={(e) => setPrefTimes((prev) => prev.map((v, idx) => idx === i ? e.target.value : v))}
+                            />
+                            {prefTimes.length > 1 && (
+                              <button onClick={() => setPrefTimes((prev) => prev.filter((_, idx) => idx !== i))} className="text-muted-foreground hover:text-destructive">
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {prefTimes.length < 5 && (
+                        <button onClick={() => setPrefTimes((prev) => [...prev, ''])} className="flex items-center gap-1 text-xs text-primary hover:underline">
+                          <Plus className="h-3 w-3" /> Add another slot
+                        </button>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={() => {
+                            const filled = prefTimes.filter(Boolean)
+                            if (filled.length) prefMutation.mutate({ id: app._id, preferredTimes: filled })
+                          }}
+                          disabled={prefMutation.isPending || !prefTimes.some(Boolean)}
+                          className="flex items-center gap-1 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                        >
+                          {prefMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
+                          Submit availability
+                        </button>
+                        <button onClick={() => setPrefAppId(null)} className="rounded-md border px-4 py-1.5 text-xs hover:bg-accent">Cancel</button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Decision timeline */}
                   <div className="rounded-lg border bg-muted/20 p-3 text-xs">
                     <p className="mb-1 font-medium">Decision Timeline</p>
@@ -295,6 +364,7 @@ export default function Applications() {
                       {app.fairnessComputedAt && <p>Fairness computed: {new Date(app.fairnessComputedAt).toLocaleString()}</p>}
                       {app.explanationComputedAt && <p>AI explanation generated: {new Date(app.explanationComputedAt).toLocaleString()}</p>}
                       {missed && <p className="text-destructive font-medium">Interview missed — pipeline closed.</p>}
+                      {(app as any).interviewPreferenceSubmittedAt && <p>Availability submitted: {new Date((app as any).interviewPreferenceSubmittedAt).toLocaleString()}</p>}
                       {!missed && app.interviewId && <p>Interview scheduled: linked</p>}
                     </div>
                   </div>

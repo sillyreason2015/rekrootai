@@ -46,6 +46,8 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
     decisionAt: String,
     offerStatus: { type: String, enum: ['pending', 'accepted', 'declined'] },
     offerRespondedAt: String,
+    interviewPreferredTimes: { type: [String], default: [] },
+    interviewPreferenceSubmittedAt: String,
     applicationAnswers: {
       type: [
         new Schema(
