@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send, ImagePlus, Briefcase, GraduationCap, Plus, Trash2, Pencil, X } from 'lucide-react'
+import { Loader2, Save, User, Lock, Bell, Building2, CheckCircle2, Users, Send, ImagePlus, Briefcase, GraduationCap, Plus, Trash2, Pencil, X, Copy, Check, Link2, Mail, UserPlus } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import api from '../lib/axios'
 import { candidateService } from '../services/candidate.service'
@@ -288,9 +288,8 @@ export default function Settings() {
   // Team management (recruiter only)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteError, setInviteError] = useState('')
-  const [inviteSent, setInviteSent] = useState(false)
-  const [inviteUrl, setInviteUrl] = useState('')
-  const [inviteEmailFailed, setInviteEmailFailed] = useState(false)
+  const [inviteResult, setInviteResult] = useState<{ email: string; inviteLink: string; emailSent: boolean } | null>(null)
+  const [inviteCopied, setInviteCopied] = useState(false)
 
   const { data: teamData } = useQuery<{ members: Array<{ _id: string; firstName: string; lastName: string; email: string; role: string }> }>({
     queryKey: ['company-team'],
@@ -300,14 +299,11 @@ export default function Settings() {
 
   const sendInvite = useMutation({
     mutationFn: (email: string) => api.post<{ ok: boolean; inviteUrl?: string; emailSent?: boolean }>('/companies/invite', { email }).then(r => r.data),
-    onSuccess: (data) => {
+    onSuccess: (data, email) => {
       setInviteEmail('')
       setInviteError('')
-      setInviteSent(true)
-      setInviteEmailFailed(!data.emailSent)
-      setInviteUrl(data.inviteUrl ?? '')
+      setInviteResult({ email, inviteLink: data.inviteUrl ?? '', emailSent: data.emailSent !== false })
       qc.invalidateQueries({ queryKey: ['company-team'] })
-      if (data.emailSent) setTimeout(() => setInviteSent(false), 5000)
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -427,6 +423,62 @@ export default function Settings() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
+      {/* Invite link modal */}
+      {inviteResult && inviteResult.inviteLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setInviteResult(null)} />
+          <div className="relative z-10 w-full max-w-md rounded-2xl bg-white shadow-2xl border">
+            <div className="flex items-start justify-between p-6 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">
+                  <UserPlus className="h-5 w-5 text-emerald-600" />
+                </div>
+                <div>
+                  <h2 className="font-semibold text-base">Invitation Created</h2>
+                  <p className="text-xs text-muted-foreground">Recruiter invite for your workspace</p>
+                </div>
+              </div>
+              <button onClick={() => setInviteResult(null)} className="rounded-md p-1 hover:bg-muted text-muted-foreground">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="px-6 pb-6 space-y-4">
+              <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${inviteResult.emailSent ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-amber-50 border border-amber-200 text-amber-700'}`}>
+                <Mail className="h-4 w-4 shrink-0" />
+                {inviteResult.emailSent
+                  ? `Invite email sent to ${inviteResult.email}`
+                  : `Email delivery failed — share the link below with ${inviteResult.email}`}
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <Link2 className="h-4 w-4 text-muted-foreground" />
+                  Invite link
+                </div>
+                <div className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2">
+                  <span className="flex-1 break-all text-xs font-mono text-muted-foreground leading-relaxed">
+                    {inviteResult.inviteLink}
+                  </span>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(inviteResult.inviteLink); setInviteCopied(true); setTimeout(() => setInviteCopied(false), 2000) }}
+                    className="shrink-0 flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+                  >
+                    {inviteCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    {inviteCopied ? 'Copied!' : 'Copy'}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">This link expires in 7 days.</p>
+              </div>
+              <button
+                onClick={() => setInviteResult(null)}
+                className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div>
         <h1 className="font-serif text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground">Manage your account and preferences.</p>
@@ -922,21 +974,6 @@ export default function Settings() {
                 <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
                   <p className="text-sm font-medium">Invite a colleague</p>
                   <p className="text-xs text-muted-foreground">They'll receive an email with a link to join your workspace as a recruiter.</p>
-                  {inviteSent && !inviteEmailFailed && (
-                    <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                      <CheckCircle2 className="h-4 w-4" /> Invite email sent successfully!
-                    </div>
-                  )}
-                  {inviteSent && inviteEmailFailed && inviteUrl && (
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 space-y-1">
-                      <p className="font-medium">Invite created — email could not be delivered.</p>
-                      <p className="text-xs">Share this link manually with the invitee:</p>
-                      <div className="flex items-center gap-2">
-                        <span className="break-all text-xs font-mono bg-white border rounded px-2 py-1 flex-1">{inviteUrl}</span>
-                        <button onClick={() => navigator.clipboard.writeText(inviteUrl)} className="shrink-0 text-xs underline">Copy</button>
-                      </div>
-                    </div>
-                  )}
                   {inviteError && (
                     <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                       {inviteError}
