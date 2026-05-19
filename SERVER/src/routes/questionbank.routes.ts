@@ -71,8 +71,10 @@ Respond with ONLY a valid JSON array. No markdown, no explanation. Example forma
   const result = await model.generateContent(prompt)
   const raw = result.response.text()
 
-  const jsonMatch = raw.match(/\[[\s\S]*\]/)
-  if (!jsonMatch) throw new Error('Gemini returned no valid JSON array')
+  // Strip markdown code fences if present, then extract the JSON array
+  const stripped = raw.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim()
+  const jsonMatch = stripped.match(/\[[\s\S]*\]/)
+  if (!jsonMatch) throw new Error(`Gemini returned no valid JSON array. Raw response: ${raw.slice(0, 200)}`)
 
   const parsed = JSON.parse(jsonMatch[0]) as Array<Record<string, unknown>>
   return parsed.map((q) => ({
@@ -168,6 +170,11 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
     let generated: Array<{ text: string; type: 'mcq' | 'open'; options?: string[]; correctIndex?: number; points: number; category: string; difficulty: string; tags: string[] }>
 
     let source = 'templates'
+    let geminiError: string | null = null
+
+    if (!env.GEMINI_API_KEY) geminiError = 'GEMINI_API_KEY is not configured on the server.'
+    else if (!settings.geminiGen) geminiError = 'Gemini AI generation is disabled in platform settings.'
+
     if (jobId && env.GEMINI_API_KEY && settings.geminiGen) {
       const job = await JobModel.findById(jobId).lean()
       if (!job) throw new HttpError(404, 'Job not found')
@@ -202,11 +209,13 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
           geminiCache.set(cacheKey, { questions: generated, expiresAt: Date.now() + CACHE_TTL_MS })
           source = 'gemini'
         } catch (geminiErr) {
-          const msg = geminiErr instanceof Error ? geminiErr.message : 'Unknown error'
+          const msg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr)
+          console.error('[questionbank] Gemini generation failed:', msg)
+          geminiError = msg
           generated = generateQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values', diff, n, category)
           source = (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate'))
             ? 'templates-rate-limited'
-            : 'templates'
+            : 'templates-gemini-error'
         }
       }
     } else {
@@ -218,7 +227,7 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
     const docs = await QuestionBankModel.insertMany(
       generated.map((q) => ({ ...q, companyName: canonicalCompanyName ?? undefined, createdBy: req.user!._id })),
     )
-    res.status(201).json({ added: docs.length, questions: docs.map((d) => ({ ...d.toJSON(), _id: String(d._id) })), source })
+    res.status(201).json({ added: docs.length, questions: docs.map((d) => ({ ...d.toJSON(), _id: String(d._id) })), source, geminiError })
   } catch (err) {
     next(err)
   }
