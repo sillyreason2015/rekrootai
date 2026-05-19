@@ -48,10 +48,11 @@ const schema = z.object({
     weight: z.coerce.number().min(0.1).max(1),
   })).default([]),
   thresholds: z.object({
+    screening: z.coerce.number().min(0).max(100).default(50),
     assessment: z.coerce.number().min(0).max(100).default(60),
     fairness: z.coerce.number().min(0).max(100).default(50),
     interview: z.coerce.number().min(0).max(100).default(60),
-  }).default({ assessment: 60, fairness: 50, interview: 60 }),
+  }).default({ screening: 50, assessment: 60, fairness: 50, interview: 60 }),
 })
 type FormData = z.infer<typeof schema>
 
@@ -96,6 +97,7 @@ export default function CreateJob() {
       applicationQuestions: t.applicationQuestions?.length ? t.applicationQuestions : [],
       assessmentModules: t.assessmentModules?.length ? t.assessmentModules : [{ type: 'aptitude', timeLimit: 20, weight: 0.25 }],
       thresholds: {
+        screening: t.thresholds?.screening ?? 50,
         assessment: t.thresholds?.assessment ?? 60,
         fairness: Math.round((t.thresholds?.fairness ?? 0.5) * 100),
         interview: t.thresholds?.interview ?? 60,
@@ -126,7 +128,7 @@ export default function CreateJob() {
         { question: 'Describe one recent project relevant to this job.', required: true },
       ],
       assessmentModules: [{ type: 'aptitude', timeLimit: 20, weight: 0.25 }],
-      thresholds: { assessment: 60, fairness: 50, interview: 60 },
+      thresholds: { screening: 50, assessment: 60, fairness: 50, interview: 60 },
     },
   })
 
@@ -144,6 +146,7 @@ export default function CreateJob() {
     skills: data.skills.map((s) => s.value).filter(Boolean),
     status,
     thresholds: {
+      screening: data.thresholds.screening,         // stored as 0-100
       assessment: data.thresholds.assessment,       // stored as 0-100 (e.g. 60)
       fairness: data.thresholds.fairness / 100,     // stored as 0-1 (e.g. 0.5)
       interview: data.thresholds.interview,         // stored as 0-100 (e.g. 60)
@@ -193,8 +196,9 @@ export default function CreateJob() {
           },
         })
       } catch (err: unknown) {
-        const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        setSubmitError(msg ?? 'Failed to publish. Check the question bank has enough questions first.')
+        const e = err as { response?: { data?: { message?: string } | string }; message?: string }
+        const msg = typeof e?.response?.data === 'object' ? e?.response?.data?.message : e?.message
+        setSubmitError(msg ?? 'Failed to publish — the server returned an unexpected error. Check your company profile is complete and try again.')
       } finally {
         setPublishing(false)
       }
@@ -522,8 +526,21 @@ export default function CreateJob() {
 
         {step === 2 && (
           <>
-            <h2 className="font-serif text-xl font-semibold">Assessment Modules</h2>
-            <p className="text-sm text-muted-foreground">Configure the AI-proctored assessment for this role.</p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-serif text-xl font-semibold">Assessment Modules</h2>
+                <p className="text-sm text-muted-foreground">Configure the AI-proctored assessment for this role.</p>
+              </div>
+              <a
+                href="/recruiter/question-bank"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                Manage Question Bank ↗
+              </a>
+            </div>
             {modFields.map((f, i) => (
               <div key={f.id} className="rounded-xl border p-4 space-y-3">
                 <div className="flex items-center justify-between">
@@ -568,7 +585,20 @@ export default function CreateJob() {
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <div className="space-y-1.5">
+                  <Label className="flex items-center gap-1.5 flex-wrap">
+                    Resume screening
+                    <span className="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">CV gate</span>
+                    <InfoTip content="Minimum AI resume match score (0–100) required to pass the initial screening stage. Candidates below this score are filtered out before the assessment." />
+                  </Label>
+                  <div className="flex items-center gap-2">
+                    <Input type="number" min={0} max={100} {...register('thresholds.screening')} className="w-full" />
+                    <span className="text-sm text-muted-foreground shrink-0">%</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">Default: 50%</p>
+                </div>
+
                 <div className="space-y-1.5">
                   <Label className="flex items-center gap-1.5 flex-wrap">
                     Assessment pass mark
@@ -650,6 +680,7 @@ export default function CreateJob() {
               <div className="flex justify-between"><span className="text-muted-foreground">Skills Required</span><span>{values.skills?.filter((s) => s.value).length}</span></div>
               <div className="border-t pt-3 mt-1">
                 <p className="text-muted-foreground text-xs font-medium mb-2">AI Thresholds</p>
+                <div className="flex justify-between"><span className="text-muted-foreground">Resume screening</span><span className="font-medium">{values.thresholds?.screening ?? 50}%</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Assessment pass mark</span><span className="font-medium">{values.thresholds?.assessment ?? 60}%</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Fairness gate</span><span className="font-medium">{values.thresholds?.fairness ?? 50}% disparate impact</span></div>
                 <div className="flex justify-between"><span className="text-muted-foreground">Interview guide</span><span className="font-medium">{values.thresholds?.interview ?? 60}%</span></div>
