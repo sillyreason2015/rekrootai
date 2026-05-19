@@ -194,7 +194,7 @@ adminRouter.get('/funnel', async (req, res, next) => {
           pipeline: [{ $project: { assignedRecruiter: 1, title: 1 } }], as: 'jobData',
         },
       },
-      { $unwind: { path: '$jobData', preserveNullAndEmpty: true } },
+      { $unwind: { path: '$jobData', preserveNullAndEmptyArrays: true } },
       {
         $group: {
           _id: '$jobData.assignedRecruiter',
@@ -292,7 +292,7 @@ adminRouter.get('/audit-log/export', async (req, res, next) => {
       return `"${s.replace(/"/g, '""')}"`
     }
     const rows = entries.map((e) => [
-      e.timestamp, e.actor, e.action, e.mode ?? '', e.jobId ?? '', e.candidateId ?? '', e.modelVersion ?? '', e.payload ?? '',
+      (e as any).timestamp, e.actor, e.action, e.mode ?? '', e.jobId ?? '', e.candidateId ?? '', e.modelVersion ?? '', e.payload ?? '',
     ].map(escape).join(','))
     const csv = [headers.join(','), ...rows].join('\r\n')
     res.setHeader('Content-Type', 'text/csv')

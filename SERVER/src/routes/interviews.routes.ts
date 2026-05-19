@@ -26,7 +26,7 @@ async function notifyCandidate(candidateId: string, data: { type: string; title:
   notify(String(candidate.user), data)
 }
 
-async function emailInterviewCandidate(candidateId: string, input: { subject: string; text: string; html?: string }) {
+async function emailInterviewCandidate(candidateId: string, input: { subject: string; text: string; html?: string; attachments?: Array<{ content: string; filename: string; disposition?: string }> }) {
   const candidate = await CandidateModel.findById(candidateId, { user: 1 }).lean()
   if (!candidate?.user) return false
   const user = await UserModel.findById(String(candidate.user), { email: 1 }).lean()

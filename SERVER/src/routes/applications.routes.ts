@@ -749,7 +749,6 @@ applicationsRouter.post('/:id/offer-response', requireAuth, requireRole('candida
     const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
     await logAction({ actor: 'user', action: `offer-${response}`, candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { response } })
     // Notify recruiters for this job
-    const recruiters = await (await import('../lib/workspace.js')).resolveWorkspaceScope(String(app.candidate))
     const recruitersForJob = await (await import('../models/User.model.js')).UserModel.find({ role: { $in: ['recruiter', 'admin'] }, companyName: { $exists: true } }).lean()
     recruitersForJob.slice(0, 5).forEach((r) => {
       notify(String(r._id), {

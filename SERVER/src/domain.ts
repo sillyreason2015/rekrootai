@@ -130,6 +130,7 @@ export interface Job {
     interview: number
   }
   alpha: number
+  isTemplate?: boolean
   createdBy: string
   assignedRecruiter?: string
   assignedRecruiterAt?: string
@@ -184,6 +185,10 @@ export interface Application {
   decision?: 'hire' | 'reject' | 'hold'
   decisionBy?: string
   decisionAt?: string
+  offerStatus?: 'pending' | 'accepted' | 'declined'
+  offerRespondedAt?: string
+  interviewPreferredTimes?: string[]
+  interviewPreferenceSubmittedAt?: string
   createdAt: string
   applicationAnswers?: Array<{ question: string; answer: string }>
   correspondence?: Array<{

@@ -381,7 +381,7 @@ jobsRouter.get('/templates', requireAuth, requireRole('recruiter', 'admin', 'sup
 // POST /jobs/:id/save-as-template — clone a job as a template
 jobsRouter.post('/:id/save-as-template', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
-    const source = await findScopedJob(req.user!._id, req.params.id)
+    const source = await findScopedJob(req.user!._id, String(req.params.id))
     if (!source) throw new HttpError(404, 'Job not found')
     const { _id, createdAt, ...rest } = source as any
     const template = await JobModel.create({

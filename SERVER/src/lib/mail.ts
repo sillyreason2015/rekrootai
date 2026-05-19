@@ -18,7 +18,7 @@ async function send(to: string, subject: string, text: string, html?: string, at
     .setText(text)
   if (html) params.setHtml(html)
   if (attachments?.length) {
-    params.setAttachments(attachments.map((a) => new Attachment(a.content, a.filename, a.disposition ?? 'attachment')))
+    params.setAttachments(attachments.map((a) => new Attachment(a.content, a.filename, (a.disposition ?? 'attachment') as 'inline' | 'attachment')))
   }
   await mailer.email.send(params)
 }
