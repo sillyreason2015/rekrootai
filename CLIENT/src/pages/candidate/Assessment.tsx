@@ -133,7 +133,7 @@ export default function Assessment() {
       selected: typeof answers[q._id] === 'number' ? answers[q._id] as number : undefined,
       text: typeof answers[q._id] === 'string' ? answers[q._id] as string : undefined,
     }))
-    submitModule.mutate({ moduleIndex: activeModule, ans })
+    submitModule.mutate({ moduleIndex: activeModule as number, ans })
   }
 
   const submitWholeAssessment = async () => {

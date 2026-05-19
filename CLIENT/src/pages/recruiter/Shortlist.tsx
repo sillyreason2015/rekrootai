@@ -573,7 +573,7 @@ export default function Shortlist() {
   const bulkMutation = useMutation({
     mutationFn: ({ ids, action }: { ids: string[]; action: 'shortlist' | 'reject' | 'send-assessment' }) =>
       applicationService.bulkAction(ids, action),
-    onSuccess: (resp: any, vars) => {
+    onSuccess: (resp: any) => {
       setSelectedIds(new Set())
       invalidateApplications()
       toast({ title: `Bulk action complete`, description: `${resp.succeeded} succeeded${resp.failed ? `, ${resp.failed} failed` : ''}.` })
@@ -583,7 +583,7 @@ export default function Shortlist() {
 
   const notesMutation = useMutation({
     mutationFn: ({ id, notes }: { id: string; notes: string }) => applicationService.saveNotes(id, notes),
-    onSuccess: (_resp, vars) => {
+    onSuccess: () => {
       setEditingNotes(null)
       invalidateApplications()
       toast({ title: 'Notes saved' })
@@ -840,7 +840,7 @@ export default function Shortlist() {
           icon="search"
         />
       ) : isLoading ? <LoadingSpinner />
-      : !data?.data.length ? (
+      : !data?.data?.length ? (
         <WorkspaceEmptyState
           title="No applications for this role yet"
           body="Share the published job link, double-check the role details, or switch to another open role while candidates begin applying."
@@ -852,7 +852,7 @@ export default function Shortlist() {
         <div className="overflow-x-auto pb-4">
           <div className="flex gap-4 min-w-max">
             {['applied', 'screening', 'assessment', 'interview', 'decision', 'offered', 'rejected'].map((stage) => {
-              const cols = data.data.filter((app: Application) => app.stage === stage)
+              const cols = (data.data ?? []).filter((app: Application) => app.stage === stage)
               return (
                 <div key={stage} className="w-64 shrink-0">
                   <div className="mb-2 flex items-center justify-between">

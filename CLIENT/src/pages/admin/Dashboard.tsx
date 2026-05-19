@@ -1,6 +1,6 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Users, Briefcase, FileText, Building2, Sparkles, TrendingUp, AlertTriangle, ArrowRight } from 'lucide-react'
+import { Users, Briefcase, FileText, Building2, Sparkles, TrendingUp, AlertTriangle } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { Link } from 'react-router-dom'
 import { adminService } from '../../services/admin.service'
