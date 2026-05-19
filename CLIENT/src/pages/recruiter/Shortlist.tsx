@@ -788,7 +788,7 @@ export default function Shortlist() {
       )}
 
       {/* Filter bar */}
-      {selectedJob && data?.data?.length > 0 && (
+      {selectedJob && (data?.data?.length ?? 0) > 0 && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-muted/20 px-3 py-2">
           <SlidersHorizontal className="h-4 w-4 text-muted-foreground shrink-0" />
           <div className="relative">
