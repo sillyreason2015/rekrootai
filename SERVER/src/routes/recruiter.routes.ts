@@ -173,35 +173,79 @@ recruiterRouter.post('/applications/:id/cv-analysis', async (req, res, next) => 
     const requestedTeamName = typeof req.header('x-team-scope') === 'string' ? req.header('x-team-scope') : undefined
     const jobIds = await resolveScopedJobIdsForTeam(req.user!._id, requestedTeamName)
     if (!jobIds.includes(String(app.job))) throw new HttpError(404, 'Application not found')
+
     const candidate = await CandidateModel.findById(String(app.candidate)).lean()
     const job = await JobModel.findById(String(app.job), { title: 1, requirements: 1, skills: 1, description: 1 }).lean()
-    const cvText = (candidate?.cvParsed as { maskedCV?: string } | undefined)?.maskedCV ?? ''
-    const inferredSkills = (candidate?.cvParsed as { inferredSkills?: string[] } | undefined)?.inferredSkills ?? []
-    const jobSkills = job?.skills ?? []
-    const matchedSkills = inferredSkills.filter((s) => jobSkills.map((j) => j.toLowerCase()).includes(s.toLowerCase()))
-    const missingSkills = jobSkills.filter((s) => !inferredSkills.map((i) => i.toLowerCase()).includes(s.toLowerCase()))
+
+    // Use the Gemini-enriched skills on the candidate model, fall back to cvParsed inferred list
+    const candidateSkills: string[] = (candidate?.skills ?? (candidate?.cvParsed as { inferredSkills?: string[] } | undefined)?.inferredSkills ?? [])
+    const cvText: string = (candidate?.cvParsed as { maskedCV?: string } | undefined)?.maskedCV ?? ''
+    const headline: string = (candidate as { headline?: string } | undefined)?.headline ?? ''
+    const experience: Array<{ title?: string; company?: string; startDate?: string; endDate?: string; current?: boolean }> =
+      (candidate?.experience ?? []) as typeof experience
+    const education: Array<{ institution?: string; degree?: string; field?: string }> =
+      (candidate?.education ?? []) as typeof education
+
+    const jobSkills: string[] = job?.skills ?? []
+    const matchedSkills = candidateSkills.filter((s) => jobSkills.some((j) => j.toLowerCase() === s.toLowerCase()))
+    const missingSkills = jobSkills.filter((s) => !candidateSkills.some((c) => c.toLowerCase() === s.toLowerCase()))
+
+    // Build structured candidate summary to use even when raw CV text is unavailable
+    const expSummary = experience.slice(0, 5).map((e) =>
+      `${e.title ?? 'Unknown role'} at ${e.company ?? 'Unknown company'}${e.current ? ' (current)' : e.endDate ? ` until ${e.endDate}` : ''}`
+    ).join('\n')
+    const eduSummary = education.slice(0, 3).map((e) =>
+      `${e.degree ?? 'Degree'}${e.field ? ` in ${e.field}` : ''} — ${e.institution ?? 'Unknown institution'}`
+    ).join('\n')
+
+    const hasEnoughData = cvText.length > 100 || candidateSkills.length > 0 || experience.length > 0
 
     const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey || !cvText) {
+    if (!apiKey || !hasEnoughData) {
       return res.json({
-        overall: cvText ? `CV extracted. ${inferredSkills.length} skills identified.` : 'CV text could not be extracted from this file.',
-        strengths: matchedSkills.length ? [`Matched ${matchedSkills.length} required skills: ${matchedSkills.join(', ')}`] : ['No direct skill matches found in CV text.'],
-        gaps: missingSkills.length ? [`Missing required skills: ${missingSkills.join(', ')}`] : ['No obvious skill gaps detected.'],
+        overall: hasEnoughData
+          ? `Candidate profile extracted. ${candidateSkills.length} skills on record.`
+          : 'No CV or profile data available for this candidate. Ask the candidate to upload their CV.',
+        strengths: matchedSkills.length
+          ? [`Matched ${matchedSkills.length} of ${jobSkills.length} required skills: ${matchedSkills.join(', ')}`]
+          : candidateSkills.length
+            ? [`Has ${candidateSkills.length} skills on profile: ${candidateSkills.slice(0, 5).join(', ')}`]
+            : ['No skill data available yet.'],
+        gaps: missingSkills.length
+          ? [`Missing required skills: ${missingSkills.join(', ')}`]
+          : ['No obvious skill gaps detected.'],
         score: app.scores?.resume ?? 0,
-        suggestedQuestions: ['Can you walk me through your most relevant project for this role?', 'How have you applied your technical skills in a real-world setting?'],
+        suggestedQuestions: [
+          'Can you walk me through your most relevant project for this role?',
+          'How have you applied your technical skills in a real-world setting?',
+          'What experience do you have with ' + (missingSkills[0] ?? 'the core requirements') + '?',
+        ],
       })
     }
 
-    const prompt = `You are an expert recruiter AI. Analyse this candidate's CV against the job requirements and return a JSON object with these exact keys:
-- "overall": 1-2 sentence overall impression
-- "strengths": array of 3 bullet strings (what the CV does well for this role)
-- "gaps": array of 2-3 bullet strings (skill or experience gaps vs the job)
-- "suggestedQuestions": array of 3 specific interview questions tailored to this CV
+    const prompt = `You are an expert recruiter AI. Analyse this candidate's profile against the job and return a JSON object with these exact keys:
+- "overall": 2-3 sentence overall impression of fit for the role
+- "strengths": array of 3-4 specific bullet strings (what makes this candidate strong for this role)
+- "gaps": array of 2-3 specific bullet strings (genuine skill or experience gaps vs the job requirements)
+- "suggestedQuestions": array of 4 specific interview questions tailored to this candidate's background
 
-Job: ${job?.title ?? 'Unknown'}
+Job title: ${job?.title ?? 'Unknown'}
+Job requirements: ${(job?.requirements ?? []).join(', ') || 'not specified'}
 Required skills: ${jobSkills.join(', ') || 'not specified'}
-CV (excerpt, anonymised):
-${cvText.slice(0, 1500)}
+
+Candidate headline: ${headline || 'not provided'}
+Candidate skills: ${candidateSkills.join(', ') || 'none listed'}
+Matched skills: ${matchedSkills.join(', ') || 'none'}
+Missing required skills: ${missingSkills.join(', ') || 'none'}
+
+Work experience:
+${expSummary || 'Not provided'}
+
+Education:
+${eduSummary || 'Not provided'}
+
+CV text (anonymised excerpt):
+${cvText.slice(0, 3000)}
 
 Respond ONLY with valid JSON. No markdown, no code fences.`.trim()
 
@@ -209,14 +253,15 @@ Respond ONLY with valid JSON. No markdown, no code fences.`.trim()
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
     const result = await model.generateContent(prompt)
-    const text = result.response.text().trim()
+    const raw = result.response.text().trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '')
     let parsed: Record<string, unknown> = {}
     try {
-      parsed = JSON.parse(text.replace(/^```json\s*/i, '').replace(/```\s*$/, ''))
+      parsed = JSON.parse(raw)
     } catch {
-      parsed = { overall: text.slice(0, 300), strengths: [], gaps: [], suggestedQuestions: [] }
+      // Gemini returned non-JSON — wrap the text as the overall field
+      parsed = { overall: raw.slice(0, 400), strengths: [], gaps: [], suggestedQuestions: [] }
     }
-    res.json({ ...parsed, score: app.scores?.resume ?? 0 })
+    res.json({ ...parsed, score: app.scores?.resume ?? 0, matchedSkills, missingSkills })
   } catch (err) { next(err) }
 })
 

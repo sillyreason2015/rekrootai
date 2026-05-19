@@ -339,24 +339,41 @@ function CvViewerPanel({ appId, name, onClose, enableAi }: { appId: string; name
             {analysis.overall && (
               <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground/80">{analysis.overall}</div>
             )}
+
+            {/* Skill match chips */}
+            {(() => {
+              const matched = (analysis.matchedSkills as string[] | undefined) ?? []
+              const missing = (analysis.missingSkills as string[] | undefined) ?? []
+              return (matched.length > 0 || missing.length > 0) ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {matched.map((s) => (
+                    <span key={s} className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">✓ {s}</span>
+                  ))}
+                  {missing.map((s) => (
+                    <span key={s} className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600">✗ {s}</span>
+                  ))}
+                </div>
+              ) : null
+            })()}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {analysis.strengths?.length > 0 && (
+              {((analysis.strengths as string[] | undefined) ?? []).length > 0 && (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/20 p-3 space-y-1">
                   <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">Strengths</p>
-                  {analysis.strengths.map((s: string, i: number) => <p key={i} className="text-xs text-emerald-800 dark:text-emerald-300">· {s}</p>)}
+                  {((analysis.strengths as string[]) ?? []).map((s: string, i: number) => <p key={i} className="text-xs text-emerald-800 dark:text-emerald-300">· {s}</p>)}
                 </div>
               )}
-              {analysis.gaps?.length > 0 && (
+              {((analysis.gaps as string[] | undefined) ?? []).length > 0 && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/20 p-3 space-y-1">
                   <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">Gaps</p>
-                  {analysis.gaps.map((g: string, i: number) => <p key={i} className="text-xs text-amber-800 dark:text-amber-300">· {g}</p>)}
+                  {((analysis.gaps as string[]) ?? []).map((g: string, i: number) => <p key={i} className="text-xs text-amber-800 dark:text-amber-300">· {g}</p>)}
                 </div>
               )}
             </div>
-            {analysis.suggestedQuestions?.length > 0 && (
+            {((analysis.suggestedQuestions as string[] | undefined) ?? []).length > 0 && (
               <div className="rounded-lg border bg-muted/30 p-3 space-y-1">
                 <p className="text-xs font-semibold text-muted-foreground">Suggested Interview Questions</p>
-                {analysis.suggestedQuestions.map((q: string, i: number) => (
+                {((analysis.suggestedQuestions as string[]) ?? []).map((q: string, i: number) => (
                   <p key={i} className="text-xs text-foreground/70">Q{i + 1}: {q}</p>
                 ))}
               </div>
@@ -883,7 +900,7 @@ export default function Shortlist() {
                               Shortlist
                             </button>
                           )}
-                          {stage === 'screening' && (
+                          {stage === 'screening' && !app.assessmentStatus && (
                             <button onClick={() => sendAssessmentMutation.mutate(app._id)} disabled={sendAssessmentMutation.isPending}
                               className="w-full rounded-md border py-1 text-xs font-medium hover:bg-accent disabled:opacity-50">
                               Send Assessment
@@ -987,8 +1004,12 @@ export default function Shortlist() {
               const nextAction: NextAction | null =
                 app.stage === 'applied'
                   ? { label: 'Shortlist', icon: CheckCircle2, onClick: () => shortlistMutation.mutate(app._id), disabled: shortlistMutation.isPending, className: 'text-emerald-600 border-emerald-200 hover:bg-emerald-50' }
-                  : app.stage === 'screening'
-                    ? { label: 'Send Assessment', icon: ArrowRight, onClick: () => sendAssessmentMutation.mutate(app._id), disabled: sendAssessmentMutation.isPending }
+                  : app.stage === 'screening' && app.assessmentStatus === 'completed'
+                    ? { label: 'Advance to Interview', icon: Calendar, onClick: () => setScheduleFor(isScheduling ? null : app._id), className: 'text-blue-700 border-blue-200 hover:bg-blue-50' }
+                    : app.stage === 'screening' && !app.assessmentStatus
+                      ? { label: 'Send Assessment', icon: ArrowRight, onClick: () => sendAssessmentMutation.mutate(app._id), disabled: sendAssessmentMutation.isPending }
+                      : app.stage === 'screening'
+                        ? null
                     : app.stage === 'assessment'
                       ? { label: 'Advance to Interview', icon: Calendar, onClick: () => setScheduleFor(isScheduling ? null : app._id), className: 'text-blue-700 border-blue-200 hover:bg-blue-50' }
                       : app.stage === 'interview' && !extApp.interviewId

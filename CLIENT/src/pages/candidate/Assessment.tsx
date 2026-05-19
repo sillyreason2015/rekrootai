@@ -89,27 +89,20 @@ export default function Assessment() {
       setSubmitError('')
       localStorage.removeItem(getAssessmentStorageKey(assessment._id, activeModule))
 
-      // Determine remaining modules locally — don't trust refetch timing
-      // The module at activeModule was just submitted so exclude it from remaining count
-      const remainingModules = assessment.modules.filter(
-        (m, i) => i !== activeModule && !m.completedAt
-      )
+      // Refetch before checking remaining modules — local assessment data is stale
+      const { data: fresh } = await refetch()
+      const remainingModules = (fresh ?? assessment).modules.filter((m) => !m.completedAt)
 
       if (remainingModules.length === 0) {
-        // Last module done — complete the assessment and redirect
         try {
           await assessmentService.complete(assessment._id)
-        } catch {
-          // complete() returns 200 even if already done, so any error here is unexpected
-        } finally {
-          finishAssessmentSession(assessment._id, assessment.modules.length)
-          navigate('/candidate/applications')
-        }
+        } catch { /* complete() is idempotent */ }
+        finishAssessmentSession(assessment._id, assessment.modules.length)
+        navigate('/candidate/applications')
         return
       }
 
-      // More modules remain — refresh data and return to lobby
-      await refetch()
+      // More modules remain — return to lobby
       setAnswers({})
       setAutoSubmitting(false)
       setActiveModule(null)
@@ -136,24 +129,13 @@ export default function Assessment() {
     submitModule.mutate({ moduleIndex: activeModule as number, ans })
   }
 
-  const submitWholeAssessment = async () => {
-    if (!assessment || autoSubmitting || submitModule.isPending) return
-    setAutoSubmitting(true)
-    try {
-      await assessmentService.complete(assessment._id)
-    } catch {
-      // no-op — complete returns 200 even if already done
-    } finally {
-      finishAssessmentSession(assessment._id, assessment.modules.length)
-      navigate('/candidate/applications')
-    }
-  }
-
-  // Proctoring monitor — only active once assessment is started
+  // Proctoring monitor — only active while inside a module (not in lobby)
+  // Pass activeModule as key so violations reset fresh for each module
   const { violations, lastViolationReason, showWarning, dismissWarning } = useProctoringMonitor({
     enabled: started && activeModule !== null,
     maxViolations: MAX_VIOLATIONS,
-    onMaxViolations: submitWholeAssessment,
+    onMaxViolations: forceSubmit,
+    resetKey: activeModule ?? -1,
   })
 
   // Timer

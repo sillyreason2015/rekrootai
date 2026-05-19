@@ -11,7 +11,7 @@ import { ProtectedAttributeModel } from '../models/ProtectedAttribute.model.js'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { cvKey, presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
-import { buildParsedCvData, mergeCandidateWithCv, inferSkillsFromCv } from '../lib/candidate-profile.js'
+import { buildParsedCvData, mergeCandidateWithCv, extractStructuredProfileFromCv, scoreCandidateForJob } from '../lib/candidate-profile.js'
 import { env } from '../config/env.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
@@ -87,18 +87,46 @@ candidateRouter.post('/me/cv', upload.single('cv'), async (req, res, next) => {
     // 3. Anonymise and build initial CV metadata
     const masked = rawText ? anonymizeText(rawText) : ''
     const cvParsed = buildParsedCvData(fileName, rawText, masked)
-    const derivedProfile = mergeCandidateWithCv(candidate as Parameters<typeof mergeCandidateWithCv>[0], cvParsed)
+    const keywordProfile = mergeCandidateWithCv(candidate as Parameters<typeof mergeCandidateWithCv>[0], cvParsed)
 
-    // 4. Save immediately so upload response is fast
-    await CandidateModel.findByIdAndUpdate(candidate._id, { cvUrl: key, cvParsed, ...derivedProfile })
-    await logAction({ actor: 'user', action: 'cv-upload', candidateId: String(candidate._id), mode: 'assist', payload: { fileName } })
-
-    // 5. Fire-and-forget: Gemini-based structured enrichment (headline, richer exp/edu/skills)
+    // 4. Run Gemini-based structured enrichment synchronously so the response has accurate data
+    let enriched = keywordProfile as { skills: string[]; experience: unknown[]; education: unknown[]; headline?: string }
     if (rawText) {
-      enrichProfileWithGemini(String(candidate._id), rawText, derivedProfile).catch(() => {})
+      try {
+        const geminiResult = await extractStructuredProfileFromCv(rawText)
+        enriched = {
+          skills: geminiResult.skills.length ? geminiResult.skills : keywordProfile.skills,
+          experience: geminiResult.experience.length ? geminiResult.experience : keywordProfile.experience,
+          education: geminiResult.education.length ? geminiResult.education : keywordProfile.education,
+          headline: geminiResult.headline || undefined,
+        }
+      } catch {
+        // fall through — use keyword-inferred data
+      }
     }
 
-    res.json({ cvUrl: key, parsed: cvParsed, message: 'CV uploaded. Profile will be updated shortly.' })
+    const profileUpdate: Record<string, unknown> = { cvUrl: key, cvParsed, ...enriched }
+    if (!enriched.headline) delete profileUpdate.headline
+    await CandidateModel.findByIdAndUpdate(candidate._id, profileUpdate)
+    await logAction({ actor: 'user', action: 'cv-upload', candidateId: String(candidate._id), mode: 'assist', payload: { fileName } })
+
+    // 5. Recalculate resume scores on all active applications using the updated profile
+    const updatedCandidate = await CandidateModel.findById(candidate._id).lean()
+    if (updatedCandidate) {
+      const activeApps = await ApplicationModel.find({
+        candidate: candidate._id,
+        stage: { $nin: ['rejected', 'offered', 'decision'] },
+      }).populate('job', 'title department skills requirements').lean()
+
+      await Promise.all(activeApps.map(async (app) => {
+        const job = app.job as unknown as Parameters<typeof scoreCandidateForJob>[1] | null
+        if (!job || typeof job === 'string') return
+        const newScore = scoreCandidateForJob(updatedCandidate as Parameters<typeof scoreCandidateForJob>[0], job)
+        await ApplicationModel.findByIdAndUpdate(app._id, { 'scores.resume': newScore })
+      }))
+    }
+
+    res.json({ cvUrl: key, parsed: cvParsed, enriched, message: 'CV uploaded and profile updated.' })
   } catch (err) { next(err) }
 })
 
@@ -255,56 +283,6 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
   }
 }
 
-/**
- * Gemini-powered structured profile extraction.
- * Runs after the initial upload response so the user isn't kept waiting.
- */
-async function enrichProfileWithGemini(
-  candidateId: string,
-  rawText: string,
-  fallback: { skills: string[]; experience: unknown[]; education: unknown[] },
-): Promise<void> {
-  if (!env.GEMINI_API_KEY) return
-
-  const prompt = `Extract structured profile data from this CV. Return ONLY valid JSON with these exact keys:
-- "headline": string — 1-line professional headline e.g. "Senior Software Engineer · 5 yrs"
-- "skills": string[] — up to 15 technical and soft skills, title-cased
-- "experience": array of { title, company, startDate (YYYY-MM or ""), endDate (YYYY-MM or ""), current (bool), description (max 120 chars) }
-- "education": array of { institution, degree, field, startDate (YYYY-MM or ""), endDate (YYYY-MM or ""), current (bool) }
-
-CV text:
-${rawText.slice(0, 4000)}
-
-Respond ONLY with valid JSON. No markdown fences.`
-
-  try {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai')
-    const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY)
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
-    const result = await model.generateContent(prompt)
-    const text = result.response.text().trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '')
-    const parsed = JSON.parse(text)
-
-    const update: Record<string, unknown> = {
-      skills: Array.isArray(parsed.skills) && parsed.skills.length
-        ? parsed.skills.map(String).slice(0, 20)
-        : (fallback.skills.length ? fallback.skills : inferSkillsFromCv(rawText)),
-      experience: Array.isArray(parsed.experience) && parsed.experience.length
-        ? parsed.experience.slice(0, 8)
-        : fallback.experience,
-      education: Array.isArray(parsed.education) && parsed.education.length
-        ? parsed.education.slice(0, 5)
-        : fallback.education,
-    }
-    if (typeof parsed.headline === 'string' && parsed.headline.trim()) {
-      update.headline = parsed.headline.trim()
-    }
-
-    await CandidateModel.findByIdAndUpdate(candidateId, update)
-  } catch {
-    // Silent — initial sync data already saved
-  }
-}
 
 // ── GET /candidates/recommendations ──────────────────────────────────────────
 candidateRouter.get('/recommendations', async (req, res, next) => {

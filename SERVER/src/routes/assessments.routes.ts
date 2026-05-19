@@ -70,10 +70,10 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
     if (!mod) throw new HttpError(404, 'Module not found')
     const body = req.body as { answers?: unknown[]; score?: number }
     mod.answers = body.answers as never
-    // Use submitted score if provided by ML service; otherwise score by answer count correctness
+    const totalQuestions = mod.questions.length || 1
     mod.score = typeof body.score === 'number'
       ? Math.min(100, Math.max(0, body.score))
-      : Math.min(100, Math.round(((body.answers?.length ?? 0) / 10) * 100))
+      : Math.min(100, Math.round(((body.answers?.length ?? 0) / totalQuestions) * 100))
     mod.completedAt = new Date().toISOString()
     await assessment.save()
     res.json({ ok: true, score: mod.score })
@@ -89,7 +89,9 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
     }
     assessment.status = 'completed'
     assessment.completedAt = new Date().toISOString()
-    const scores = assessment.modules.map((m) => m.score ?? 0).filter((s) => s > 0)
+    // Average only modules that were actually submitted (have completedAt)
+    const submittedModules = assessment.modules.filter((m) => m.completedAt)
+    const scores = submittedModules.map((m) => m.score ?? 0)
     assessment.score = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
     await assessment.save()
     const application = await ApplicationModel.findById(assessment.application, { scores: 1 }).lean()

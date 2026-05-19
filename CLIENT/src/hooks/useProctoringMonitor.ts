@@ -5,6 +5,8 @@ interface Options {
   enabled: boolean
   /** Max violations before onMaxViolations fires. Default 3 */
   maxViolations?: number
+  /** Change this value to reset the violation counter (e.g. pass the active module index) */
+  resetKey?: number | string
   /** Called each time a violation is detected, with the current count */
   onViolation?: (count: number) => void
   /** Called when violations reach maxViolations */
@@ -24,6 +26,7 @@ interface ProctoringState {
 export function useProctoringMonitor({
   enabled,
   maxViolations = 3,
+  resetKey,
   onViolation,
   onMaxViolations,
   onViolationReason,
@@ -57,6 +60,15 @@ export function useProctoringMonitor({
   }, [maxViolations])
 
   const dismissWarning = useCallback(() => setShowWarning(false), [])
+
+  // Reset violation state whenever the monitored "session" changes (e.g. new module)
+  useEffect(() => {
+    violationsRef.current = 0
+    cooldownRef.current = 0
+    setViolations(0)
+    setLastViolationReason('')
+    setShowWarning(false)
+  }, [resetKey])
 
   useEffect(() => {
     if (!enabled) {

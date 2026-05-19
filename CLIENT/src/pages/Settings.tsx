@@ -63,7 +63,7 @@ function CvUploadSection({ onUploaded, candidateProfile }: { onUploaded: () => v
     setUploading(true); setMsg('')
     try {
       await candidateService.uploadCv(file)
-      setMsg('CV uploaded — skills and experience updated from your CV.')
+      setMsg('CV uploaded — profile, skills, and experience updated.')
       onUploaded()
     } catch { setMsg('Upload failed. Please try again.') }
     finally { setUploading(false) }
@@ -385,8 +385,15 @@ export default function Settings() {
     setCvUploadMessage('')
     try {
       await candidateService.uploadCv(file)
-      await refetchProfile()
-      setCvUploadMessage('CV uploaded and parsed successfully.')
+      const { data: fresh } = await refetchProfile()
+      // Sync local state so skills/exp/edu panels update immediately
+      if (fresh) {
+        setSkills(fresh.skills ?? [])
+        setExperience(fresh.experience ?? [])
+        setEducation(fresh.education ?? [])
+        if ((fresh as any).headline) setAboutMe((prev) => ({ ...prev, headline: (fresh as any).headline }))
+      }
+      setCvUploadMessage('CV uploaded — skills, experience, and education updated from your CV.')
     } catch {
       setCvUploadMessage('CV upload failed. Please try again.')
     } finally {
