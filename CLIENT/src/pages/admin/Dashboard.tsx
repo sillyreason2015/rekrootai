@@ -1,6 +1,6 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Users, Briefcase, FileText, Building2, Sparkles, TrendingUp, AlertTriangle } from 'lucide-react'
+import { Users, Briefcase, FileText, Building2, Sparkles, TrendingUp, AlertTriangle, ArrowRight } from 'lucide-react'
 import InfoTip from '../../components/shared/InfoTip'
 import { Link } from 'react-router-dom'
 import { adminService } from '../../services/admin.service'
@@ -19,6 +19,7 @@ export default function AdminDashboard() {
   })
   const { data: audits } = useQuery({ queryKey: ['admin-bias-audits-lite'], queryFn: adminService.getBiasAudits })
   const { data: qInsights } = useQuery({ queryKey: ['admin-question-insights'], queryFn: adminService.getQuestionInsights })
+  const { data: funnelData } = useQuery({ queryKey: ['admin-funnel'], queryFn: adminService.getFunnel, retry: false })
 
   if (isLoading) return <LoadingSpinner />
 
@@ -158,6 +159,68 @@ export default function AdminDashboard() {
                   </p>
                 </div>
               ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Hiring Funnel */}
+      {funnelData && funnelData.funnel.some((f) => f.count > 0) && (
+        <Card>
+          <CardHeader><CardTitle>Hiring Funnel</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            <p className="text-xs text-muted-foreground mb-3">{funnelData.total} total applications · conversion rate at each stage</p>
+            {funnelData.funnel.filter((f) => f.count > 0 || f.stage === 'applied').map((f, i, arr) => (
+              <div key={f.stage} className="flex items-center gap-3">
+                <div className="w-24 shrink-0 text-xs capitalize text-muted-foreground">{f.stage}</div>
+                <div className="flex-1 h-6 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-500"
+                    style={{ width: funnelData.total > 0 ? `${Math.round((f.count / funnelData.total) * 100)}%` : '0%' }}
+                  />
+                </div>
+                <div className="w-10 text-right text-sm font-bold">{f.count}</div>
+                {i > 0 && arr[i - 1].count > 0 && (
+                  <div className="w-12 text-right text-xs text-muted-foreground">{f.conversionRate}%</div>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recruiter Performance */}
+      {funnelData?.performance && funnelData.performance.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Recruiter Performance</CardTitle></CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs text-muted-foreground">
+                    <th className="pb-2 text-left font-medium">Recruiter</th>
+                    <th className="pb-2 text-right font-medium">Pipeline</th>
+                    <th className="pb-2 text-right font-medium">Shortlisted</th>
+                    <th className="pb-2 text-right font-medium">Rejected</th>
+                    <th className="pb-2 text-right font-medium">Avg Score</th>
+                    <th className="pb-2 text-right font-medium">Rate</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {funnelData.performance.map((r) => (
+                    <tr key={r.recruiterId ?? r.name}>
+                      <td className="py-2.5 font-medium">{r.name}</td>
+                      <td className="py-2.5 text-right">{r.total}</td>
+                      <td className="py-2.5 text-right text-emerald-600 font-medium">{r.shortlisted}</td>
+                      <td className="py-2.5 text-right text-red-500">{r.rejected}</td>
+                      <td className="py-2.5 text-right">{r.avgScore != null ? `${r.avgScore}%` : '—'}</td>
+                      <td className="py-2.5 text-right text-muted-foreground">
+                        {r.total > 0 ? `${Math.round((r.shortlisted / r.total) * 100)}%` : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </CardContent>
         </Card>

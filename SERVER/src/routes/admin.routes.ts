@@ -163,6 +163,69 @@ adminRouter.get('/dashboard', async (_req, res, next) => {
   } catch (err) { next(err) }
 })
 
+adminRouter.get('/funnel', async (req, res, next) => {
+  try {
+    const scope = await resolveWorkspaceScope(req.user!._id)
+    const jobFilter = req.user?.role === 'super_admin' ? {} : scope.companyId ? { company: scope.companyId } : { createdBy: req.user!._id }
+    const jobIds = await JobModel.find(jobFilter).distinct('_id')
+    const appFilter = { job: { $in: jobIds } }
+
+    const STAGES = ['applied', 'screening', 'assessment', 'interview', 'decision', 'offered', 'rejected']
+    const stageCounts = await ApplicationModel.aggregate([
+      { $match: appFilter },
+      { $group: { _id: '$stage', count: { $sum: 1 } } },
+    ])
+    const countMap: Record<string, number> = {}
+    for (const s of stageCounts) countMap[String(s._id)] = Number(s.count)
+
+    const total = Object.values(countMap).reduce((a, b) => a + b, 0)
+    const funnel = STAGES.map((stage, i) => {
+      const count = countMap[stage] ?? 0
+      const prev = i === 0 ? total : (countMap[STAGES[i - 1]] ?? 0)
+      return { stage, count, conversionRate: prev > 0 ? Math.round((count / prev) * 100) : 0 }
+    })
+
+    // Recruiter performance — avg time to shortlist, pipeline actions per recruiter
+    const recruiterStats = await ApplicationModel.aggregate([
+      { $match: { ...appFilter, stage: { $ne: 'applied' } } },
+      {
+        $lookup: {
+          from: 'jobs', localField: 'job', foreignField: '_id',
+          pipeline: [{ $project: { assignedRecruiter: 1, title: 1 } }], as: 'jobData',
+        },
+      },
+      { $unwind: { path: '$jobData', preserveNullAndEmpty: true } },
+      {
+        $group: {
+          _id: '$jobData.assignedRecruiter',
+          total: { $sum: 1 },
+          shortlisted: { $sum: { $cond: [{ $in: ['$stage', ['screening', 'assessment', 'interview', 'decision', 'offered']] }, 1, 0] } },
+          rejected: { $sum: { $cond: [{ $eq: ['$stage', 'rejected'] }, 1, 0] } },
+          avgScore: { $avg: '$scores.final' },
+        },
+      },
+      { $limit: 10 },
+    ])
+
+    const recruiterIds = recruiterStats.map((r) => r._id).filter(Boolean)
+    const recruiterUsers = recruiterIds.length
+      ? await UserModel.find({ _id: { $in: recruiterIds } }, { firstName: 1, lastName: 1, email: 1 }).lean()
+      : []
+    const recruiterMap = new Map(recruiterUsers.map((u) => [String(u._id), u]))
+
+    const performance = recruiterStats.map((r) => ({
+      recruiterId: r._id ? String(r._id) : null,
+      name: r._id ? (() => { const u = recruiterMap.get(String(r._id)); return u ? `${u.firstName} ${u.lastName}` : 'Unknown' })() : 'Unassigned',
+      total: r.total,
+      shortlisted: r.shortlisted,
+      rejected: r.rejected,
+      avgScore: r.avgScore ? Math.round(r.avgScore) : null,
+    }))
+
+    res.json({ funnel, total, performance })
+  } catch (err) { next(err) }
+})
+
 adminRouter.get('/audit-log', async (req, res, next) => {
   try {
     const page = Number(req.query.page ?? 1)

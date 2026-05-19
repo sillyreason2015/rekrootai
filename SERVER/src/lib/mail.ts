@@ -1,4 +1,4 @@
-import { MailerSend, EmailParams, Sender, Recipient } from 'mailersend'
+import { MailerSend, EmailParams, Sender, Recipient, Attachment } from 'mailersend'
 import { env } from '../config/env.js'
 
 const FROM_EMAIL = 'noreply@test-r83ql3p3dvxgzw1j.mlsender.net'
@@ -9,7 +9,7 @@ function getClient() {
   return new MailerSend({ apiKey: env.MAILERSEND_API_KEY })
 }
 
-async function send(to: string, subject: string, text: string, html?: string) {
+async function send(to: string, subject: string, text: string, html?: string, attachments?: Array<{ content: string; filename: string; disposition?: string }>) {
   const mailer = getClient()
   const params = new EmailParams()
     .setFrom(new Sender(FROM_EMAIL, FROM_NAME))
@@ -17,6 +17,9 @@ async function send(to: string, subject: string, text: string, html?: string) {
     .setSubject(subject)
     .setText(text)
   if (html) params.setHtml(html)
+  if (attachments?.length) {
+    params.setAttachments(attachments.map((a) => new Attachment(a.content, a.filename, a.disposition ?? 'attachment')))
+  }
   await mailer.email.send(params)
 }
 
@@ -47,8 +50,8 @@ export async function sendOtpEmail(to: string, otp: string, firstName: string): 
   )
 }
 
-export async function sendEmail(input: { to: string; subject: string; text: string; html?: string }): Promise<void> {
-  await send(input.to, input.subject, input.text, input.html)
+export async function sendEmail(input: { to: string; subject: string; text: string; html?: string; attachments?: Array<{ content: string; filename: string; disposition?: string }> }): Promise<void> {
+  await send(input.to, input.subject, input.text, input.html, input.attachments)
 }
 
 export async function sendInviteEmail(to: string, inviteUrl: string, inviterName?: string): Promise<void> {

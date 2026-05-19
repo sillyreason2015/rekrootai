@@ -299,10 +299,12 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
     const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
     await logAction({ actor: 'user', action: logMode === 'override' ? 'override-rejected' : 'rejected', candidateId: String(app.candidate), jobId: String(app.job), mode: logMode, payload: { decision: reason, ...(logMode === 'override' ? { note: 'Recruiter manually overrode AI recommendation' } : {}) } })
     await notifyCandidate(String(app.candidate), { type: 'fairness_rejected', title: 'Application closed', body: reason?.trim() || 'Your application was not progressed further for this role.', link: `/candidate/explanation/${String(app._id)}` })
+    const { user: rejectedUser } = await getCandidateUser(String(app.candidate))
+    const firstName = rejectedUser?.firstName ?? 'there'
     await emailCandidate(String(app.candidate), {
-      subject: `[${job?.title ?? 'Your application'}] Application update`,
-      text: `We have completed our review for ${job?.title ?? 'this role'} and will not be progressing your application further.${reason?.trim() ? `\n\nRecruiter note: ${reason.trim()}` : ''}\n\nYou can log in to your AIRS portal to review the decision details and any correspondence.`,
-      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>We have completed our review for <strong>${job?.title ?? 'this role'}</strong> and will not be progressing your application further.</p>${reason?.trim() ? `<p><strong>Recruiter note:</strong> ${reason.trim().replace(/\n/g, '<br/>')}</p>` : ''}<p>You can log in to your AIRS portal to review the decision details and any correspondence.</p></div>`,
+      subject: `Your application for ${job?.title ?? 'this role'} — update from RekrootAI`,
+      text: `Hi ${firstName},\n\nThank you for taking the time to apply for the ${job?.title ?? 'role'} position and for your interest in joining our team.\n\nAfter careful consideration, we have decided not to move forward with your application at this time. This is not a reflection of your abilities — the competition for this role was strong and the decision was a close one.\n\n${reason?.trim() ? `Feedback from the hiring team:\n${reason.trim()}\n\n` : ''}We encourage you to keep an eye on future openings that may be a great fit.\n\nYou can log in to your RekrootAI portal to view the full AI-generated explanation for your application.\n\nWishing you the very best in your job search.\n\nThe RekrootAI Hiring Team`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1e293b"><h2 style="margin:0 0 16px;font-size:20px;font-weight:600">Application update</h2><p style="margin:0 0 12px">Hi ${firstName},</p><p style="margin:0 0 12px">Thank you for taking the time to apply for the <strong>${job?.title ?? 'role'}</strong> position and for your interest in joining our team.</p><p style="margin:0 0 12px">After careful consideration, we have decided not to move forward with your application at this time. This is not a reflection of your abilities — the competition for this role was strong and the decision was a close one.</p>${reason?.trim() ? `<div style="background:#f8fafc;border-left:3px solid #cbd5e1;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.05em">Hiring team feedback</p><p style="margin:0;font-size:14px">${reason.trim().replace(/\n/g, '<br/>')}</p></div>` : ''}<p style="margin:0 0 12px">We encourage you to keep an eye on future openings that may be a great fit.</p><p style="margin:0 0 20px">You can log in to your RekrootAI portal to view the full AI-generated explanation for your application.</p><p style="margin:0;color:#64748b;font-size:13px">Wishing you the very best in your job search.<br/><strong>The RekrootAI Hiring Team</strong></p></div>`,
     })
     res.json({ ...app, _id: String(app._id) })
   } catch (err) { next(err) }
@@ -729,6 +731,35 @@ applicationsRouter.post('/:id/correspondence/reply', requireAuth, async (req, re
 
     await logAction({ actor: 'user', action: 'correspondence-reply', candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: req.body as Record<string, unknown> })
     res.json({ ok: deliveryStatus === 'sent', deliveryStatus })
+  } catch (err) { next(err) }
+})
+
+// POST /applications/:id/offer-response — candidate accepts or declines an offer
+applicationsRouter.post('/:id/offer-response', requireAuth, requireRole('candidate'), async (req, res, next) => {
+  try {
+    const { response } = req.body as { response?: 'accepted' | 'declined' }
+    if (!['accepted', 'declined'].includes(response ?? '')) throw new HttpError(400, 'response must be accepted or declined')
+    const app = await ApplicationModel.findById(req.params.id).lean()
+    if (!app) throw new HttpError(404, 'Application not found')
+    if (app.stage !== 'offered') throw new HttpError(409, 'This application does not have a pending offer')
+    await ApplicationModel.findByIdAndUpdate(req.params.id, {
+      offerStatus: response,
+      offerRespondedAt: new Date().toISOString(),
+    })
+    const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
+    await logAction({ actor: 'user', action: `offer-${response}`, candidateId: String(app.candidate), jobId: String(app.job), mode: 'assist', payload: { response } })
+    // Notify recruiters for this job
+    const recruiters = await (await import('../lib/workspace.js')).resolveWorkspaceScope(String(app.candidate))
+    const recruitersForJob = await (await import('../models/User.model.js')).UserModel.find({ role: { $in: ['recruiter', 'admin'] }, companyName: { $exists: true } }).lean()
+    recruitersForJob.slice(0, 5).forEach((r) => {
+      notify(String(r._id), {
+        type: 'offer_extended',
+        title: response === 'accepted' ? 'Offer accepted!' : 'Offer declined',
+        body: `A candidate has ${response} the offer for ${job?.title ?? 'a role'}.`,
+        link: '/recruiter/shortlist',
+      })
+    })
+    res.json({ ok: true, offerStatus: response })
   } catch (err) { next(err) }
 })
 

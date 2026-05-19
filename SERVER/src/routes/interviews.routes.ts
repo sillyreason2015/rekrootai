@@ -123,10 +123,28 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
     await logAction({ actor: 'user', action: 'interview-scheduled', candidateId: String(application.candidate), jobId: String(application.job), mode: mode ?? 'assist' })
     await notifyCandidate(String(application.candidate), { type: 'info', title: 'Interview Scheduled', body: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.`, link: '/candidate/applications' })
     const job = await InterviewModel.populate(interview, { path: 'job', select: 'title' })
+    const jobTitle = (job.job as { title?: string } | undefined)?.title ?? 'Interview'
+    const startDt = scheduledAt ? new Date(scheduledAt) : new Date()
+    const endDt = new Date(startDt.getTime() + (durationMin ?? 45) * 60_000)
+    const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+    const icsUid = `interview-${String(interview._id)}@rekrootai`
+    const icsContent = [
+      'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//RekrootAI//EN', 'CALSCALE:GREGORIAN', 'METHOD:REQUEST',
+      'BEGIN:VEVENT',
+      `UID:${icsUid}`,
+      `DTSTAMP:${fmt(new Date())}`,
+      `DTSTART:${fmt(startDt)}`,
+      `DTEND:${fmt(endDt)}`,
+      `SUMMARY:Interview – ${jobTitle}`,
+      'DESCRIPTION:Your interview has been scheduled via RekrootAI. Please log in to your portal to join at the scheduled time.',
+      'END:VEVENT', 'END:VCALENDAR',
+    ].join('\r\n')
+    const icsBase64 = Buffer.from(icsContent).toString('base64')
     await emailInterviewCandidate(String(application.candidate), {
-      subject: `[${(job.job as { title?: string } | undefined)?.title ?? 'Your application'}] Interview scheduled`,
-      text: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.\n\nPlease log in to your AIRS portal to view the details and join at the scheduled time.`,
-      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:24px"><p>Your interview has been scheduled for <strong>${scheduledAt ?? 'soon'}</strong>.</p><p>Please log in to your AIRS portal to view the details and join at the scheduled time.</p></div>`,
+      subject: `Interview scheduled – ${jobTitle}`,
+      text: `Your interview for ${jobTitle} has been scheduled for ${startDt.toLocaleString()}.\n\nA calendar invite is attached. You can also log in to your RekrootAI portal to join at the scheduled time.`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1e293b"><h2 style="margin:0 0 16px;font-size:20px">Interview Scheduled</h2><p>Your interview for <strong>${jobTitle}</strong> has been confirmed.</p><table style="margin:20px 0;border-collapse:collapse"><tr><td style="padding:6px 16px 6px 0;color:#64748b;font-size:13px">Date &amp; Time</td><td style="font-weight:600">${startDt.toLocaleString()}</td></tr><tr><td style="padding:6px 16px 6px 0;color:#64748b;font-size:13px">Duration</td><td style="font-weight:600">${durationMin ?? 45} minutes</td></tr></table><p style="color:#64748b;font-size:13px">A calendar invite is attached to this email. Log in to your RekrootAI portal to join at the scheduled time.</p></div>`,
+      attachments: [{ content: icsBase64, filename: 'interview.ics', disposition: 'attachment' }],
     })
     res.status(201).json({ ...interview.toObject(), _id: String(interview._id) })
   } catch (err) { next(err) }

@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { FileText, ExternalLink, CheckCircle2, Circle, Clock, XCircle } from 'lucide-react'
+import { FileText, ExternalLink, CheckCircle2, Circle, Clock, XCircle, ThumbsUp, ThumbsDown, Loader2 } from 'lucide-react'
 import { applicationService } from '../../services/application.service'
+import api from '../../lib/axios'
 import { Card, CardContent } from '../../components/ui/card'
 import { Badge } from '../../components/ui/badge'
 import LoadingSpinner from '../../components/shared/LoadingSpinner'
@@ -117,9 +118,15 @@ function PipelineTracker({ stage, interviewMissed }: { stage: string; interviewM
 }
 
 export default function Applications() {
+  const qc = useQueryClient()
   const { data: applications, isLoading } = useQuery({
     queryKey: ['my-applications'],
     queryFn: applicationService.myApplications,
+  })
+  const offerResponse = useMutation({
+    mutationFn: ({ id, response }: { id: string; response: 'accepted' | 'declined' }) =>
+      api.post(`/applications/${id}/offer-response`, { response }).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['my-applications'] }),
   })
 
   if (isLoading) return <LoadingSpinner />
@@ -241,12 +248,42 @@ export default function Applications() {
                       </Link>
                     )}
 
-                    {/* Offer */}
-                    {app.stage === 'offered' && (
-                      <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700">
-                        🎉 Offer Extended — check your email for next steps
-                      </div>
-                    )}
+                    {/* Offer accept/decline */}
+                    {app.stage === 'offered' && (() => {
+                      const offerStatus = (app as any).offerStatus
+                      if (offerStatus === 'accepted') return (
+                        <div className="flex items-center gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700">
+                          <CheckCircle2 className="h-4 w-4" /> Offer accepted — congratulations!
+                        </div>
+                      )
+                      if (offerStatus === 'declined') return (
+                        <div className="flex items-center gap-2 rounded-lg bg-muted border px-4 py-2 text-sm text-muted-foreground">
+                          <XCircle className="h-4 w-4" /> You declined this offer.
+                        </div>
+                      )
+                      return (
+                        <div className="rounded-lg border-2 border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                          <p className="text-sm font-semibold text-emerald-800">🎉 You've received an offer! Please respond below.</p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => offerResponse.mutate({ id: app._id, response: 'accepted' })}
+                              disabled={offerResponse.isPending}
+                              className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+                            >
+                              {offerResponse.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
+                              Accept Offer
+                            </button>
+                            <button
+                              onClick={() => offerResponse.mutate({ id: app._id, response: 'declined' })}
+                              disabled={offerResponse.isPending}
+                              className="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/5 disabled:opacity-60"
+                            >
+                              <ThumbsDown className="h-4 w-4" /> Decline
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
 
                   {/* Decision timeline */}

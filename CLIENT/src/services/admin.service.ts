@@ -37,4 +37,9 @@ export const adminService = {
   dangerPurgeAssessments: () => api.post('/admin/super/danger/purge-assessments').then((r) => r.data),
   dangerResetCaches: () => api.post('/admin/super/danger/reset-caches').then((r) => r.data),
   dangerArchiveJobs: () => api.post('/admin/super/danger/archive-jobs').then((r) => r.data),
+  getFunnel: () => api.get<{
+    funnel: Array<{ stage: string; count: number; conversionRate: number }>
+    total: number
+    performance: Array<{ recruiterId: string | null; name: string; total: number; shortlisted: number; rejected: number; avgScore: number | null }>
+  }>('/admin/funnel').then((r) => r.data),
 }
