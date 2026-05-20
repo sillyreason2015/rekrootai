@@ -3,11 +3,14 @@ import {
   LayoutDashboard, Search, FileText,
   Video, Users, Briefcase, MessageSquare,
   UserCog, CreditCard, BookOpen, Building2, ShieldCheck, BarChart3,
-  Brain, Wifi, CheckSquare, RotateCcw, PlusCircle, HelpCircle,
+  Brain, Wifi, CheckSquare, RotateCcw, PlusCircle, HelpCircle, ClipboardList,
 } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
 import { cn } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTour } from '../../contexts/TourContext'
+import { applicationService } from '../../services/application.service'
+import type { Application } from '../../types'
 
 const candidateNav = [
   { to: '/candidate/dashboard', label: 'Dashboard', icon: LayoutDashboard, tour: 'candidate-dashboard' },
@@ -60,6 +63,22 @@ type NavGroup = { title: string; items: NavItem[] }
 export default function Sidebar() {
   const { user } = useAuth()
   const { restart } = useTour()
+
+  // For candidates: fetch their applications to find any active assessment
+  const { data: myApps } = useQuery<Application[]>({
+    queryKey: ['my-applications'],
+    queryFn: applicationService.myApplications,
+    enabled: user?.role === 'candidate',
+    staleTime: 30_000,
+  })
+  const activeAssessmentApp = myApps?.find(
+    (a) =>
+      a.stage === 'assessment' &&
+      (a.assessmentStatus === 'pending' || a.assessmentStatus === 'in_progress') &&
+      a.assessmentExpiresAt &&
+      new Date(a.assessmentExpiresAt) > new Date(),
+  )
+
   const navBase =
     user?.role === 'super_admin' ? superAdminNav :
     user?.role === 'admin' ? adminNav :
@@ -113,6 +132,26 @@ export default function Sidebar() {
                 {label}
               </NavLink>
             ))}
+            {/* Active assessment entry — injected into the candidate Workspace group only */}
+            {group.title === 'Workspace' && activeAssessmentApp && (
+              <NavLink
+                to={`/candidate/assessment/${activeAssessmentApp._id}`}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    isActive
+                      ? 'bg-primary text-primary-foreground'
+                      : 'text-amber-600 hover:bg-amber-50 hover:text-amber-700',
+                  )
+                }
+              >
+                <div className="relative">
+                  <ClipboardList className="h-4 w-4" />
+                  <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+                </div>
+                Assessment
+              </NavLink>
+            )}
           </div>
         ))}
       </nav>
