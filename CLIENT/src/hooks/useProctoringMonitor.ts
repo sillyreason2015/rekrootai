@@ -44,6 +44,7 @@ export function useProctoringMonitor({
   onViolationReasonRef.current = onViolationReason
 
   const recordViolation = useCallback((reason: string) => {
+    if (violationsRef.current >= maxViolations) return
     const now = Date.now()
     if (now - cooldownRef.current < 1500) return
     cooldownRef.current = now

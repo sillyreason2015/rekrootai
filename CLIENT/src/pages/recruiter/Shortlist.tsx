@@ -73,6 +73,30 @@ function stageBadge(stage: string) {
   return colors[stage] ?? 'bg-muted text-muted-foreground'
 }
 
+/**
+ * Rolling composite score — averages only the stages completed so far.
+ * screening:   resume (100%)
+ * assessment:  (resume + assessment) / 2
+ * interview:   (resume + assessment + interview) / 3
+ * decision+:   server-computed final (CV 30 · Assessment 30 · Interview 30 · Fairness 10)
+ */
+function progressiveScore(scores: Application['scores'], stage: string): number | null {
+  const { resume, assessment, interview, final } = scores ?? {}
+  if (['decision', 'offered', 'rejected'].includes(stage)) {
+    return (final ?? null)
+  }
+  if (stage === 'interview') {
+    const vals = [resume, assessment, interview].filter((v): v is number => typeof v === 'number' && v > 0)
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+  }
+  if (stage === 'assessment') {
+    const vals = [resume, assessment].filter((v): v is number => typeof v === 'number' && v > 0)
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+  }
+  // screening / applied
+  return typeof resume === 'number' && resume > 0 ? resume : null
+}
+
 /** Inline AI Explanation panel shown inside the card */
 function ExplanationPanel({ appId, candidateName }: { appId: string; candidateName: string }) {
   const { data, isLoading, isError } = useQuery<ExplanationData>({
@@ -176,7 +200,7 @@ function ExplanationPanel({ appId, candidateName }: { appId: string; candidateNa
 }
 
 /** Inline AI chat panel — Assist mode only */
-function AssistantPanel({ appId, name, scores, onClose }: {
+function AssistantPanel({ appId, name, scores, stage, onClose }: {
   appId: string; name: string; scores: Application['scores']; stage?: string; onClose: () => void
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -212,14 +236,14 @@ function AssistantPanel({ appId, name, scores, onClose }: {
         <button onClick={onClose}><X className="h-4 w-4 text-muted-foreground hover:text-foreground" /></button>
       </div>
 
-      {/* Score summary strip */}
+      {/* Score summary strip — rolling composite + individual stage scores */}
       <div className="grid grid-cols-4 gap-2 text-xs">
         {[
-          { label: 'Resume',     val: scores?.resume },
-          { label: 'Assessment', val: scores?.assessment },
-          { label: 'Interview',  val: scores?.interview },
-          { label: 'Composite',  val: scores?.final },
-        ].map(({ label, val }) => (
+          { label: 'Resume',     val: scores?.resume,     show: true },
+          { label: 'Assessment', val: scores?.assessment, show: ['assessment','interview','decision','offered','rejected'].includes(stage ?? '') },
+          { label: 'Interview',  val: scores?.interview,  show: ['interview','decision','offered','rejected'].includes(stage ?? '') },
+          { label: ['decision','offered','rejected'].includes(stage ?? '') ? 'Final' : 'Score', val: progressiveScore(scores, stage ?? ''), show: true },
+        ].filter(({ show }) => show).map(({ label, val }) => (
           <div key={label} className="rounded-md border bg-background px-2 py-2 text-center">
             <p className="text-muted-foreground">{label}</p>
             <p className="font-bold text-sm mt-0.5">{val != null && val > 0 ? `${val.toFixed(0)}%` : '—'}</p>
@@ -1045,15 +1069,19 @@ export default function Shortlist() {
                             {stageLabel(app.stage)}
                           </span>
                         </div>
-                        {/* Score */}
-                        {(app.scores?.final ?? 0) > 0 && (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <div className={cn('rounded-full border px-3 py-1 text-sm font-bold', scoreBg(app.scores?.final ?? 0))}>
-                              {(app.scores?.final ?? 0).toFixed(0)}%
+                        {/* Progressive composite score */}
+                        {(() => {
+                          const scoreVal = progressiveScore(app.scores, app.stage)
+                          const isFinal = ['decision','offered','rejected'].includes(app.stage)
+                          return scoreVal != null ? (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <div className={cn('rounded-full border px-3 py-1 text-sm font-bold', scoreBg(scoreVal))}>
+                                {scoreVal.toFixed(0)}%
+                              </div>
+                              <InfoTip content={isFinal ? 'Final weighted composite: CV 30% · Assessment 30% · Interview 30% · Fairness 10%.' : 'Rolling average of completed stage scores.'} />
                             </div>
-                            <InfoTip content="Weighted composite of CV match, assessment, and interview. Hover the breakdown below for details." />
-                          </div>
-                        )}
+                          ) : null
+                        })()}
                       </div>
 
                       {/* Action buttons — wraps freely */}
@@ -1297,18 +1325,25 @@ export default function Shortlist() {
                       <div className="border-t px-4 pb-4 pt-3 space-y-3">
                         {!isOverrideMode && <AiBadge label="Stage Score Breakdown" size="md" />}
                         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                          {[
-                            { label: 'Resume',     value: app.scores?.resume },
-                            { label: 'Assessment', value: app.scores?.assessment },
-                            { label: 'Interview',  value: app.scores?.interview },
-                          ].map(({ label, value }) => (
-                            <div key={label} className="rounded-lg border bg-muted/30 p-3 text-center">
-                              <p className="text-xs text-muted-foreground">{label}</p>
-                              <p className={cn('mt-1 text-lg font-bold', value !== undefined && value > 0 ? scoreBg(value).split(' ').filter(c => c.startsWith('text-')).join(' ') : 'text-muted-foreground')}>
-                                {value !== undefined && value > 0 ? `${value.toFixed(0)}%` : '—'}
-                              </p>
-                            </div>
-                          ))}
+                          {(() => {
+                            const isFinal = ['decision','offered','rejected'].includes(app.stage)
+                            const stageScores = [
+                              { label: 'Resume',     value: app.scores?.resume,     weight: isFinal ? '30%' : app.stage === 'screening' ? '100%' : '50%',  show: true },
+                              { label: 'Assessment', value: app.scores?.assessment, weight: isFinal ? '30%' : '50%', show: ['assessment','interview','decision','offered','rejected'].includes(app.stage) },
+                              { label: 'Interview',  value: app.scores?.interview,  weight: isFinal ? '30%' : '33%', show: ['interview','decision','offered','rejected'].includes(app.stage) },
+                            ].filter(({ show }) => show)
+                            // correct the weight label for equal-split stages
+                            if (stageScores.length === 3 && !isFinal) stageScores.forEach(s => { s.weight = '33%' })
+                            return stageScores.map(({ label, value, weight }) => (
+                              <div key={label} className="rounded-lg border bg-muted/30 p-3 text-center">
+                                <p className="text-xs text-muted-foreground">{label}</p>
+                                <p className={cn('mt-1 text-lg font-bold', value !== undefined && value > 0 ? scoreBg(value).split(' ').filter(c => c.startsWith('text-')).join(' ') : 'text-muted-foreground')}>
+                                  {value !== undefined && value > 0 ? `${value.toFixed(0)}%` : '—'}
+                                </p>
+                                <p className="text-[10px] text-muted-foreground/60 mt-0.5">{weight} weight</p>
+                              </div>
+                            ))
+                          })()}
                           {/* Fairness — special display: penalty=0 means passed */}
                           <div className="rounded-lg border bg-muted/30 p-3 text-center">
                             <p className="text-xs text-muted-foreground">Fairness</p>
@@ -1341,14 +1376,25 @@ export default function Shortlist() {
                           <p>{extApp.fairnessComputedAt ? `✓ Fairness gate: ${new Date(extApp.fairnessComputedAt).toLocaleString()}` : '○ Fairness gate: pending'}</p>
                           <p>{extApp.explanationComputedAt ? `✓ SHAP explanation: ${new Date(extApp.explanationComputedAt).toLocaleString()}` : '○ SHAP explanation: pending'}</p>
                         </div>
-                        {app.scores?.final !== undefined && (
-                          <div className="flex items-start gap-2">
-                            <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-                            <p className="text-xs text-muted-foreground">
-                              Final score is weighted: CV 30% · Assessment 30% · Interview 30% · Fairness 10%. Human review required before any hiring decision.
-                            </p>
-                          </div>
-                        )}
+                        {(() => {
+                          const isFinal = ['decision','offered','rejected'].includes(app.stage)
+                          const ps = progressiveScore(app.scores, app.stage)
+                          if (ps == null) return null
+                          return (
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                              <p className="text-xs text-muted-foreground">
+                                {isFinal
+                                  ? `Final score ${ps.toFixed(1)}% — weighted: CV 30% · Assessment 30% · Interview 30% · Fairness 10%. Human review required before any hiring decision.`
+                                  : app.stage === 'assessment'
+                                    ? `Rolling score ${ps.toFixed(1)}% — equal 50/50 average of resume and assessment scores.`
+                                    : app.stage === 'interview'
+                                      ? `Rolling score ${ps.toFixed(1)}% — equal 33.3% average of resume, assessment, and interview scores.`
+                                      : `Score ${ps.toFixed(1)}% — based on resume fit only.`}
+                              </p>
+                            </div>
+                          )
+                        })()}
                       </div>
                     )}
                   </CardContent>

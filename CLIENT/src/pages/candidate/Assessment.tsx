@@ -57,7 +57,13 @@ export default function Assessment() {
       const savedActiveModule = sessionStorage.getItem(`assessment-active-module:${assessment._id}`)
       if (savedActiveModule !== null) {
         const index = Number(savedActiveModule)
-        setActiveModule(Number.isInteger(index) && index >= 0 ? index : null)
+        const isValid = Number.isInteger(index) && index >= 0 && index < assessment.modules.length && !assessment.modules[index].completedAt
+        if (isValid) {
+          setActiveModule(index)
+        } else {
+          sessionStorage.removeItem(`assessment-active-module:${assessment._id}`)
+          setActiveModule(null)
+        }
       } else {
         setActiveModule(null)
       }
@@ -105,8 +111,12 @@ export default function Assessment() {
     },
     onError: (err: unknown) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setSubmitError(msg ?? 'Failed to submit module. Please try again.')
       setAutoSubmitting(false)
+      // If auto-submitted (no user confirmation dialog), go back to lobby so they can retry
+      if (!showSubmitConfirm) {
+        setActiveModule(null)
+      }
+      setSubmitError(msg ?? 'Failed to submit module. Please try again.')
     },
   })
 
@@ -134,38 +144,60 @@ export default function Assessment() {
     resetKey: activeModule ?? -1,
   })
 
-  // Timer
+  // Timer — uses an absolute deadline so background-throttled intervals don't slow the clock
   useEffect(() => {
     if (!started || activeModule === null || !assessment) return
     const mod = assessment.modules[activeModule]
     const timeLimit = (assessment.job as { assessmentModules?: Array<{ timeLimit: number }> })?.assessmentModules?.[activeModule]?.timeLimit ?? 20
+    const totalSeconds = mod.timeSpent ? 0 : 60 * timeLimit
+
     const saved = localStorage.getItem(getAssessmentStorageKey(assessment._id, activeModule))
+    let deadline: number
+    let savedAnswers: Record<string, number | string> = {}
     if (saved) {
       try {
-        const parsed = JSON.parse(saved) as { answers?: Record<string, number | string>; timeLeft?: number }
-        setAnswers(parsed.answers ?? {})
-        setTimeLeft(typeof parsed.timeLeft === 'number' ? parsed.timeLeft : (mod.timeSpent ? 0 : 60 * timeLimit))
+        const parsed = JSON.parse(saved) as { answers?: Record<string, number | string>; deadline?: number; timeLeft?: number }
+        savedAnswers = parsed.answers ?? {}
+        if (typeof parsed.deadline === 'number') {
+          deadline = parsed.deadline
+        } else if (typeof parsed.timeLeft === 'number') {
+          // migrate old format: reconstruct deadline from remaining seconds
+          deadline = Date.now() + parsed.timeLeft * 1000
+        } else {
+          deadline = Date.now() + totalSeconds * 1000
+        }
       } catch {
-        setAnswers({})
-        setTimeLeft(mod.timeSpent ? 0 : 60 * timeLimit)
+        deadline = Date.now() + totalSeconds * 1000
       }
     } else {
-      setAnswers({})
-      setTimeLeft(mod.timeSpent ? 0 : 60 * timeLimit)
+      deadline = Date.now() + totalSeconds * 1000
     }
-    const id = setInterval(() => setTimeLeft((t) => {
-      if (t <= 1) { forceSubmit(); return 0 }
-      return t - 1
-    }), 1000)
+    setAnswers(savedAnswers)
+
+    const tick = () => {
+      const remaining = Math.max(0, Math.round((deadline - Date.now()) / 1000))
+      setTimeLeft(remaining)
+      if (remaining <= 0) { forceSubmit() }
+    }
+    tick()
+    const id = setInterval(tick, 500)
     return () => clearInterval(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, activeModule, assessment])
 
   useEffect(() => {
     if (!assessment || activeModule === null || !started) return
+    const saved = localStorage.getItem(getAssessmentStorageKey(assessment._id, activeModule))
+    let deadline: number | undefined
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as { deadline?: number }
+        deadline = parsed.deadline
+      } catch { /* ignore */ }
+    }
     localStorage.setItem(
       getAssessmentStorageKey(assessment._id, activeModule),
-      JSON.stringify({ answers, timeLeft }),
+      JSON.stringify({ answers, timeLeft, deadline }),
     )
   }, [assessment, activeModule, answers, timeLeft, started])
 
