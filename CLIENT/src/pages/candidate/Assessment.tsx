@@ -38,7 +38,6 @@ export default function Assessment() {
 
   const finishAssessmentSession = (assessmentId: string, moduleCount: number) => {
     Array.from({ length: moduleCount }).forEach((_, index) => localStorage.removeItem(getAssessmentStorageKey(assessmentId, index)))
-    sessionStorage.removeItem(`assessment-active-module:${assessmentId}`)
     setAnswers({})
     setAutoSubmitting(false)
     setActiveModule(null)
@@ -54,30 +53,11 @@ export default function Assessment() {
     if (!assessment) return
     if (assessment.status === 'in_progress') {
       setStarted(true)
-      const savedActiveModule = sessionStorage.getItem(`assessment-active-module:${assessment._id}`)
-      if (savedActiveModule !== null) {
-        const index = Number(savedActiveModule)
-        const isValid = Number.isInteger(index) && index >= 0 && index < assessment.modules.length && !assessment.modules[index].completedAt
-        if (isValid) {
-          setActiveModule(index)
-        } else {
-          sessionStorage.removeItem(`assessment-active-module:${assessment._id}`)
-          setActiveModule(null)
-        }
-      } else {
-        setActiveModule(null)
-      }
+      // Always land on the lobby — never restore a saved module index.
+      // Completed modules are locked; the candidate picks the next one themselves.
+      setActiveModule(null)
     }
   }, [assessment])
-
-  useEffect(() => {
-    if (!assessment) return
-    if (activeModule === null) {
-      sessionStorage.removeItem(`assessment-active-module:${assessment._id}`)
-    } else {
-      sessionStorage.setItem(`assessment-active-module:${assessment._id}`, String(activeModule))
-    }
-  }, [assessment, activeModule])
 
   const startMutation = useMutation({
     mutationFn: () => assessmentService.start(assessment!._id),
@@ -95,7 +75,6 @@ export default function Assessment() {
       if (!assessment) return
       setSubmitError('')
       localStorage.removeItem(getAssessmentStorageKey(assessment._id, variables.moduleIndex))
-      sessionStorage.removeItem(`assessment-active-module:${assessment._id}`)
       queryClient.setQueryData(['assessment', applicationId], updatedAssessment)
 
       if (updatedAssessment.status === 'completed') {
