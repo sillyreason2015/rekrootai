@@ -24,21 +24,24 @@ export default function Assessment() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [activeModule, setActiveModule] = useState<number | null>(null)
-  const activeModuleRef = useRef<number | null>(null) // ref to avoid stale closures in timer
+  const activeModuleRef = useRef<number | null>(null)
   const [answers, setAnswers] = useState<Record<string, number | string>>({})
   const [timeLeft, setTimeLeft] = useState<number>(0)
   const [started, setStarted] = useState(false)
   const [showProctoringModal, setShowProctoringModal] = useState(false)
   const [autoSubmitting, setAutoSubmitting] = useState(false)
+  const autoSubmittingRef = useRef(false) // ref so forceSubmit guard is never stale
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
   const [submitError, setSubmitError] = useState('')
 
-  // Keep ref in sync so timer callbacks always see the latest value
+  // Keep refs in sync
   useEffect(() => { activeModuleRef.current = activeModule }, [activeModule])
+  useEffect(() => { autoSubmittingRef.current = autoSubmitting }, [autoSubmitting])
 
   const finishAssessmentSession = (assessmentId: string, moduleCount: number) => {
     Array.from({ length: moduleCount }).forEach((_, index) => localStorage.removeItem(getAssessmentStorageKey(assessmentId, index)))
     setAnswers({})
+    autoSubmittingRef.current = false
     setAutoSubmitting(false)
     setActiveModule(null)
   }
@@ -85,11 +88,15 @@ export default function Assessment() {
 
       // More modules remain — return to lobby
       setAnswers({})
+      autoSubmittingRef.current = false
       setAutoSubmitting(false)
       setActiveModule(null)
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, variables) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      // Clear stale localStorage so an expired deadline can't re-trigger on next open
+      if (assessment) localStorage.removeItem(getAssessmentStorageKey(assessment._id, variables.moduleIndex))
+      autoSubmittingRef.current = false
       setAutoSubmitting(false)
       // If auto-submitted (no user confirmation dialog), go back to lobby so they can retry
       if (!showSubmitConfirm) {
@@ -102,7 +109,8 @@ export default function Assessment() {
   // Auto-submit current module answers (called on max violations or timer expiry)
   const forceSubmit = () => {
     const currentModule = activeModuleRef.current
-    if (!assessment || currentModule === null || submitModule.isPending || autoSubmitting) return
+    if (!assessment || currentModule === null || submitModule.isPending || autoSubmittingRef.current) return
+    autoSubmittingRef.current = true
     setAutoSubmitting(true)
     const mod = assessment.modules[currentModule]
     const questions: Question[] = mod.questions
@@ -137,12 +145,14 @@ export default function Assessment() {
       try {
         const parsed = JSON.parse(saved) as { answers?: Record<string, number | string>; deadline?: number; timeLeft?: number }
         savedAnswers = parsed.answers ?? {}
-        if (typeof parsed.deadline === 'number') {
+        if (typeof parsed.deadline === 'number' && parsed.deadline > Date.now()) {
+          // Only restore if deadline hasn't already passed
           deadline = parsed.deadline
-        } else if (typeof parsed.timeLeft === 'number') {
-          // migrate old format: reconstruct deadline from remaining seconds
+        } else if (typeof parsed.timeLeft === 'number' && parsed.timeLeft > 0) {
+          // Migrate old format — only if time was still remaining
           deadline = Date.now() + parsed.timeLeft * 1000
         } else {
+          // Expired or missing — start fresh
           deadline = Date.now() + totalSeconds * 1000
         }
       } catch {
