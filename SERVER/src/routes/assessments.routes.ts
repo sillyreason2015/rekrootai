@@ -68,6 +68,9 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
     }
     const mod = assessment.modules[moduleIndex]
     if (!mod) throw new HttpError(404, 'Module not found')
+    if (mod.completedAt) {
+      throw new HttpError(409, 'This module has already been submitted')
+    }
     const body = req.body as { answers?: unknown[]; score?: number }
     mod.answers = body.answers as never
     const totalQuestions = mod.questions.length || 1
@@ -75,8 +78,45 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
       ? Math.min(100, Math.max(0, body.score))
       : Math.min(100, Math.round(((body.answers?.length ?? 0) / totalQuestions) * 100))
     mod.completedAt = new Date().toISOString()
+
+    const allModulesSubmitted = assessment.modules.every((m) => m.completedAt)
+    if (allModulesSubmitted) {
+      assessment.status = 'completed'
+      assessment.completedAt = new Date().toISOString()
+      const scores = assessment.modules.map((m) => m.score ?? 0)
+      assessment.score = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0
+    }
+
     await assessment.save()
-    res.json({ ok: true, score: mod.score })
+
+    if (allModulesSubmitted) {
+      const application = await ApplicationModel.findById(assessment.application, { scores: 1 }).lean()
+      const currentScores = application?.scores ?? {}
+      const finalScore = computeCompositeScore({
+        resume: currentScores.resume,
+        assessment: assessment.score,
+        penalty: currentScores.penalty,
+        interview: currentScores.interview,
+      }, 'assessment')
+      await ApplicationModel.findByIdAndUpdate(assessment.application, {
+        stage: 'screening',
+        status: 'assessment_completed',
+        assessmentStatus: 'completed',
+        currentAssessmentId: null,
+        assessmentExpiresAt: assessment.expiresAt,
+        'scores.assessment': assessment.score,
+        'scores.final': finalScore,
+      })
+      await logAction({ actor: 'ai', action: 'assessment-completed', jobId: String(assessment.job), mode: 'assist', payload: { avgScore: assessment.score, passed: (assessment.score ?? 0) >= 60 } })
+      await notifyCandidate(typeof assessment.candidate === 'string' ? assessment.candidate : undefined, {
+        type: (assessment.score ?? 0) >= 60 ? 'assessment_completed' : 'assessment_failed',
+        title: 'Assessment submitted',
+        body: `Your assessment has been submitted and recorded with a current score of ${assessment.score ?? 0}%.`,
+        link: '/candidate/applications',
+      })
+    }
+
+    res.json({ ...assessment.toObject(), _id: String(assessment._id) })
   } catch (err) { next(err) }
 })
 

@@ -7,7 +7,7 @@ export const assessmentService = {
   start: (assessmentId: string) =>
     api.post<Assessment>(`/assessments/${assessmentId}/start`).then((r) => r.data),
   submitModule: (assessmentId: string, moduleIndex: number, answers: unknown[]) =>
-    api.post(`/assessments/${assessmentId}/modules/${moduleIndex}/submit`, { answers }).then((r) => r.data),
+    api.post<Assessment>(`/assessments/${assessmentId}/modules/${moduleIndex}/submit`, { answers }).then((r) => r.data),
   complete: (assessmentId: string) =>
     api.post(`/assessments/${assessmentId}/complete`).then((r) => r.data),
 }

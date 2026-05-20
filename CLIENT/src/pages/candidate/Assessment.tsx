@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Clock, CheckCircle2, AlertTriangle, Loader2, ChevronRight, ShieldAlert, X } from 'lucide-react'
 import { assessmentService } from '../../services/assessment.service'
 import { Button } from '../../components/ui/button'
@@ -22,6 +22,7 @@ function getAssessmentStorageKey(assessmentId: string, moduleIndex: number) {
 export default function Assessment() {
   const { applicationId } = useParams<{ applicationId: string }>()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [activeModule, setActiveModule] = useState<number | null>(null)
   const activeModuleRef = useRef<number | null>(null) // ref to avoid stale closures in timer
   const [answers, setAnswers] = useState<Record<string, number | string>>({})
@@ -43,7 +44,7 @@ export default function Assessment() {
     setActiveModule(null)
   }
 
-  const { data: assessment, isLoading, refetch } = useQuery({
+  const { data: assessment, isLoading } = useQuery({
     queryKey: ['assessment', applicationId],
     queryFn: () => assessmentService.getMine(applicationId!),
     enabled: !!applicationId,
@@ -84,19 +85,14 @@ export default function Assessment() {
   const submitModule = useMutation({
     mutationFn: ({ moduleIndex, ans }: { moduleIndex: number; ans: unknown[] }) =>
       assessmentService.submitModule(assessment!._id, moduleIndex, ans),
-    onSuccess: async () => {
-      if (!assessment || activeModule === null) return
+    onSuccess: (updatedAssessment, variables) => {
+      if (!assessment) return
       setSubmitError('')
-      localStorage.removeItem(getAssessmentStorageKey(assessment._id, activeModule))
+      localStorage.removeItem(getAssessmentStorageKey(assessment._id, variables.moduleIndex))
+      sessionStorage.removeItem(`assessment-active-module:${assessment._id}`)
+      queryClient.setQueryData(['assessment', applicationId], updatedAssessment)
 
-      // Refetch before checking remaining modules — local assessment data is stale
-      const { data: fresh } = await refetch()
-      const remainingModules = (fresh ?? assessment).modules.filter((m) => !m.completedAt)
-
-      if (remainingModules.length === 0) {
-        try {
-          await assessmentService.complete(assessment._id)
-        } catch { /* complete() is idempotent */ }
+      if (updatedAssessment.status === 'completed') {
         finishAssessmentSession(assessment._id, assessment.modules.length)
         navigate('/candidate/applications')
         return
@@ -126,7 +122,7 @@ export default function Assessment() {
       selected: typeof answers[q._id] === 'number' ? answers[q._id] as number : undefined,
       text: typeof answers[q._id] === 'string' ? answers[q._id] as string : undefined,
     }))
-    submitModule.mutate({ moduleIndex: activeModule as number, ans })
+    submitModule.mutate({ moduleIndex: currentModule, ans })
   }
 
   // Proctoring monitor — only active while inside a module (not in lobby)
@@ -393,6 +389,7 @@ export default function Assessment() {
             <div className="mt-6 flex gap-3 justify-center">
               <Button variant="outline" onClick={() => setShowSubmitConfirm(false)}>Go Back</Button>
               <Button
+                disabled={submitModule.isPending}
                 onClick={() => {
                   setShowSubmitConfirm(false)
                   const ans = questions.map((q) => ({
