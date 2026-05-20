@@ -134,9 +134,8 @@ export default function Assessment() {
   // Timer — uses an absolute deadline so background-throttled intervals don't slow the clock
   useEffect(() => {
     if (!started || activeModule === null || !assessment) return
-    const mod = assessment.modules[activeModule]
     const timeLimit = (assessment.job as { assessmentModules?: Array<{ timeLimit: number }> })?.assessmentModules?.[activeModule]?.timeLimit ?? 20
-    const totalSeconds = mod.timeSpent ? 0 : 60 * timeLimit
+    const totalSeconds = 60 * timeLimit // always use the full time limit; never zero
 
     const saved = localStorage.getItem(getAssessmentStorageKey(assessment._id, activeModule))
     let deadline: number
@@ -145,14 +144,12 @@ export default function Assessment() {
       try {
         const parsed = JSON.parse(saved) as { answers?: Record<string, number | string>; deadline?: number; timeLeft?: number }
         savedAnswers = parsed.answers ?? {}
-        if (typeof parsed.deadline === 'number' && parsed.deadline > Date.now()) {
-          // Only restore if deadline hasn't already passed
+        if (typeof parsed.deadline === 'number' && parsed.deadline > Date.now() + 2000) {
+          // Only restore if more than 2 seconds remain — avoids an immediate-fire on stale data
           deadline = parsed.deadline
-        } else if (typeof parsed.timeLeft === 'number' && parsed.timeLeft > 0) {
-          // Migrate old format — only if time was still remaining
+        } else if (typeof parsed.timeLeft === 'number' && parsed.timeLeft > 2) {
           deadline = Date.now() + parsed.timeLeft * 1000
         } else {
-          // Expired or missing — start fresh
           deadline = Date.now() + totalSeconds * 1000
         }
       } catch {
@@ -163,10 +160,13 @@ export default function Assessment() {
     }
     setAnswers(savedAnswers)
 
+    // Don't call forceSubmit on the very first tick — give the UI a moment to settle
+    let ticked = false
     const tick = () => {
       const remaining = Math.max(0, Math.round((deadline - Date.now()) / 1000))
       setTimeLeft(remaining)
-      if (remaining <= 0) { forceSubmit() }
+      if (remaining <= 0 && ticked) { forceSubmit() }
+      ticked = true
     }
     tick()
     const id = setInterval(tick, 500)
