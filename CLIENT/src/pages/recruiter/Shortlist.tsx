@@ -1142,6 +1142,9 @@ export default function Shortlist() {
                                 'bg-amber-50 border-amber-200 text-amber-700'
                               )}>
                                 Assessment: {app.assessmentStatus === 'in_progress' ? 'In progress' : app.assessmentStatus === 'completed' ? 'Completed' : app.assessmentStatus === 'expired' ? 'Expired' : 'Sent — awaiting start'}
+                                {app.assessmentCheckpoint && app.assessmentCheckpoint.totalModules > 0 && (
+                                  <> · {app.assessmentCheckpoint.modulesCompleted}/{app.assessmentCheckpoint.totalModules} modules</>
+                                )}
                               </span>
                             )}
                             <Button
@@ -1374,6 +1377,13 @@ export default function Shortlist() {
                           </div>
                         )}
                         <div className="text-[11px] text-muted-foreground space-y-0.5">
+                          {app.assessmentCheckpoint?.lastActiveAt && (
+                            <p>
+                              {app.assessmentStatus === 'completed'
+                                ? `✓ Assessment completed: ${new Date(app.assessmentCheckpoint.lastActiveAt).toLocaleString()}`
+                                : `⏱ Last active on assessment: ${new Date(app.assessmentCheckpoint.lastActiveAt).toLocaleString()} · ${app.assessmentCheckpoint.modulesCompleted}/${app.assessmentCheckpoint.totalModules} modules done`}
+                            </p>
+                          )}
                           <p>{extApp.fairnessComputedAt ? `✓ Fairness gate: ${new Date(extApp.fairnessComputedAt).toLocaleString()}` : '○ Fairness gate: pending'}</p>
                           <p>{extApp.explanationComputedAt ? `✓ SHAP explanation: ${new Date(extApp.explanationComputedAt).toLocaleString()}` : '○ SHAP explanation: pending'}</p>
                         </div>

@@ -32,6 +32,11 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
       type: String,
       enum: ['pending', 'in_progress', 'completed', 'expired'],
     },
+    assessmentCheckpoint: {
+      modulesCompleted: { type: Number, default: 0 },
+      totalModules: { type: Number, default: 0 },
+      lastActiveAt: String,
+    },
     interviewMissed: { type: Boolean, default: false },
     missedInterviewRecovery: {
       status: { type: String, enum: ['pending', 'approved', 'rejected'] },

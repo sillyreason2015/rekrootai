@@ -71,12 +71,26 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
     if (mod.completedAt) {
       throw new HttpError(409, 'This module has already been submitted')
     }
-    const body = req.body as { answers?: unknown[]; score?: number }
+    const body = req.body as { answers?: Array<{ questionId: string; selected?: number; text?: string }>; score?: number }
     mod.answers = body.answers as never
-    const totalQuestions = mod.questions.length || 1
-    mod.score = typeof body.score === 'number'
-      ? Math.min(100, Math.max(0, body.score))
-      : Math.min(100, Math.round(((body.answers?.length ?? 0) / totalQuestions) * 100))
+
+    // Score: if an explicit score is passed use it, otherwise compute from MCQ correctness.
+    // Open/personality/values questions are unscored here — AI scoring runs separately.
+    if (typeof body.score === 'number') {
+      mod.score = Math.min(100, Math.max(0, body.score))
+    } else {
+      const mcqQuestions = mod.questions.filter((q) => q.type === 'mcq')
+      if (mcqQuestions.length > 0) {
+        const correct = mcqQuestions.filter((q) => {
+          const ans = body.answers?.find((a) => a.questionId === String(q._id))
+          return ans !== undefined && ans.selected === q.correctIndex
+        }).length
+        mod.score = Math.round((correct / mcqQuestions.length) * 100)
+      } else {
+        // All open/text questions — give provisional full credit; AI scoring overrides later
+        mod.score = 100
+      }
+    }
     mod.completedAt = new Date().toISOString()
 
     const allModulesSubmitted = assessment.modules.every((m) => m.completedAt)
@@ -88,6 +102,9 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
     }
 
     await assessment.save()
+
+    const modulesCompleted = assessment.modules.filter((m) => m.completedAt).length
+    const totalModules = assessment.modules.length
 
     if (allModulesSubmitted) {
       const application = await ApplicationModel.findById(assessment.application, { scores: 1 }).lean()
@@ -106,6 +123,9 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
         assessmentExpiresAt: assessment.expiresAt,
         'scores.assessment': assessment.score,
         'scores.final': finalScore,
+        'assessmentCheckpoint.modulesCompleted': modulesCompleted,
+        'assessmentCheckpoint.totalModules': totalModules,
+        'assessmentCheckpoint.lastActiveAt': new Date().toISOString(),
       })
       await logAction({ actor: 'ai', action: 'assessment-completed', jobId: String(assessment.job), mode: 'assist', payload: { avgScore: assessment.score, passed: (assessment.score ?? 0) >= 60 } })
       await notifyCandidate(typeof assessment.candidate === 'string' ? assessment.candidate : undefined, {
@@ -113,6 +133,14 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
         title: 'Assessment submitted',
         body: `Your assessment has been submitted and recorded with a current score of ${assessment.score ?? 0}%.`,
         link: '/candidate/applications',
+      })
+    } else {
+      // Partial progress — update checkpoint so recruiters can see where the candidate is
+      await ApplicationModel.findByIdAndUpdate(assessment.application, {
+        assessmentStatus: 'in_progress',
+        'assessmentCheckpoint.modulesCompleted': modulesCompleted,
+        'assessmentCheckpoint.totalModules': totalModules,
+        'assessmentCheckpoint.lastActiveAt': new Date().toISOString(),
       })
     }
 

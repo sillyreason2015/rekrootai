@@ -148,6 +148,7 @@ export interface Application {
   interviewMissed?: boolean
   assessmentExpiresAt?: string
   assessmentStatus?: 'pending' | 'in_progress' | 'completed' | 'expired'
+  assessmentCheckpoint?: { modulesCompleted: number; totalModules: number; lastActiveAt?: string }
   fairnessComputedAt?: string
   explanationComputedAt?: string
   aiRecommendation?: 'shortlist' | 'review' | 'run_fairness' | 'reject' | 'decide'

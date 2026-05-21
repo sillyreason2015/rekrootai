@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Clock, CheckCircle2, AlertTriangle, Loader2, ChevronRight, ShieldAlert, X } from 'lucide-react'
 import { assessmentService } from '../../services/assessment.service'
+import { useAuth } from '../../contexts/AuthContext'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card'
 import { Progress } from '../../components/ui/progress'
@@ -14,15 +15,34 @@ import { cn } from '../../lib/utils'
 import type { Question } from '../../types'
 
 const MAX_VIOLATIONS = 3
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
 
-function getAssessmentStorageKey(assessmentId: string, moduleIndex: number) {
-  return `assessment-session:${assessmentId}:${moduleIndex}`
+function getAssessmentStorageKey(assessmentId: string, moduleIndex: number, userId: string) {
+  return `assessment-session:${userId}:${assessmentId}:${moduleIndex}`
+}
+
+function readStorageEntry(key: string): { answers?: Record<string, number | string>; deadline?: number; timeLeft?: number } | null {
+  const raw = localStorage.getItem(key)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as { answers?: Record<string, number | string>; deadline?: number; timeLeft?: number; savedAt?: number }
+    // Expire entries older than 7 days
+    if (parsed.savedAt && Date.now() - parsed.savedAt > SEVEN_DAYS_MS) {
+      localStorage.removeItem(key)
+      return null
+    }
+    return parsed
+  } catch {
+    return null
+  }
 }
 
 export default function Assessment() {
   const { applicationId } = useParams<{ applicationId: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
+  const userId = user?._id ?? 'anon'
   const [activeModule, setActiveModule] = useState<number | null>(null)
   const activeModuleRef = useRef<number | null>(null)
   const [answers, setAnswers] = useState<Record<string, number | string>>({})
@@ -39,7 +59,7 @@ export default function Assessment() {
   useEffect(() => { autoSubmittingRef.current = autoSubmitting }, [autoSubmitting])
 
   const finishAssessmentSession = (assessmentId: string, moduleCount: number) => {
-    Array.from({ length: moduleCount }).forEach((_, index) => localStorage.removeItem(getAssessmentStorageKey(assessmentId, index)))
+    Array.from({ length: moduleCount }).forEach((_, index) => localStorage.removeItem(getAssessmentStorageKey(assessmentId, index, userId)))
     setAnswers({})
     autoSubmittingRef.current = false
     setAutoSubmitting(false)
@@ -77,7 +97,7 @@ export default function Assessment() {
     onSuccess: (updatedAssessment, variables) => {
       if (!assessment) return
       setSubmitError('')
-      localStorage.removeItem(getAssessmentStorageKey(assessment._id, variables.moduleIndex))
+      localStorage.removeItem(getAssessmentStorageKey(assessment._id, variables.moduleIndex, userId))
       queryClient.setQueryData(['assessment', applicationId], updatedAssessment)
 
       if (updatedAssessment.status === 'completed') {
@@ -95,7 +115,7 @@ export default function Assessment() {
     onError: (err: unknown, variables) => {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
       // Clear stale localStorage so an expired deadline can't re-trigger on next open
-      if (assessment) localStorage.removeItem(getAssessmentStorageKey(assessment._id, variables.moduleIndex))
+      if (assessment) localStorage.removeItem(getAssessmentStorageKey(assessment._id, variables.moduleIndex, userId))
       autoSubmittingRef.current = false
       setAutoSubmitting(false)
       // If auto-submitted (no user confirmation dialog), go back to lobby so they can retry
@@ -137,22 +157,15 @@ export default function Assessment() {
     const timeLimit = (assessment.job as { assessmentModules?: Array<{ timeLimit: number }> })?.assessmentModules?.[activeModule]?.timeLimit ?? 20
     const totalSeconds = 60 * timeLimit // always use the full time limit; never zero
 
-    const saved = localStorage.getItem(getAssessmentStorageKey(assessment._id, activeModule))
+    const parsed = readStorageEntry(getAssessmentStorageKey(assessment._id, activeModule, userId))
     let deadline: number
-    let savedAnswers: Record<string, number | string> = {}
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as { answers?: Record<string, number | string>; deadline?: number; timeLeft?: number }
-        savedAnswers = parsed.answers ?? {}
-        if (typeof parsed.deadline === 'number' && parsed.deadline > Date.now() + 2000) {
-          // Only restore if more than 2 seconds remain — avoids an immediate-fire on stale data
-          deadline = parsed.deadline
-        } else if (typeof parsed.timeLeft === 'number' && parsed.timeLeft > 2) {
-          deadline = Date.now() + parsed.timeLeft * 1000
-        } else {
-          deadline = Date.now() + totalSeconds * 1000
-        }
-      } catch {
+    const savedAnswers: Record<string, number | string> = parsed?.answers ?? {}
+    if (parsed) {
+      if (typeof parsed.deadline === 'number' && parsed.deadline > Date.now() + 2000) {
+        deadline = parsed.deadline
+      } else if (typeof parsed.timeLeft === 'number' && parsed.timeLeft > 2) {
+        deadline = Date.now() + parsed.timeLeft * 1000
+      } else {
         deadline = Date.now() + totalSeconds * 1000
       }
     } else {
@@ -176,19 +189,15 @@ export default function Assessment() {
 
   useEffect(() => {
     if (!assessment || activeModule === null || !started) return
-    const saved = localStorage.getItem(getAssessmentStorageKey(assessment._id, activeModule))
-    let deadline: number | undefined
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as { deadline?: number }
-        deadline = parsed.deadline
-      } catch { /* ignore */ }
-    }
-    localStorage.setItem(
-      getAssessmentStorageKey(assessment._id, activeModule),
-      JSON.stringify({ answers, timeLeft, deadline }),
-    )
-  }, [assessment, activeModule, answers, timeLeft, started])
+    const key = getAssessmentStorageKey(assessment._id, activeModule, userId)
+    const existing = readStorageEntry(key)
+    localStorage.setItem(key, JSON.stringify({
+      answers,
+      timeLeft,
+      deadline: existing?.deadline,
+      savedAt: Date.now(),
+    }))
+  }, [assessment, activeModule, answers, timeLeft, started, userId])
 
   if (isLoading) return <LoadingSpinner />
   if (!assessment) return <p className="text-muted-foreground">Assessment not found.</p>
