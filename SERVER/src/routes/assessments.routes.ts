@@ -99,7 +99,7 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
         interview: currentScores.interview,
       }, 'assessment')
       await ApplicationModel.findByIdAndUpdate(assessment.application, {
-        stage: 'screening',
+        stage: 'assessment',
         status: 'assessment_completed',
         assessmentStatus: 'completed',
         currentAssessmentId: null,
@@ -143,7 +143,7 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
       interview: currentScores.interview,
     }, 'assessment')
     await ApplicationModel.findByIdAndUpdate(assessment.application, {
-      stage: 'screening',
+      stage: 'assessment',
       status: 'assessment_completed',
       assessmentStatus: 'completed',
       currentAssessmentId: null,

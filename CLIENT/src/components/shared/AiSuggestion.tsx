@@ -20,6 +20,7 @@ interface AiSuggestionProps {
   scores?: ScoreSet
   fairnessComputedAt?: string
   decision?: string
+  assessmentStatus?: string
   className?: string
 }
 
@@ -31,7 +32,7 @@ interface Suggestion {
 }
 
 function buildSuggestion(props: AiSuggestionProps): Suggestion {
-  const { stage, scores, fairnessComputedAt, decision } = props
+  const { stage, scores, fairnessComputedAt, decision, assessmentStatus } = props
   const final = scores?.final ?? 0
   const resume = scores?.resume ?? 0
   const assessment = scores?.assessment ?? 0
@@ -66,9 +67,27 @@ function buildSuggestion(props: AiSuggestionProps): Suggestion {
     }
   }
 
-  if (stage === 'screening') return {
-    icon: Sparkles, label: 'Awaiting assessment', color: 'text-blue-600',
-    text: 'Send the assessment to evaluate technical and situational competencies before making a shortlist decision.',
+  if (stage === 'screening') {
+    if (assessmentStatus === 'completed') return {
+      icon: CheckCircle2, label: 'Assessment completed', color: 'text-emerald-600',
+      text: `Assessment finished. Advance to interview to continue the evaluation.`,
+    }
+    if (assessmentStatus === 'in_progress') return {
+      icon: Clock, label: 'Assessment in progress', color: 'text-blue-600',
+      text: 'The candidate is currently working through their assessment modules.',
+    }
+    if (assessmentStatus === 'expired') return {
+      icon: AlertTriangle, label: 'Assessment expired', color: 'text-red-500',
+      text: 'The assessment window closed before the candidate completed it. Consider resending or rejecting.',
+    }
+    if (assessmentStatus === 'pending') return {
+      icon: Clock, label: 'Assessment sent', color: 'text-blue-600',
+      text: 'Assessment has been sent. Waiting for the candidate to begin.',
+    }
+    return {
+      icon: Sparkles, label: 'Awaiting assessment', color: 'text-blue-600',
+      text: 'Send the assessment to evaluate technical and situational competencies before making a shortlist decision.',
+    }
   }
 
   if (stage === 'assessment') {
@@ -112,8 +131,8 @@ function buildSuggestion(props: AiSuggestionProps): Suggestion {
   }
 }
 
-export default function AiSuggestion({ stage, scores, fairnessComputedAt, decision, className }: AiSuggestionProps) {
-  const s = buildSuggestion({ stage, scores, fairnessComputedAt, decision })
+export default function AiSuggestion({ stage, scores, fairnessComputedAt, decision, assessmentStatus, className }: AiSuggestionProps) {
+  const s = buildSuggestion({ stage, scores, fairnessComputedAt, decision, assessmentStatus })
   const Icon = s.icon
 
   return (

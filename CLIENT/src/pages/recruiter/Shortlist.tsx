@@ -1236,6 +1236,7 @@ export default function Shortlist() {
                           scores={app.scores}
                           fairnessComputedAt={extApp.fairnessComputedAt}
                           decision={(app as any).decision}
+                          assessmentStatus={app.assessmentStatus}
                         />
                       </div>
                     )}
