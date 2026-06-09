@@ -173,6 +173,11 @@ export interface Application {
   fairnessComputedAt?: string
   assessmentExpiresAt?: string
   assessmentStatus?: 'pending' | 'in_progress' | 'completed' | 'expired'
+  assessmentCheckpoint?: {
+    modulesCompleted: number
+    totalModules: number
+    lastActiveAt?: string
+  }
   interviewMissed?: boolean
   missedInterviewRecovery?: {
     status?: 'pending' | 'approved' | 'rejected'
