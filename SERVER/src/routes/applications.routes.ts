@@ -64,9 +64,11 @@ async function getRecruitersForApplication(application: { job: string }) {
     const assigned = await UserModel.findById(String(job.assignedRecruiter), { _id: 1, firstName: 1, lastName: 1, email: 1 }).lean()
     if (assigned) return [assigned]
   }
-  const company = await CompanyModel.findById(String(job.company), { name: 1, legalName: 1 }).lean()
+  const [company, scope] = await Promise.all([
+    CompanyModel.findById(String(job.company), { name: 1, legalName: 1 }).lean(),
+    resolveWorkspaceScope(String(job.createdBy)),
+  ])
   const companyNames = [company?.name, company?.legalName].filter(Boolean)
-  const scope = await resolveWorkspaceScope(String(job.createdBy))
   const teamScopedFilter = buildTeamScopedUserFilter({
     companyNames: companyNames.length ? (companyNames as string[]) : scope.companyNames,
     teamName: scope.teamName,
@@ -659,13 +661,22 @@ applicationsRouter.post('/ai-decide', requireAuth, requireRole('recruiter', 'adm
     const { jobId, shortlistThreshold = 65, rejectThreshold = 40 } = req.body as { jobId?: string; shortlistThreshold?: number; rejectThreshold?: number }
     if (!jobId) throw new HttpError(400, 'jobId required')
     const apps = await ApplicationModel.find({ job: jobId, stage: 'applied' }).lean()
-    const results = await Promise.all(apps.map(async (app) => {
+    const results = apps.map((app) => {
       const score = app.scores?.final ?? app.scores?.resume ?? 0
       const decision = score >= shortlistThreshold ? 'shortlist' : score >= rejectThreshold ? 'review' : 'reject'
       const stage = decision === 'shortlist' ? 'screening' : decision === 'reject' ? 'rejected' : 'applied'
-      await ApplicationModel.findByIdAndUpdate(app._id, { stage, aiDecision: decision })
-      return { applicationId: String(app._id), decision, score }
-    }))
+      return { applicationId: String(app._id), decision, score, stage }
+    })
+    if (results.length) {
+      await ApplicationModel.bulkWrite(
+        results.map((r) => ({
+          updateOne: {
+            filter: { _id: r.applicationId },
+            update: { $set: { stage: r.stage as 'applied' | 'screening' | 'rejected', aiDecision: r.decision as 'shortlist' | 'review' | 'reject' } },
+          },
+        })),
+      )
+    }
     res.json({ processed: results.length, results })
   } catch (err) { next(err) }
 })

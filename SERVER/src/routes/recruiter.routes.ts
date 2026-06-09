@@ -23,23 +23,15 @@ async function resolveScopedJobIdsForTeam(userId: string, requestedTeamName?: st
   return jobs.map((job) => String(job._id))
 }
 
-// Helper: build a plain-English sentence from an audit entry
-async function buildNarrative(entry: {
-  actor?: string; action: string; candidateId?: string; jobId?: string;
-  mode?: string; payload?: Record<string, unknown>
-}): Promise<string> {
+// Helper: build a plain-English sentence from an audit entry using pre-fetched lookup maps
+function buildNarrativeSync(
+  entry: { actor?: string; action: string; candidateId?: string; jobId?: string; mode?: string; payload?: Record<string, unknown> },
+  userMap: Map<string, string>,
+  jobMap: Map<string, string>,
+): string {
   const who = entry.actor === 'ai' ? 'The AI system' : 'A recruiter'
-  let candidateName = 'a candidate'
-  let jobTitle = 'a job'
-
-  if (entry.candidateId) {
-    const u = await UserModel.findById(entry.candidateId, { firstName: 1, lastName: 1 }).lean()
-    if (u) candidateName = `${u.firstName} ${u.lastName}`
-  }
-  if (entry.jobId) {
-    const j = await JobModel.findById(entry.jobId, { title: 1 }).lean()
-    if (j) jobTitle = `"${j.title}"`
-  }
+  const candidateName = (entry.candidateId && userMap.get(entry.candidateId)) ?? 'a candidate'
+  const jobTitle = (entry.jobId && jobMap.get(entry.jobId)) ?? 'a job'
 
   const p = entry.payload ?? {}
   const score = typeof p.avgScore === 'number' ? `${p.avgScore}%` : null
@@ -102,11 +94,22 @@ recruiterRouter.get('/audit-log', async (req, res, next) => {
     const filter: Record<string, unknown> = { jobId: { $in: jobIds } }
     if (action) filter.action = { $regex: action, $options: 'i' }
     const entries = await AuditLogModel.find(filter).sort({ timestamp: -1 }).lean()
-    const enriched = await Promise.all(entries.map(async (e) => ({
+
+    // Batch-fetch all referenced users and jobs in two queries instead of 2 per entry
+    const uniqueCandidateIds = [...new Set(entries.map((e) => e.candidateId).filter(Boolean))] as string[]
+    const uniqueJobIds = [...new Set(entries.map((e) => e.jobId).filter(Boolean))] as string[]
+    const [users, jobs] = await Promise.all([
+      UserModel.find({ _id: { $in: uniqueCandidateIds } }, { firstName: 1, lastName: 1 }).lean(),
+      JobModel.find({ _id: { $in: uniqueJobIds } }, { title: 1 }).lean(),
+    ])
+    const userMap = new Map(users.map((u) => [String(u._id), `${u.firstName} ${u.lastName}`]))
+    const jobMap = new Map(jobs.map((j) => [String(j._id), `"${j.title}"`]))
+
+    const enriched = entries.map((e) => ({
       ...e,
       _id: String(e._id),
-      narrative: await buildNarrative(e as Parameters<typeof buildNarrative>[0]),
-    })))
+      narrative: buildNarrativeSync(e as Parameters<typeof buildNarrativeSync>[0], userMap, jobMap),
+    }))
     res.json(paginate(enriched, page, limit))
   } catch (err) { next(err) }
 })
