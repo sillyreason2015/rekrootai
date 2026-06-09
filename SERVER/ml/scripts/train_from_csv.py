@@ -28,12 +28,17 @@ def main():
         X, y, s, test_size=0.2, random_state=42, stratify=y
     )
 
+    neg = int((y_train == 0).sum())
+    pos = int((y_train == 1).sum())
+    spw = neg / pos if pos > 0 else 1.0
+
     model = XGBClassifier(
         n_estimators=180,
         max_depth=4,
         learning_rate=0.07,
         subsample=0.9,
         colsample_bytree=0.9,
+        scale_pos_weight=spw,
         objective="binary:logistic",
         eval_metric="logloss",
         random_state=42,
