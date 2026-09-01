@@ -53,7 +53,12 @@ async function issueAuthResponse(res: Response, user: { _id: string; role: Role;
   const payload = { sub: String(user._id), role: user.role as Role, email: user.email }
   const accessToken = signAccessToken(payload)
   const refreshToken = signRefreshToken(payload)
-  await storeRefreshToken(refreshToken, String(user._id))
+  try {
+    await storeRefreshToken(refreshToken, String(user._id))
+  } catch (sessionError) {
+    console.error('[auth] refresh-token storage failed:', sessionError instanceof Error ? sessionError.message : sessionError)
+    throw new HttpError(503, 'Authentication service is temporarily unavailable. Please try again.')
+  }
   res.cookie('refreshToken', refreshToken, cookieOpts)
   return accessToken
 }
