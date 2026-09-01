@@ -107,13 +107,18 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
     if (!['assessment', 'interview'].includes(application.stage)) {
       throw new HttpError(409, 'Interviews can only be scheduled after assessment review')
     }
+    const startTime = scheduledAt ? new Date(scheduledAt) : new Date()
+    const duration = Number(durationMin ?? 45)
+    if (!Number.isFinite(startTime.getTime())) throw new HttpError(400, 'scheduledAt must be a valid date')
+    if (startTime.getTime() < Date.now() - 60_000) throw new HttpError(400, 'scheduledAt cannot be in the past')
+    if (!Number.isInteger(duration) || duration < 15 || duration > 180) throw new HttpError(400, 'durationMin must be an integer between 15 and 180')
     const interview = await InterviewModel.create({
       application: application._id,
       job: application.job,
       candidate: application.candidate,
       recruiter: req.user!._id,
-      scheduledAt: scheduledAt ?? new Date().toISOString(),
-      durationMin: durationMin ?? 45,
+      scheduledAt: startTime.toISOString(),
+      durationMin: duration,
       collaborationMode: mode ?? 'assist',
       status: 'scheduled',
       transcript: [],
@@ -124,8 +129,8 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
     await notifyCandidate(String(application.candidate), { type: 'info', title: 'Interview Scheduled', body: `Your interview has been scheduled for ${scheduledAt ?? 'soon'}.`, link: '/candidate/applications' })
     const job = await InterviewModel.populate(interview, { path: 'job', select: 'title' })
     const jobTitle = (job.job as { title?: string } | undefined)?.title ?? 'Interview'
-    const startDt = scheduledAt ? new Date(scheduledAt) : new Date()
-    const endDt = new Date(startDt.getTime() + (durationMin ?? 45) * 60_000)
+    const startDt = startTime
+    const endDt = new Date(startDt.getTime() + duration * 60_000)
     const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
     const icsUid = `interview-${String(interview._id)}@rekrootai`
     const icsContent = [
@@ -143,7 +148,7 @@ interviewsRouter.post('/', requireAuth, requireRole('recruiter', 'admin', 'super
     await emailInterviewCandidate(String(application.candidate), {
       subject: `Interview scheduled – ${jobTitle}`,
       text: `Your interview for ${jobTitle} has been scheduled for ${startDt.toLocaleString()}.\n\nA calendar invite is attached. You can also log in to your RekrootAI portal to join at the scheduled time.`,
-      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1e293b"><h2 style="margin:0 0 16px;font-size:20px">Interview Scheduled</h2><p>Your interview for <strong>${jobTitle}</strong> has been confirmed.</p><table style="margin:20px 0;border-collapse:collapse"><tr><td style="padding:6px 16px 6px 0;color:#64748b;font-size:13px">Date &amp; Time</td><td style="font-weight:600">${startDt.toLocaleString()}</td></tr><tr><td style="padding:6px 16px 6px 0;color:#64748b;font-size:13px">Duration</td><td style="font-weight:600">${durationMin ?? 45} minutes</td></tr></table><p style="color:#64748b;font-size:13px">A calendar invite is attached to this email. Log in to your RekrootAI portal to join at the scheduled time.</p></div>`,
+      html: `<div style="font-family:sans-serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#1e293b"><h2 style="margin:0 0 16px;font-size:20px">Interview Scheduled</h2><p>Your interview for <strong>${jobTitle}</strong> has been confirmed.</p><table style="margin:20px 0;border-collapse:collapse"><tr><td style="padding:6px 16px 6px 0;color:#64748b;font-size:13px">Date &amp; Time</td><td style="font-weight:600">${startDt.toLocaleString()}</td></tr><tr><td style="padding:6px 16px 6px 0;color:#64748b;font-size:13px">Duration</td><td style="font-weight:600">${duration} minutes</td></tr></table><p style="color:#64748b;font-size:13px">A calendar invite is attached to this email. Log in to your RekrootAI portal to join at the scheduled time.</p></div>`,
       attachments: [{ content: icsBase64, filename: 'interview.ics', disposition: 'attachment' }],
     })
     res.status(201).json({ ...interview.toObject(), _id: String(interview._id) })
@@ -156,7 +161,7 @@ interviewsRouter.get('/:id/token', requireAuth, async (req, res, next) => {
     const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
     if (!interview) throw new HttpError(404, 'Interview not found')
     const fresh = await reconcileInterviewState(String(interview._id))
-    if (fresh?.status === 'cancelled') throw new HttpError(409, 'Interview session has expired')
+    if (!fresh || !['scheduled', 'live'].includes(fresh.status)) throw new HttpError(409, 'Interview session is not available')
     const roomName = `room-${String(interview._id)}`
     const wsUrl = env.LIVEKIT_HOST
     let token = roomName
@@ -427,9 +432,14 @@ interviewsRouter.post('/:id/reschedule', requireAuth, requireRole('recruiter', '
       throw new HttpError(403, 'Forbidden')
     }
     const { scheduledAt, durationMin } = req.body as { scheduledAt?: string; durationMin?: number }
+    const nextStart = scheduledAt ? new Date(scheduledAt) : null
+    const nextDuration = Number(durationMin ?? 45)
+    if (!nextStart || !Number.isFinite(nextStart.getTime())) throw new HttpError(400, 'scheduledAt must be a valid date')
+    if (nextStart.getTime() < Date.now() - 60_000) throw new HttpError(400, 'scheduledAt cannot be in the past')
+    if (!Number.isInteger(nextDuration) || nextDuration < 15 || nextDuration > 180) throw new HttpError(400, 'durationMin must be an integer between 15 and 180')
     const interview = await InterviewModel.findByIdAndUpdate(
       req.params.id,
-      { scheduledAt, durationMin, status: 'scheduled' },
+      { scheduledAt: nextStart.toISOString(), durationMin: nextDuration, status: 'scheduled' },
       { new: true }
     ).lean()
     if (!interview) throw new HttpError(404, 'Interview not found')

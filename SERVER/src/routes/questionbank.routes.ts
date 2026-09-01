@@ -146,6 +146,33 @@ const userCooldown = new Map<string, number>()
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000  // 24 hours
 const COOLDOWN_MS = 30_000                  // 30 seconds per user
 
+function validateGeneratedQuestions(
+  questions: Array<{ text: string; type: 'mcq' | 'open'; options?: string[]; correctIndex?: number; points: number; category: string; difficulty: string; tags: string[] }>,
+  expectedCount: number,
+) {
+  if (questions.length < expectedCount) throw new Error(`Question generator returned ${questions.length} questions; expected ${expectedCount}.`)
+  return questions.slice(0, expectedCount).map((question, index) => {
+    const text = question.text.trim()
+    if (text.length < 10 || text.length > 2_000) throw new Error(`Generated question ${index + 1} has invalid text.`)
+    const points = Number(question.points)
+    if (!Number.isFinite(points) || points < 1 || points > 4) throw new Error(`Generated question ${index + 1} has invalid points.`)
+    const tags = question.tags.filter((tag) => typeof tag === 'string' && tag.trim()).map((tag) => tag.trim().toLowerCase()).slice(0, 8)
+    if (question.type === 'mcq') {
+      const options = (question.options ?? []).map((option) => String(option).trim())
+      const correctIndex = Number(question.correctIndex)
+      if (options.length !== 4 || options.some((option) => option.length < 1 || option.length > 500)) {
+        throw new Error(`Generated multiple-choice question ${index + 1} must have exactly four valid options.`)
+      }
+      if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex > 3) {
+        throw new Error(`Generated multiple-choice question ${index + 1} has an invalid correct answer.`)
+      }
+      return { ...question, text, options, correctIndex, points, tags }
+    }
+    if (question.type !== 'open') throw new Error(`Generated question ${index + 1} has an unsupported type.`)
+    return { ...question, text, options: undefined, correctIndex: undefined, points, tags }
+  })
+}
+
 // POST /question-bank/generate — AI generation (Gemini if jobId provided, else templates)
 questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
@@ -194,18 +221,18 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
       }
 
       // Check cache for this job+module+difficulty combo
-      const cacheKey = `${jobId}:${moduleType}:${diff}`
+      const cacheKey = `${jobId}:${moduleType}:${diff}:${n}`
       const cached = geminiCache.get(cacheKey)
       if (cached && cached.expiresAt > Date.now()) {
-        generated = cached.questions.slice(0, n)
+        generated = validateGeneratedQuestions(cached.questions, n)
         source = 'gemini-cached'
       } else {
         userCooldown.set(userId, Date.now())
         try {
-          generated = await generateWithGemini(
+          generated = validateGeneratedQuestions(await generateWithGemini(
             { title: job.title, description: job.description, skills: job.skills, requirements: job.requirements },
             moduleType, diff, n,
-          )
+          ), n)
           geminiCache.set(cacheKey, { questions: generated, expiresAt: Date.now() + CACHE_TTL_MS })
           source = 'gemini'
         } catch (geminiErr) {

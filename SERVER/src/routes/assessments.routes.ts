@@ -75,6 +75,7 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
   try {
     const assessment = await AssessmentModel.findById(req.params.assessmentId)
     if (!assessment) throw new HttpError(404, 'Assessment not found')
+    await assertAssessmentAccess(assessment, req.user!)
     if (assessment.status === 'completed') {
       throw new HttpError(409, 'Assessment has already been completed')
     }
@@ -105,6 +106,20 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
       return true
     })
     if (answers.length !== body.answers.length) throw new HttpError(400, 'Answers contain an unknown or duplicate question')
+    for (const answer of answers) {
+      const question = mod.questions.find((candidate) => String(candidate._id) === answer.questionId)
+      if (!question) throw new HttpError(400, 'Answer does not match an assessment question')
+      if (question.type === 'mcq') {
+        if (answer.selected !== undefined && (!Number.isInteger(answer.selected) || answer.selected < 0 || answer.selected >= (question.options?.length ?? 0))) {
+          throw new HttpError(400, 'Invalid multiple-choice answer')
+        }
+        if (answer.text !== undefined) throw new HttpError(400, 'Text answers are not valid for multiple-choice questions')
+      } else if (answer.selected !== undefined) {
+        throw new HttpError(400, 'Multiple-choice selections are not valid for this question')
+      } else if (answer.text !== undefined && typeof answer.text !== 'string') {
+        throw new HttpError(400, 'Text answer must be a string')
+      }
+    }
     mod.answers = answers as never
 
     // Score: if an explicit score is passed use it, otherwise compute from MCQ correctness.
