@@ -26,8 +26,7 @@ Vercel:
 
 Render API:
 
-- `CLIENT_URL=https://rekrootai.vercel.app`
-- `CORS_ORIGINS=https://rekrootai.vercel.app`
+- `CORS_ORIGIN=https://rekrootai.vercel.app`
 - `ML_SERVICE_URL=<private ML service URL>`
 - `ML_SERVICE_TOKEN=<random secret of at least 32 characters>`
 - `NODE_ENV=production`
@@ -45,11 +44,35 @@ After deployment, verify:
 1. `https://rekrootai.vercel.app/` loads and refreshes on a nested route.
 2. `https://rekrootai.vercel.app/api/health` reaches the API.
 3. `https://rekrootai.vercel.app/api/ready` returns HTTP 200 and reports MongoDB and Redis as `ok`.
-3. Candidate CV processing does not send raw CV text to enrichment or ML.
-4. A new application receives either a production model score or a visible 503 (never a silent production heuristic fallback).
-5. Fairness review reports cohort size, per-attribute status, and insufficient-data states.
-6. SHAP output includes the model version when the ML service is enabled.
-7. Final hire/reject requires a human rationale and is recorded in the audit log.
-8. Synthetic artifacts are rejected by the production API.
+4. Candidate CV processing does not send raw CV text to enrichment or ML.
+5. A new application receives either a production model score or a visible 503 (never a silent production heuristic fallback).
+6. Fairness review reports cohort size, per-attribute status, and insufficient-data states.
+7. SHAP output includes the model version when the ML service is enabled.
+8. Final hire/reject requires a human rationale and is recorded in the audit log.
+9. Synthetic artifacts are rejected by the production API.
+
+## Load and performance gate
+
+Run the bounded, non-mutating production check from `SERVER`:
+
+```powershell
+npm run test:load
+```
+
+The default run sends 30 requests per scenario at concurrency 5 to health,
+readiness, public jobs, and invalid-login validation endpoints. Before a major
+release, repeat with a controlled ramp:
+
+```powershell
+$env:LOAD_TEST_TOTAL = '100'
+$env:LOAD_TEST_CONCURRENCY = '20'
+npm run test:load
+```
+
+Record status distribution and p50/p95/p99 latency. The test must have zero
+unexpected responses or transport errors. The current observed baseline at
+concurrency 20 is approximately 2.5 seconds p95 and 4.2 seconds p99 for
+public jobs; investigate regressions above that baseline. This is a bounded
+read-path test, not a maximum-capacity or destructive saturation test.
 
 Do not publish thesis claims about production accuracy, bias elimination, or universal SHAP coverage until these checks and a held-out evaluation on representative data are complete.
