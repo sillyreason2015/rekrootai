@@ -308,7 +308,14 @@ authRouter.post('/login', async (req, res, next) => {
     const user = await UserModel.findOne({ email: email.toLowerCase() })
     if (!user) throw new HttpError(401, 'Invalid email or password')
 
-    const valid = await argon2.verify(user.password, password)
+    // Treat malformed or legacy password hashes as an invalid credential. A
+    // bad stored hash must never turn a normal login attempt into a 500.
+    let valid = false
+    try {
+      valid = await argon2.verify(user.password, password)
+    } catch (verifyError) {
+      console.error('[auth] password verification failed:', verifyError instanceof Error ? verifyError.message : verifyError)
+    }
     if (!valid) throw new HttpError(401, 'Invalid email or password')
 
     const payload = { sub: String(user._id), role: user.role as Role, email: user.email }
