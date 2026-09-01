@@ -82,6 +82,9 @@ app.use((_req, _res, next) => {
 })
 
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  if (!(error instanceof HttpError)) {
+    console.error('[http] unhandled request error:', error)
+  }
   const httpError = error instanceof HttpError ? error : new HttpError(500, error instanceof Error ? error.message : 'Internal server error')
   res.status(httpError.status).json({
     message: httpError.message,
