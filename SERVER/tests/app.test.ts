@@ -73,6 +73,13 @@ test('POST /anonymize/preview requires auth', async () => {
   assert.equal(res.status, 401)
 })
 
+test('assessment and interview integrity endpoints require auth', async () => {
+  const assessment = await request(app).post('/assessments/not-a-real-id/proctoring-event').send({ type: 'tab_switch', reason: 'test' })
+  const interview = await request(app).post('/interviews/not-a-real-id/proctoring-event').send({ type: 'tab_switch', reason: 'test' })
+  assert.equal(assessment.status, 401)
+  assert.equal(interview.status, 401)
+})
+
 test('final decision endpoint remains protected before payload validation', async () => {
   const res = await request(app).post('/applications/not-a-real-id/decision').send({ decision: 'hire' })
   assert.equal(res.status, 401)
