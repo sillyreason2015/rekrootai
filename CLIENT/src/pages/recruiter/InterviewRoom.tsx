@@ -121,7 +121,12 @@ export default function RecruiterInterviewRoom() {
     })
   }, [interview?.transcript])
 
-  const saveMutation = useMutation({ mutationFn: () => interviewService.submitRubric(id!, rubric) })
+  const [actionMessage, setActionMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+  const saveMutation = useMutation({
+    mutationFn: () => interviewService.submitRubric(id!, rubric),
+    onSuccess: () => setActionMessage({ tone: 'success', text: 'Rubric saved.' }),
+    onError: (err: unknown) => setActionMessage({ tone: 'error', text: getApiError(err, 'Rubric could not be saved.') }),
+  })
   const completeMutation = useMutation({
     mutationFn: () => {
       const total = rubric.reduce((sum, r) => sum + r.score, 0)
@@ -130,6 +135,7 @@ export default function RecruiterInterviewRoom() {
       return interviewService.complete(id!, score, collaborationMode)
     },
     onSuccess: () => navigate('/recruiter/final-selection'),
+    onError: (err: unknown) => setActionMessage({ tone: 'error', text: getApiError(err, 'Interview could not be completed.') }),
   })
 
   useEffect(() => {
@@ -325,7 +331,10 @@ export default function RecruiterInterviewRoom() {
 
   const toggleMic = () => {
     const track = localAudioTrackRef.current
-    if (!track) return
+    if (!track) {
+      setErrorMsg('Microphone is not available. Use Reconnect or check browser microphone permission.')
+      return
+    }
     if (micOn) { track.mute(); recognitionRef.current?.stop() }
     else { track.unmute(); startSpeechRecognition() }
     setMicOn((v) => !v)
@@ -349,6 +358,11 @@ export default function RecruiterInterviewRoom() {
     }
     track.unmute()
     setCamOn(true)
+  }
+
+  function getApiError(err: unknown, fallback: string) {
+    const response = (err as { response?: { data?: { message?: string } } })?.response
+    return response?.data?.message ?? fallback
   }
 
   const hangUp = () => {
@@ -473,8 +487,8 @@ export default function RecruiterInterviewRoom() {
             >
               <FileText className="h-5 w-5" />
             </button>
-            <Button variant="outline" size="sm" className="text-white border-white/20 hover:bg-white/10" onClick={() => saveMutation.mutate()}>
-              <Save className="h-4 w-4 mr-1" /> Save Rubric
+            <Button variant="outline" size="sm" className="text-white border-white/20 hover:bg-white/10" onClick={() => { setActionMessage(null); saveMutation.mutate() }} disabled={saveMutation.isPending || interview.status === 'completed' || interview.status === 'cancelled'}>
+              <Save className="h-4 w-4 mr-1" /> {saveMutation.isPending ? 'Saving…' : 'Save Rubric'}
             </Button>
             <button
               onClick={hangUp}
@@ -487,6 +501,11 @@ export default function RecruiterInterviewRoom() {
 
         {/* Right: rubric + transcript */}
         <div className="flex w-full shrink-0 flex-col gap-3 overflow-hidden xl:w-80">
+          {actionMessage && (
+            <div className={cn('rounded-md border px-3 py-2 text-xs', actionMessage.tone === 'success' ? 'border-emerald-300 bg-emerald-50 text-emerald-800' : 'border-red-300 bg-red-50 text-red-800')}>
+              {actionMessage.text}
+            </div>
+          )}
           {!!interview.proctoringEvents?.length && (
             <Card className="overflow-hidden">
               <CardHeader className="py-3">
@@ -539,8 +558,8 @@ export default function RecruiterInterviewRoom() {
                   />
                 </div>
               ))}
-              <Button size="sm" variant="outline" className="w-full mt-2" onClick={() => completeMutation.mutate()}>
-                End Interview &amp; Score
+              <Button size="sm" variant="outline" className="w-full mt-2" onClick={() => { setActionMessage(null); completeMutation.mutate() }} disabled={completeMutation.isPending || saveMutation.isPending || interview.status === 'completed' || interview.status === 'cancelled'}>
+                {completeMutation.isPending ? 'Saving score…' : 'End Interview & Score'}
               </Button>
             </CardContent>
           </Card>

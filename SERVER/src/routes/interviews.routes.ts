@@ -298,8 +298,22 @@ interviewsRouter.post('/:id/rubric', requireAuth, requireRole('recruiter', 'admi
     if (!['admin', 'super_admin'].includes(req.user!.role) && String(current.recruiter) !== String(req.user!._id)) {
       throw new HttpError(403, 'Forbidden')
     }
+    if (!['scheduled', 'live'].includes(current.status)) throw new HttpError(409, 'Rubric can only be saved for an active interview')
+    const rubric = (req.body as { rubric?: unknown }).rubric
+    if (!Array.isArray(rubric) || rubric.length === 0 || rubric.length > 20) {
+      throw new HttpError(400, 'Rubric must contain between 1 and 20 criteria')
+    }
+    if (rubric.some((item) => {
+      if (!item || typeof item !== 'object') return true
+      const entry = item as { criterion?: unknown; score?: unknown; notes?: unknown }
+      return typeof entry.criterion !== 'string' || !entry.criterion.trim() ||
+        !Number.isFinite(Number(entry.score)) || Number(entry.score) < 0 || Number(entry.score) > 5 ||
+        (entry.notes !== undefined && typeof entry.notes !== 'string')
+    })) {
+      throw new HttpError(400, 'Every rubric criterion needs a name and a score from 0 to 5')
+    }
     const interview = await InterviewModel.findByIdAndUpdate(
-      req.params.id, { rubric: req.body.rubric ?? [] }, { new: true }
+      req.params.id, { rubric }, { new: true }
     ).lean()
     if (!interview) throw new HttpError(404, 'Interview not found')
     res.json({ ok: true })
