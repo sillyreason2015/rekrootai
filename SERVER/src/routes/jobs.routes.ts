@@ -42,7 +42,10 @@ jobsRouter.get('/', async (req, res, next) => {
       { location: { $regex: escapeRegExp(search), $options: 'i' } },
     ]
     const [jobs, total] = await Promise.all([
-      JobModel.find(filter).populate('assignedRecruiter', 'firstName lastName email role').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      JobModel.find(filter)
+        .select('title company department level location type remote description requirements responsibilities skills salaryMin salaryMax salaryCurrency status applicationDeadline bannerUrl requiresQuestionnaire applicationQuestions assessmentModules createdAt')
+        .populate('company', 'name logoUrl')
+        .sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       JobModel.countDocuments(filter),
     ])
     // Only published public data is cached; authenticated/private routes do
@@ -85,7 +88,10 @@ jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin', 'super_ad
 // GET /jobs/:id
 jobsRouter.get('/:id', async (req, res, next) => {
   try {
-    const job = await JobModel.findById(req.params.id).lean()
+    const job = await JobModel.findById(req.params.id)
+      .select('title company department level location type remote description requirements responsibilities skills salaryMin salaryMax salaryCurrency status applicationDeadline bannerUrl requiresQuestionnaire applicationQuestions assessmentModules createdAt')
+      .populate('company', 'name logoUrl')
+      .lean()
     if (!job) throw new HttpError(404, 'Job not found')
     res.json({ ...job, _id: String(job._id) })
   } catch (err) { next(err) }
