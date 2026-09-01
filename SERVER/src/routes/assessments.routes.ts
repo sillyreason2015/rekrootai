@@ -50,18 +50,18 @@ assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, nex
     if (existing.status !== 'pending' || existing.startedAt) {
       throw new HttpError(409, 'Assessment has already started')
     }
-    const assessment = await AssessmentModel.findByIdAndUpdate(
-      req.params.assessmentId,
+    const assessment = await AssessmentModel.findOneAndUpdate(
+      { _id: req.params.assessmentId, status: 'pending', startedAt: { $exists: false } },
       { status: 'in_progress', startedAt: new Date().toISOString() },
       { new: true },
     ).lean()
-    if (!assessment) throw new HttpError(404, 'Assessment not found')
+    if (!assessment) throw new HttpError(409, 'Assessment has already started')
     await assertAssessmentAccess(assessment, req.user!)
     await ApplicationModel.findByIdAndUpdate(assessment.application, {
       assessmentStatus: 'in_progress',
       assessmentExpiresAt: assessment.expiresAt,
     })
-    await notifyCandidate(typeof existing.candidate === 'string' ? existing.candidate : undefined, {
+    await notifyCandidate(existing.candidate ? String(existing.candidate) : undefined, {
       type: 'assessment_sent',
       title: 'Assessment started',
       body: 'Your assessment session is now in progress. You can continue from where you left off if the page reloads.',
@@ -97,6 +97,9 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
     const body = req.body as { answers?: Array<{ questionId: string; selected?: number; text?: string }>; score?: number }
     if (body.score !== undefined) throw new HttpError(400, 'Score is calculated by the server and cannot be submitted')
     if (!Array.isArray(body.answers)) throw new HttpError(400, 'answers must be an array')
+    if (body.answers.some((answer) => !answer || typeof answer !== 'object' || typeof answer.questionId !== 'string')) {
+      throw new HttpError(400, 'Each answer must include a questionId')
+    }
     const questionIds = new Set(mod.questions.map((question) => String(question._id)))
     const seen = new Set<string>()
     const answers = body.answers.filter((answer) => {
@@ -177,7 +180,7 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
         'assessmentCheckpoint.lastActiveAt': new Date().toISOString(),
       })
       await logAction({ actor: 'ai', action: 'assessment-completed', jobId: String(assessment.job), mode: 'assist', payload: { avgScore: assessment.score, passed: (assessment.score ?? 0) >= 60 } })
-      await notifyCandidate(typeof assessment.candidate === 'string' ? assessment.candidate : undefined, {
+      await notifyCandidate(assessment.candidate ? String(assessment.candidate) : undefined, {
         type: (assessment.score ?? 0) >= 60 ? 'assessment_completed' : 'assessment_failed',
         title: 'Assessment submitted',
         body: `Your assessment has been submitted and recorded with a current score of ${assessment.score ?? 0}%.`,
@@ -239,7 +242,7 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
       'scores.final': finalScore,
     })
     await logAction({ actor: 'ai', action: 'assessment-completed', jobId: String(assessment.job), mode: 'assist', payload: { avgScore: assessment.score, passed: assessment.score >= 60 } })
-    await notifyCandidate(typeof assessment.candidate === 'string' ? assessment.candidate : undefined, {
+    await notifyCandidate(assessment.candidate ? String(assessment.candidate) : undefined, {
       type: assessment.score >= 60 ? 'assessment_completed' : 'assessment_failed',
       title: assessment.score >= 60 ? 'Assessment submitted' : 'Assessment submitted',
       body: assessment.score >= 60

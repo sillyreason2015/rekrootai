@@ -235,15 +235,18 @@ interviewsRouter.post('/:id/proctoring-event', requireAuth, async (req, res, nex
   try {
     const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
     if (!interview) throw new HttpError(404, 'Interview not found')
+    if (!['scheduled', 'live'].includes(interview.status)) throw new HttpError(409, 'Interview is not active')
     const body = req.body as { type?: 'tab_switch' | 'window_blur' | 'camera_off' | 'mic_off' | 'other'; reason?: string }
     const allowedEventTypes = new Set(['tab_switch', 'window_blur', 'camera_off', 'mic_off', 'other'])
     if (!body.type || !allowedEventTypes.has(body.type)) throw new HttpError(400, 'Invalid proctoring event type')
     const candidate = await CandidateModel.findOne({ user: req.user!._id }, { _id: 1 }).lean()
     const actor = candidate && String(candidate._id) === String(interview.candidate) ? 'candidate' : 'recruiter'
+    const reason = String(body.reason ?? '').trim().slice(0, 500)
+    if (!reason) throw new HttpError(400, 'Proctoring event reason is required')
     const event = {
       actor,
       type: body.type,
-      reason: String(body.reason ?? 'Proctoring event detected').trim().slice(0, 500),
+      reason,
       at: new Date().toISOString(),
     }
     await InterviewModel.findByIdAndUpdate(interview._id, {
@@ -409,12 +412,23 @@ interviewsRouter.get('/:id/artifacts', requireAuth, async (req, res, next) => {
 interviewsRouter.post('/:id/missed-recovery-request', requireAuth, requireRole('candidate', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const { reason, proposedAt } = req.body as { reason?: string; proposedAt?: string }
-    const interview = await InterviewModel.findById(req.params.id).lean()
+    const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
     if (!interview) throw new HttpError(404, 'Interview not found')
+    const trimmedReason = String(reason ?? '').trim().slice(0, 1000)
+    if (!trimmedReason) throw new HttpError(400, 'Recovery reason is required')
+    if (req.user!.role === 'candidate' && interview.status !== 'cancelled') {
+      throw new HttpError(409, 'Recovery is only available after a missed interview')
+    }
+    if (proposedAt) {
+      const proposedDate = new Date(proposedAt)
+      if (!Number.isFinite(proposedDate.getTime()) || proposedDate.getTime() <= Date.now()) {
+        throw new HttpError(400, 'proposedAt must be a future date')
+      }
+    }
     await ApplicationModel.findByIdAndUpdate(interview.application, {
       interviewMissed: true,
       'missedInterviewRecovery.status': 'pending',
-      'missedInterviewRecovery.reason': reason,
+      'missedInterviewRecovery.reason': trimmedReason,
       'missedInterviewRecovery.proposedAt': proposedAt,
       'missedInterviewRecovery.requestedAt': new Date().toISOString(),
     })
