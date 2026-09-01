@@ -7,11 +7,43 @@ import { logAction } from '../data/store.js'
 import { notify } from '../lib/notify.js'
 import { buildTeamScopedJobFilter, pickRoundRobinRecruiter, resolveEffectiveTeamScope, resolveWorkspaceScope } from '../lib/workspace.js'
 import { sendEmail } from '../lib/mail.js'
+import { presignedDownloadUrl } from '../lib/blob.js'
 
 export const jobsRouter = Router()
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function publicAssetUrl(key: unknown) {
+  if (typeof key !== 'string' || !key.trim()) return undefined
+  try {
+    return await presignedDownloadUrl(key, 60 * 60)
+  } catch {
+    return undefined
+  }
+}
+
+async function serializePublicJob(job: Record<string, unknown>) {
+  const companyValue = job.company
+  const company = companyValue && typeof companyValue === 'object'
+    ? companyValue as Record<string, unknown>
+    : null
+  const [logoUrl, bannerUrl] = await Promise.all([
+    publicAssetUrl(company?.logoUrl),
+    publicAssetUrl(job.bannerUrl),
+  ])
+  return {
+    ...job,
+    company: company
+      ? {
+          _id: company._id ? String(company._id) : undefined,
+          name: String(company.name ?? 'Company'),
+          ...(logoUrl ? { logoUrl } : {}),
+        }
+      : companyValue,
+    ...(bannerUrl ? { bannerUrl } : { bannerUrl: undefined }),
+  }
 }
 
 async function buildScopedJobFilterForTeam(userId: string, requestedTeamName?: string) {
@@ -48,11 +80,12 @@ jobsRouter.get('/', async (req, res, next) => {
         .sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       JobModel.countDocuments(filter),
     ])
+    const publicJobs = await Promise.all(jobs.map((job) => serializePublicJob(job as Record<string, unknown>)))
     // Only published public data is cached; authenticated/private routes do
     // not use this header. Keep the window short so new roles appear quickly.
     res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60')
     res.json({
-      data: jobs,
+      data: publicJobs,
       total,
       page,
       limit,
@@ -93,7 +126,7 @@ jobsRouter.get('/:id', async (req, res, next) => {
       .populate('company', 'name logoUrl')
       .lean()
     if (!job) throw new HttpError(404, 'Job not found')
-    res.json({ ...job, _id: String(job._id) })
+    res.json(await serializePublicJob({ ...job, _id: String(job._id) }))
   } catch (err) { next(err) }
 })
 
