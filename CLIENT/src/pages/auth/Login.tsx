@@ -53,9 +53,14 @@ export default function Login() {
       const from = (location.state as { from?: string })?.from
       navigate(from ?? routeForUser(me), { replace: true })
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      const response = (err as { response?: { status?: number; data?: { message?: string } } })?.response
+      const msg = response?.data?.message
       if (msg === 'EMAIL_NOT_VERIFIED') {
         setUnverified(true)
+      } else if (response?.status === 503) {
+        setError(msg ?? 'The authentication service is temporarily unavailable. Please try again shortly.')
+      } else if (!response) {
+        setError('Unable to reach RekrootAI. Check your connection and try again.')
       } else {
         setError(msg ?? 'Invalid email or password')
       }
