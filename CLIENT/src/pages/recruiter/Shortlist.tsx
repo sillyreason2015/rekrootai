@@ -653,7 +653,7 @@ export default function Shortlist() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="font-serif text-2xl font-semibold">Shortlist Review</h1>
-          <p className="text-sm text-muted-foreground">AI-ranked candidates with SHAP explanations.</p>
+          <p className="text-sm text-muted-foreground">AI-assisted candidate ranking with available model explanations and fairness evidence.</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border bg-card p-0.5">

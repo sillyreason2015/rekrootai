@@ -165,6 +165,8 @@ export interface Application {
     penalty?: number
     interview?: number
     final?: number
+    shapValues?: Record<string, number>
+    modelVersion?: string
   }
   stage: 'applied' | 'screening' | 'assessment' | 'interview' | 'decision' | 'offered' | 'rejected'
   recruiterNotes?: string
@@ -246,6 +248,12 @@ export interface Assessment {
   completedAt?: string
   expiresAt: string
   score?: number
+  proctoringEvents?: Array<{
+    actor: 'candidate' | 'system'
+    type: 'tab_switch' | 'window_blur' | 'other'
+    reason: string
+    at: string
+  }>
 }
 
 export interface TranscriptEntry {

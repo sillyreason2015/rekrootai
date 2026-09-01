@@ -79,9 +79,9 @@ export function buildParsedCvData(fileName: string, rawText: string, masked: str
     textPreview: rawText ? masked.slice(0, 350) : 'Uploaded successfully. Parsing pipeline pending.',
     maskedCV: rawText ? masked : '',
     anonymization: rawText ? 'applied' : 'pending_non_text_parse',
-    inferredSkills: rawText ? inferSkillsFromCv(rawText) : [],
-    inferredExperience: rawText ? inferExperienceFromCv(rawText) : [],
-    inferredEducation: rawText ? inferEducationFromCv(rawText) : [],
+    inferredSkills: rawText ? inferSkillsFromCv(masked) : [],
+    inferredExperience: rawText ? inferExperienceFromCv(masked) : [],
+    inferredEducation: rawText ? inferEducationFromCv(masked) : [],
   }
 }
 

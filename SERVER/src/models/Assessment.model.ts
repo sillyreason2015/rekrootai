@@ -50,6 +50,15 @@ const assessmentSchema = new Schema<Omit<Assessment, '_id'>>(
     completedAt: String,
     expiresAt: { type: String, required: true },
     score: Number,
+    proctoringEvents: {
+      type: [{
+        actor: { type: String, enum: ['candidate', 'system'], required: true },
+        type: { type: String, enum: ['tab_switch', 'window_blur', 'other'], required: true },
+        reason: { type: String, required: true, maxlength: 500 },
+        at: { type: String, required: true },
+      }],
+      default: [],
+    },
   },
   baseSchemaOptions,
 )

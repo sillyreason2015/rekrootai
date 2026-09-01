@@ -12,6 +12,7 @@ import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { cvKey, presignedDownloadUrl, uploadBlob } from '../lib/blob.js'
 import { buildParsedCvData, mergeCandidateWithCv, extractStructuredProfileFromCv, scoreCandidateForJob } from '../lib/candidate-profile.js'
+import { anonymizeText } from '../lib/anonymize.js'
 import { env } from '../config/env.js'
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
@@ -84,8 +85,15 @@ candidateRouter.post('/me/cv', upload.single('cv'), async (req, res, next) => {
       rawText = String(result?.value ?? '').slice(0, 12000)
     }
 
-    // 3. Anonymise and build initial CV metadata
-    const masked = rawText ? anonymizeText(rawText) : ''
+    // 3. Anonymise before any enrichment, scoring, or external AI call.
+    const protectedAttributes = await ProtectedAttributeModel.findOne({ candidate: String(candidate._id) }).lean()
+    const candidateUser = await getUserById(String(candidate.user))
+    const masked = rawText
+      ? anonymizeText(rawText, {
+          protectedValues: [protectedAttributes?.gender, protectedAttributes?.ageRange, protectedAttributes?.ethnicity],
+          identityValues: [candidateUser?.firstName, candidateUser?.lastName, candidateUser?.email, candidate.location],
+        })
+      : ''
     const cvParsed = buildParsedCvData(fileName, rawText, masked)
     const keywordProfile = mergeCandidateWithCv(candidate as Parameters<typeof mergeCandidateWithCv>[0], cvParsed)
 
@@ -93,7 +101,7 @@ candidateRouter.post('/me/cv', upload.single('cv'), async (req, res, next) => {
     let enriched = keywordProfile as { skills: string[]; experience: unknown[]; education: unknown[]; headline?: string }
     if (rawText) {
       try {
-        const geminiResult = await extractStructuredProfileFromCv(rawText)
+        const geminiResult = await extractStructuredProfileFromCv(masked)
         enriched = {
           skills: geminiResult.skills.length ? geminiResult.skills : keywordProfile.skills,
           experience: geminiResult.experience.length ? geminiResult.experience : keywordProfile.experience,
@@ -223,14 +231,6 @@ candidateRouter.get('/me/jobs', async (req, res, next) => {
 })
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function anonymizeText(input: string): string {
-  return input
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
-    .replace(/(\+?\d[\d\s\-()­]{7,}\d)/g, '[redacted-phone]')
-    .replace(/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/g, '[redacted-date]')
-    .replace(/\b(male|female|man|woman|he|she|his|her)\b/gi, '[redacted]')
-}
 
 /**
  * Extract text from a PDF buffer.

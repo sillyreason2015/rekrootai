@@ -2,7 +2,9 @@ import axios from 'axios'
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.PROD ? 'https://rekroot-ai-bck.onrender.com' : '/api')
+  // Keep browser traffic same-origin in production. Vercel proxies /api/* to
+  // the server, which keeps auth cookies working on the deployed frontend.
+  '/api'
 
 const api = axios.create({
   baseURL: API_BASE_URL,

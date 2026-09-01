@@ -17,6 +17,8 @@ const applicationSchema = new Schema<Omit<Application, 'createdAt'>>(
       penalty: { type: Number, default: 0 },
       interview: { type: Number, default: 0 },
       final: { type: Number, default: 0 },
+      shapValues: { type: Schema.Types.Mixed },
+      modelVersion: String,
     },
     stage: {
       type: String,

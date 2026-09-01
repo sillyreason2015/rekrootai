@@ -20,7 +20,7 @@ function progressedStage(stage: string) {
   return ['screening', 'assessment', 'interview', 'decision', 'offered'].includes(stage)
 }
 
-function computeAttributeParity(
+export function computeAttributeParity(
   rows: Array<{ candidate: string; stage: string }>,
   attrs: Record<string, { gender?: string; ageRange?: string; ethnicity?: string }>,
   key: AttributeKey,
@@ -41,9 +41,10 @@ function computeAttributeParity(
     progressed: stats.progressed,
     selectionRate: stats.total ? stats.progressed / stats.total : 0,
   }))
-  const rates = groups.map((group) => group.selectionRate).filter((rate) => rate > 0)
-  if (!rates.length || groups.length < 2) return { ratio: 1, groups }
-  const ratio = Math.min(...rates) / Math.max(...rates)
+  const rates = groups.map((group) => group.selectionRate)
+  if (groups.length < 2) return { ratio: 1, groups }
+  const maximumRate = Math.max(...rates)
+  const ratio = maximumRate > 0 ? Math.min(...rates) / maximumRate : 1
   return { ratio: Number(ratio.toFixed(3)), groups }
 }
 

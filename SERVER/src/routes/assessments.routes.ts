@@ -10,6 +10,15 @@ import { computeCompositeScore } from '../lib/scoring.js'
 
 export const assessmentsRouter = Router()
 
+async function assertAssessmentAccess(assessment: { candidate?: unknown }, user: { _id: string; role: string }) {
+  if (user.role === 'admin' || user.role === 'super_admin') return
+  if (user.role !== 'candidate') throw new HttpError(403, 'Only the assigned candidate may access this assessment')
+  const candidate = await CandidateModel.findOne({ user: user._id }, { _id: 1 }).lean()
+  if (!candidate || String(candidate._id) !== String(assessment.candidate)) {
+    throw new HttpError(403, 'You may only access your own assessment')
+  }
+}
+
 async function notifyCandidate(candidateId: string | undefined, data: { type: string; title: string; body: string; link?: string }) {
   if (!candidateId) return
   const candidate = await CandidateModel.findById(candidateId, { user: 1 }).lean()
@@ -24,6 +33,7 @@ assessmentsRouter.get('/:applicationId', requireAuth, async (req, res, next) => 
       .populate('job', 'title assessmentModules thresholds')
       .lean()
     if (!assessment) throw new HttpError(404, 'Assessment not found')
+    await assertAssessmentAccess(assessment, req.user!)
     res.json({ ...assessment, _id: String(assessment._id) })
   } catch (err) { next(err) }
 })
@@ -32,6 +42,11 @@ assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, nex
   try {
     const existing = await AssessmentModel.findById(req.params.assessmentId).lean()
     if (!existing) throw new HttpError(404, 'Assessment not found')
+    await assertAssessmentAccess(existing, req.user!)
+    if (new Date(existing.expiresAt).getTime() <= Date.now()) {
+      await AssessmentModel.findByIdAndUpdate(existing._id, { status: 'expired' })
+      throw new HttpError(409, 'Assessment has expired')
+    }
     if (existing.status !== 'pending' || existing.startedAt) {
       throw new HttpError(409, 'Assessment has already started')
     }
@@ -41,6 +56,7 @@ assessmentsRouter.post('/:assessmentId/start', requireAuth, async (req, res, nex
       { new: true },
     ).lean()
     if (!assessment) throw new HttpError(404, 'Assessment not found')
+    await assertAssessmentAccess(assessment, req.user!)
     await ApplicationModel.findByIdAndUpdate(assessment.application, {
       assessmentStatus: 'in_progress',
       assessmentExpiresAt: assessment.expiresAt,
@@ -71,8 +87,25 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
     if (mod.completedAt) {
       throw new HttpError(409, 'This module has already been submitted')
     }
+    if (new Date(assessment.expiresAt).getTime() <= Date.now()) {
+      assessment.status = 'expired'
+      await assessment.save()
+      throw new HttpError(409, 'Assessment has expired')
+    }
+    if (assessment.status !== 'in_progress') throw new HttpError(409, 'Start the assessment before submitting a module')
     const body = req.body as { answers?: Array<{ questionId: string; selected?: number; text?: string }>; score?: number }
-    mod.answers = body.answers as never
+    if (body.score !== undefined) throw new HttpError(400, 'Score is calculated by the server and cannot be submitted')
+    if (!Array.isArray(body.answers)) throw new HttpError(400, 'answers must be an array')
+    const questionIds = new Set(mod.questions.map((question) => String(question._id)))
+    const seen = new Set<string>()
+    const answers = body.answers.filter((answer) => {
+      const questionId = String(answer.questionId ?? '')
+      if (!questionIds.has(questionId) || seen.has(questionId)) return false
+      seen.add(questionId)
+      return true
+    })
+    if (answers.length !== body.answers.length) throw new HttpError(400, 'Answers contain an unknown or duplicate question')
+    mod.answers = answers as never
 
     // Score: if an explicit score is passed use it, otherwise compute from MCQ correctness.
     // Open/personality/values questions are unscored here — AI scoring runs separately.
@@ -82,13 +115,14 @@ assessmentsRouter.post('/:assessmentId/modules/:moduleIndex/submit', requireAuth
       const mcqQuestions = mod.questions.filter((q) => q.type === 'mcq')
       if (mcqQuestions.length > 0) {
         const correct = mcqQuestions.filter((q) => {
-          const ans = body.answers?.find((a) => a.questionId === String(q._id))
+          const ans = answers.find((a) => a.questionId === String(q._id))
           return ans !== undefined && ans.selected === q.correctIndex
         }).length
         mod.score = Math.round((correct / mcqQuestions.length) * 100)
       } else {
-        // All open/text questions — give provisional full credit; AI scoring overrides later
-        mod.score = 100
+        // Open/text answers require a later evaluator; never award implicit
+        // full credit from a client submission.
+        mod.score = 0
       }
     }
     mod.completedAt = new Date().toISOString()
@@ -152,8 +186,18 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
   try {
     const assessment = await AssessmentModel.findById(req.params.assessmentId)
     if (!assessment) throw new HttpError(404, 'Assessment not found')
+    await assertAssessmentAccess(assessment, req.user!)
     if (assessment.status === 'completed') {
       return res.json({ ...assessment.toObject(), _id: String(assessment._id) })
+    }
+    if (new Date(assessment.expiresAt).getTime() <= Date.now()) {
+      assessment.status = 'expired'
+      await assessment.save()
+      throw new HttpError(409, 'Assessment has expired')
+    }
+    if (assessment.status !== 'in_progress') throw new HttpError(409, 'Assessment is not in progress')
+    if (assessment.modules.some((module) => !module.completedAt)) {
+      throw new HttpError(409, 'Submit every assessment module before completing the assessment')
     }
     assessment.status = 'completed'
     assessment.completedAt = new Date().toISOString()
@@ -189,5 +233,24 @@ assessmentsRouter.post('/:assessmentId/complete', requireAuth, async (req, res, 
       link: '/candidate/applications',
     })
     res.json({ ...assessment.toObject(), _id: String(assessment._id) })
+  } catch (err) { next(err) }
+})
+
+assessmentsRouter.post('/:assessmentId/proctoring-event', requireAuth, async (req, res, next) => {
+  try {
+    const assessment = await AssessmentModel.findById(req.params.assessmentId)
+    if (!assessment) throw new HttpError(404, 'Assessment not found')
+    await assertAssessmentAccess(assessment, req.user!)
+    if (assessment.status !== 'in_progress') throw new HttpError(409, 'Assessment is not in progress')
+    const body = req.body as { type?: string; reason?: string }
+    const allowed = new Set(['tab_switch', 'window_blur', 'other'])
+    if (!body.type || !allowed.has(body.type)) throw new HttpError(400, 'Invalid proctoring event type')
+    const reason = String(body.reason ?? '').trim().slice(0, 500)
+    if (!reason) throw new HttpError(400, 'Proctoring event reason is required')
+    assessment.proctoringEvents = assessment.proctoringEvents ?? []
+    assessment.proctoringEvents.push({ actor: 'candidate', type: body.type as 'tab_switch' | 'window_blur' | 'other', reason, at: new Date().toISOString() })
+    await assessment.save()
+    await logAction({ actor: 'user', action: 'assessment-proctoring-event', candidateId: String(assessment.candidate), jobId: String(assessment.job), mode: 'assist', payload: { assessmentId: String(assessment._id), type: body.type, reason } })
+    res.status(201).json({ ok: true, events: assessment.proctoringEvents })
   } catch (err) { next(err) }
 })

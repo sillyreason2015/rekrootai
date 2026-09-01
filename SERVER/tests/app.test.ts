@@ -2,6 +2,24 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import request from 'supertest'
 import { app } from '../src/app.js'
+import { computeCompositeScore } from '../src/lib/scoring.js'
+import { computeAttributeParity } from '../src/lib/fairness.js'
+
+test('fairness penalty reduces the composite score', () => {
+  assert.equal(computeCompositeScore({ resume: 80, assessment: 80, interview: 80, penalty: 10 }, 'decision'), 71)
+})
+
+test('fairness parity includes groups with zero progression', () => {
+  const result = computeAttributeParity(
+    [
+      { candidate: 'a', stage: 'interview' },
+      { candidate: 'b', stage: 'rejected' },
+    ],
+    { a: { gender: 'group-a' }, b: { gender: 'group-b' } },
+    'gender',
+  )
+  assert.equal(result.ratio, 0)
+})
 
 test('GET /health returns ok', async () => {
   const res = await request(app).get('/health')
@@ -47,6 +65,16 @@ test('Protected route GET /notifications/mine requires auth', async () => {
 
 test('Protected route GET /admin/dashboard requires auth', async () => {
   const res = await request(app).get('/admin/dashboard')
+  assert.equal(res.status, 401)
+})
+
+test('POST /anonymize/preview requires auth', async () => {
+  const res = await request(app).post('/anonymize/preview').send({ text: 'email@example.com' })
+  assert.equal(res.status, 401)
+})
+
+test('final decision endpoint remains protected before payload validation', async () => {
+  const res = await request(app).post('/applications/not-a-real-id/decision').send({ decision: 'hire' })
   assert.equal(res.status, 401)
 })
 

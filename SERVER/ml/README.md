@@ -4,6 +4,7 @@ Endpoints:
 - `GET /health`
 - `POST /train`
 - `POST /fairness-gate`
+- `POST /score`
 - `POST /explain`
 
 ### Quick start
@@ -16,7 +17,7 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-Train once with representative records, then call fairness/explain from backend.
+Train once with representative records, then call score, fairness, and explain from the backend. Protected-attribute columns are excluded during API training and the resulting metadata records the model provenance.
 
 ### Synthetic bootstrap (no real dataset yet)
 

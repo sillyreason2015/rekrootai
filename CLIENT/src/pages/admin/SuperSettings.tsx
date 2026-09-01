@@ -169,7 +169,7 @@ export default function SuperSettings() {
           {[
             { label: 'AI Assist mode', desc: 'Allow recruiters to use AI-powered shortlist recommendations.', tip: 'When off, all companies are forced into Override mode — AI scores are hidden and recruiters work manually.', val: aiAssist, set: setAiAssist },
             { label: 'Fairness gate', desc: 'Run demographic parity checks before confirming shortlist decisions.', tip: 'Disabling this removes the bias-detection layer platform-wide. Not recommended.', val: fairnessGate, set: setFairnessGate },
-            { label: 'SHAP explainability', desc: 'Generate feature-importance explanations for every score.', tip: 'When off, candidates and recruiters will no longer see score breakdowns.', val: shapExplain, set: setShapExplain },
+            { label: 'SHAP explainability', desc: 'Generate feature-importance explanations when the configured model service is available.', tip: 'When off, candidates and recruiters will see the deterministic score rationale instead.', val: shapExplain, set: setShapExplain },
             { label: 'Interview proctoring', desc: 'Monitor tab switches and focus loss during assessments and interviews.', tip: 'Disabling removes all proctoring signals platform-wide.', val: proctoring, set: setProctoring },
             { label: 'Gemini AI question generation', desc: 'Allow recruiters to generate job-specific questions via Gemini API.', tip: 'When off, the Question Bank falls back to static templates only.', val: geminiGen, set: setGeminiGen },
           ].map(({ label, desc, tip, val, set }) => (
@@ -196,7 +196,7 @@ export default function SuperSettings() {
           {[
             { label: 'GDPR / NDPR right-to-erasure', desc: 'Allow candidates to request full deletion of their personal data.', tip: 'When enabled, candidates can trigger a deletion request from their settings.', val: gdprMode, set: setGdprMode },
             { label: 'Immutable audit log', desc: 'Prevent any user from editing or deleting audit entries.', tip: 'This should always be on. Disabling it is recorded and cannot be undone retroactively.', val: auditImmutable, set: setAuditImmutable },
-            { label: 'Candidate decision explanations', desc: 'Allow candidates to view their SHAP-backed score breakdown.', tip: 'Turning this off may conflict with GDPR Article 22 rights.', val: candidateExplain, set: setCandidateExplain },
+            { label: 'Candidate decision explanations', desc: 'Allow candidates to view available model evidence and score rationale.', tip: 'Turning this off may conflict with GDPR Article 22 rights.', val: candidateExplain, set: setCandidateExplain },
           ].map(({ label, desc, tip, val, set }) => (
             <div key={label} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
               <div className="flex-1 pr-4">

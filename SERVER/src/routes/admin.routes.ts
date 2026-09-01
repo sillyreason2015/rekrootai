@@ -364,7 +364,7 @@ adminRouter.post('/team/invite', async (req, res, next) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     })
     const { sendInviteEmail } = await import('../lib/mail.js')
-    const inviteBase = env.CORS_ORIGINS[0] ?? process.env.CLIENT_URL ?? 'https://rekroot-ai.vercel.app'
+    const inviteBase = env.CORS_ORIGINS[0] ?? process.env.CLIENT_URL ?? 'https://rekrootai.vercel.app'
     const inviteUrl = `${inviteBase}/accept-invite?token=${encodeURIComponent(token)}`
     let emailSent = true
     let emailError: string | undefined

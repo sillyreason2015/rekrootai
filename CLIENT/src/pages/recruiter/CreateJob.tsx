@@ -660,7 +660,7 @@ export default function CreateJob() {
               <div className="rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 <strong>How thresholds work:</strong> If a candidate scores below the assessment mark, the AI immediately
                 rejects them and sends a personalised explanation to their dashboard. The fairness gate checks for
-                demographic disparate impact — if bias is detected, the AI applies a correction before the interview stage.
+                demographic disparate impact — if a disparity is detected, the system records a review flag and the evidence is available before the interview stage.
                 The interview mark guides the recruiter&apos;s final decision but does not auto-reject.
               </div>
             </div>

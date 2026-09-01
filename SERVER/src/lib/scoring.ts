@@ -26,6 +26,7 @@ export function computeCompositeScore(scores: ScoreInput, stage: CompositeStage)
     return Math.round(present.reduce((sum, value) => sum + value, 0) / present.length)
   }
 
-  const weighted = (resume * 0.3) + (assessment * 0.3) + (penalty * 0.1) + (interview * 0.3)
+  // Penalty is a deduction, not a positive contribution to the composite.
+  const weighted = (resume * 0.3) + (assessment * 0.3) - (penalty * 0.1) + (interview * 0.3)
   return Math.round(weighted * 10) / 10
 }

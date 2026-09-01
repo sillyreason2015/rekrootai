@@ -62,6 +62,8 @@ def main():
     (ART / "metadata.json").write_text(json.dumps({
         "model_version": "xgb-v1-synth",
         "synthetic_data": True,
+        "training_source": "synthetic_training.csv",
+        "metrics_scope": "held_out_test_split",
         "feature_cols": feature_cols,
     }, indent=2), encoding="utf-8")
     (ART / "evaluation_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")

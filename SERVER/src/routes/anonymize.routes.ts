@@ -1,16 +1,9 @@
 import { Router } from 'express'
 import { requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
+import { anonymizeText } from '../lib/anonymize.js'
 
 export const anonymizeRouter = Router()
-
-function anonymizeText(input: string): string {
-  return input
-    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[redacted-email]')
-    .replace(/(\+?\d[\d\s\-()]{7,}\d)/g, '[redacted-phone]')
-    .replace(/\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b/g, '[redacted-date]')
-    .replace(/\b(male|female|man|woman|boy|girl)\b/gi, '[redacted-gender]')
-}
 
 anonymizeRouter.post('/preview', requireAuth, requireRole('candidate', 'recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {

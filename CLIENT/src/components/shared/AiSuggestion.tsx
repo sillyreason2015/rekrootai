@@ -101,7 +101,7 @@ function buildSuggestion(props: AiSuggestionProps): Suggestion {
     }
     return {
       icon: AlertTriangle, label: 'Below average', color: 'text-amber-600',
-      text: `Assessment score of ${assessment.toFixed(0)}% is below 65%. Run fairness gate — a low score may still pass with demographic correction.`,
+      text: `Assessment score of ${assessment.toFixed(0)}% is below 65%. Run the fairness gate for cohort evidence and human review before progressing.`,
     }
   }
 

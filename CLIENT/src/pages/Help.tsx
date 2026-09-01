@@ -29,7 +29,7 @@ const sections: Section[] = [
       },
       {
         q: 'What does the CV Match score measure?',
-        a: 'CV Match compares keywords, skills, years of experience, and role-relevant credentials in the uploaded resume against the job requirements. It uses TF-IDF similarity and skill-set overlap. A score above 70% means strong alignment.',
+    a: 'CV Match compares skills, experience, keywords, and role-relevant credentials in the uploaded resume against the job requirements. A score above 70% means strong alignment for the configured screening rules.',
       },
       {
         q: 'How is the Assessment score calculated?',
@@ -105,7 +105,7 @@ const sections: Section[] = [
     faqs: [
       {
         q: 'What is a SHAP explanation?',
-        a: 'SHAP (SHapley Additive exPlanations) is a method from cooperative game theory that assigns each input feature a contribution value. For each candidate, it tells you exactly how much each factor (e.g. Python skill match, assessment speed, interview rubric) added to or subtracted from the final score.',
+        a: 'When the configured model service is available, SHAP assigns each model input a contribution value. The platform records those contributions with the model version; if model evidence is unavailable, the system shows the underlying score rationale instead.',
       },
       {
         q: 'Can candidates see their explanation?',
@@ -117,7 +117,7 @@ const sections: Section[] = [
       },
       {
         q: 'Why does the AI summary sometimes say "no fairness penalty"?',
-        a: 'It means the fairness gate found no statistically significant demographic disparity for this candidate\'s group at this score band. Their score reflects purely performance-based factors.',
+        a: 'It means the available cohort audit found no flagged disparity under the configured checks. It is an audit signal, not proof that the process is bias-free, and the underlying evidence remains available for human review.',
       },
     ],
   },
@@ -297,4 +297,3 @@ export default function Help() {
     </div>
   )
 }
-

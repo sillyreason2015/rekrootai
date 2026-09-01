@@ -11,7 +11,7 @@ const rails = [
 ]
 
 const highlights = [
-  { icon: Brain, title: 'Explainable scoring', text: 'XGBoost scoring with stage-by-stage rationale visible to both recruiter and candidate.' },
+  { icon: Brain, title: 'Explainable scoring', text: 'Stage-by-stage rationale is visible to both recruiter and candidate, with model explanations recorded when available.' },
   { icon: Shield, title: 'Fairness by design', text: 'Protected attributes stay out of ranking, while the fairness gate checks downstream outcomes.' },
   { icon: Users, title: 'Human control', text: 'Assist, veto, and override modes keep recruiters accountable without hiding AI judgement.' },
   { icon: BarChart3, title: 'Full auditability', text: 'Every shortlist, rejection, interview score, and final decision is logged and reviewable.' },

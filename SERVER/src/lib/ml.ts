@@ -7,6 +7,12 @@ export interface FairnessGateRequest {
   protectedAttributes: { gender?: string; ageRange?: string; ethnicity?: string }
   features: Record<string, unknown>
   threshold: number
+  minimumGroupSize?: number
+  cohort: Array<{
+    protectedAttributes: { gender?: string; ageRange?: string; ethnicity?: string }
+    features: Record<string, unknown>
+    groundTruth?: number
+  }>
 }
 
 export interface FairnessGateResponse {
@@ -15,6 +21,14 @@ export interface FairnessGateResponse {
   p_prime_s: number
   decision: 'pass' | 'fail'
   reason: string
+  metric: 'demographic_parity_difference'
+  cohortSize: number
+  modelVersion?: string
+  demographicParityByAttribute?: Record<string, number>
+  demographicParityStatusByAttribute?: Record<string, 'computed' | 'insufficient_data'>
+  equalOpportunityDifference: number | null
+  equalOpportunityByAttribute?: Record<string, number | null>
+  equalOpportunityStatus: 'computed' | 'insufficient_data'
 }
 
 export interface ExplainRequest {
@@ -22,15 +36,30 @@ export interface ExplainRequest {
   modelInput: Record<string, unknown>
 }
 
+export interface ScoreRequest {
+  applicationId: string
+  modelInput: Record<string, number>
+}
+
+export interface ScoreResponse {
+  probability: number
+  score: number
+  modelVersion?: string
+}
+
 export interface ExplainResponse {
   explanation: string
   topFeatures: Array<{ name: string; value: number }>
+  modelVersion?: string
 }
 
 async function postJson<TReq, TRes>(path: string, body: TReq): Promise<TRes> {
   const response = await fetch(`${env.ML_SERVICE_URL}${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(env.ML_SERVICE_TOKEN ? { 'x-ml-service-token': env.ML_SERVICE_TOKEN } : {}),
+    },
     body: JSON.stringify(body),
   })
   if (!response.ok) {
@@ -58,5 +87,11 @@ export function runFairnessGate(payload: FairnessGateRequest) {
 export function runShapExplain(payload: ExplainRequest) {
   return assertNonSyntheticInProduction().then(() =>
     postJson<ExplainRequest, ExplainResponse>('/explain', payload),
+  )
+}
+
+export function runModelScore(payload: ScoreRequest) {
+  return assertNonSyntheticInProduction().then(() =>
+    postJson<ScoreRequest, ScoreResponse>('/score', payload),
   )
 }

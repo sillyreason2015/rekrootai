@@ -17,7 +17,11 @@ import { sendEmail } from '../lib/mail.js'
 import { computeJobBiasAudit } from '../lib/fairness.js'
 import { generateQuestions } from '../lib/questionGen.js'
 import { computeCompositeScore } from '../lib/scoring.js'
+import { runFairnessGate, runModelScore, runShapExplain, type FairnessGateResponse } from '../lib/ml.js'
+import { ProtectedAttributeModel } from '../models/ProtectedAttribute.model.js'
+import { AiOutputModel } from '../models/AiOutput.model.js'
 import { buildTeamScopedUserFilter, resolveWorkspaceScope } from '../lib/workspace.js'
+import { env } from '../config/env.js'
 
 export const applicationsRouter = Router()
 
@@ -160,7 +164,22 @@ applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin', 'sup
     const existing = await ApplicationModel.findOne({ candidate: candidate._id, job: jobId }).lean()
     if (existing) throw new HttpError(409, 'Already applied to this job')
 
-    const resumeScore = scoreCandidateForJob(candidate as Parameters<typeof scoreCandidateForJob>[0], job as Parameters<typeof scoreCandidateForJob>[1])
+    const heuristicResumeScore = scoreCandidateForJob(candidate as Parameters<typeof scoreCandidateForJob>[0], job as Parameters<typeof scoreCandidateForJob>[1])
+    let resumeScore = heuristicResumeScore
+    let modelVersion: string | undefined
+    try {
+      const modelScore = await runModelScore({
+        applicationId: 'pending',
+        modelInput: { resume: heuristicResumeScore, assessment: 0, interview: 0 },
+      })
+      resumeScore = modelScore.score
+      modelVersion = modelScore.modelVersion
+    } catch (modelError) {
+      console.warn('[application] model score unavailable; using heuristic fallback:', modelError instanceof Error ? modelError.message : modelError)
+      if (env.NODE_ENV === 'production') {
+        throw new HttpError(503, 'The production scoring service is unavailable; application scoring was not completed')
+      }
+    }
     const application = await ApplicationModel.create({
       job: jobId,
       candidate: candidate._id,
@@ -172,7 +191,31 @@ applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin', 'sup
         penalty: 0,
         interview: 0,
         final: computeCompositeScore({ resume: resumeScore, assessment: 0, penalty: 0, interview: 0 }, 'applied'),
+        modelVersion,
       },
+    })
+    // Generate explainability evidence asynchronously when the configured ML
+    // service is available. The score above already prefers the ML model and
+    // falls back to the deterministic heuristic when unavailable.
+    void runShapExplain({
+      applicationId: String(application._id),
+      modelInput: { resume: resumeScore, assessment: 0, interview: 0 },
+    }).then(async (explanation) => {
+      const shapValues = Object.fromEntries(explanation.topFeatures.map((item) => [item.name, item.value]))
+      const modelVersion = explanation.modelVersion ?? 'unknown'
+      await ApplicationModel.findByIdAndUpdate(application._id, {
+        'scores.shapValues': shapValues,
+        'scores.modelVersion': modelVersion,
+      })
+      await AiOutputModel.create({
+        application: String(application._id),
+        type: 'explanation',
+        input: { resume: resumeScore, assessment: 0, interview: 0 },
+        output: { shapValues },
+        modelVersion,
+      })
+    }).catch((error: unknown) => {
+      console.warn('[application] model explanation unavailable:', error instanceof Error ? error.message : error)
     })
     await logAction({ actor: 'user', action: 'apply', candidateId: String(candidate._id), jobId, mode: 'assist' })
     notify(String(candidate._id), {
@@ -315,12 +358,21 @@ applicationsRouter.post('/:id/reject', requireAuth, requireRole('recruiter', 'ad
 applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', 'admin', 'super_admin'), async (req, res, next) => {
   try {
     const { decision, notes } = req.body as { decision?: 'hire' | 'reject' | 'hold'; notes?: string }
-    if (!decision) throw new HttpError(400, 'decision is required')
+    if (!decision || !['hire', 'reject', 'hold'].includes(decision)) throw new HttpError(400, 'decision must be hire, reject, or hold')
+    if (typeof notes !== 'string' || notes.trim().length < 10) {
+      throw new HttpError(400, 'A decision rationale of at least 10 characters is required')
+    }
     const current = await ApplicationModel.findById(req.params.id, { stage: 1 }).lean()
     if (!current) throw new HttpError(404, 'Application not found')
     assertStage(current.stage, ['decision'], 'Final decision')
-    const linkedInterview = await InterviewModel.findOne({ application: req.params.id }, { collaborationMode: 1 }).sort({ createdAt: -1 }).lean()
+    const linkedInterview = await InterviewModel.findOne(
+      { application: req.params.id },
+      { collaborationMode: 1, aiRecommendation: 1 },
+    ).sort({ createdAt: -1 }).lean()
     const mode = linkedInterview?.collaborationMode ?? 'assist'
+    if (mode === 'veto' && decision === 'hire' && linkedInterview?.aiRecommendation !== 'advance') {
+      throw new HttpError(409, 'Veto mode cannot promote a candidate unless the AI recommendation was advance')
+    }
     const app = await ApplicationModel.findByIdAndUpdate(
       req.params.id,
       {
@@ -338,11 +390,13 @@ applicationsRouter.post('/:id/decision', requireAuth, requireRole('recruiter', '
     const job = await JobModel.findById(String(app.job), { title: 1 }).lean()
     await logAction({
       actor: 'user',
-      action: decision === 'hire' ? 'hired' : decision === 'reject' ? 'rejected' : 'decision-held',
+      action: mode === 'override'
+        ? 'decision-override'
+        : decision === 'hire' ? 'hired' : decision === 'reject' ? 'rejected' : 'decision-held',
       candidateId: String(app.candidate),
       jobId: String(app.job),
       mode,
-      payload: { decision },
+      payload: { decision, rationale: notes.trim() },
     })
     await notifyCandidate(String(app.candidate), {
       type: decision === 'hire' ? 'offer_extended' : 'decision_made',
@@ -466,7 +520,8 @@ applicationsRouter.get('/:id/explanation', requireAuth, async (req, res, next) =
         stage: app.stage,
         decision: (app as Record<string, unknown>).decision as string | undefined,
         recruiterNote: ((app as Record<string, unknown>).recruiterNotes as string | undefined) ?? (latestRecruiterMessage?.message as string | undefined),
-        shapValues: null,
+        shapValues: s.shapValues ?? null,
+        modelVersion: s.modelVersion,
       },
     })
   } catch (err) { next(err) }
@@ -632,8 +687,98 @@ applicationsRouter.post('/:id/fairness-gate', requireAuth, requireRole('recruite
       }
     })
 
+    const cohortApps = await ApplicationModel.find({ job: app.job }, { candidate: 1, scores: 1, decision: 1 }).lean()
+    const cohortAttributes = await ProtectedAttributeModel.find(
+      { candidate: { $in: cohortApps.map((item) => String(item.candidate)) } },
+    ).lean()
+    const attributesByCandidate = new Map(cohortAttributes.map((item) => [String(item.candidate), item]))
+    let mlEvidence: FairnessGateResponse | null = null
+    let shapValues: Record<string, number> | null = null
+    try {
+      mlEvidence = await runFairnessGate({
+        applicationId: String(app._id),
+        jobId: String(app.job),
+        candidateId: String(app.candidate),
+        protectedAttributes: attributesByCandidate.get(String(app.candidate)) ?? {},
+        features: { resume, assessment, interview },
+        threshold: fairnessThreshold,
+        minimumGroupSize: 5,
+        cohort: cohortApps.map((item) => ({
+          protectedAttributes: attributesByCandidate.get(String(item.candidate)) ?? {},
+          features: {
+            resume: item.scores?.resume ?? 0,
+            assessment: item.scores?.assessment ?? 0,
+            interview: item.scores?.interview ?? 0,
+          },
+          groundTruth: item.decision === 'hire' ? 1 : item.decision === 'reject' ? 0 : undefined,
+        })),
+      })
+      const insufficientAttributes = Object.entries(mlEvidence.demographicParityStatusByAttribute ?? {})
+        .filter(([, status]) => status === 'insufficient_data')
+        .map(([key]) => key)
+      if (insufficientAttributes.length) {
+        flags.push(`Insufficient cohort data for fairness metrics: ${insufficientAttributes.join(', ')} - manual review required.`)
+      }
+      if (mlEvidence.decision === 'fail') flags.push(`ML fairness gate failed at ${(mlEvidence.p_prime_s * 100).toFixed(1)}% adjusted probability.`)
+      const explanation = await runShapExplain({
+        applicationId: String(app._id),
+        modelInput: { resume, assessment, interview },
+      })
+      shapValues = Object.fromEntries(explanation.topFeatures.map((item) => [item.name, item.value]))
+      const modelVersion = explanation.modelVersion ?? mlEvidence.modelVersion ?? 'unknown'
+      await ApplicationModel.findByIdAndUpdate(req.params.id, {
+        'scores.shapValues': shapValues,
+        'scores.modelVersion': modelVersion,
+      })
+      await AiOutputModel.create({
+        application: String(app._id),
+        type: 'explanation',
+        input: { resume, assessment, interview, cohortSize: mlEvidence.cohortSize },
+        output: { fairness: mlEvidence, shapValues },
+        modelVersion,
+      })
+    } catch (mlError) {
+      console.warn('[fairness-gate] ML evidence unavailable:', mlError instanceof Error ? mlError.message : mlError)
+      if (env.NODE_ENV === 'production') flags.push('Production ML fairness evidence unavailable - manual review required.')
+    }
+
     const passed = flags.length === 0
     await ApplicationModel.findByIdAndUpdate(req.params.id, { fairnessComputedAt: new Date().toISOString() })
+    await AiOutputModel.create({
+      application: String(app._id),
+      type: 'bias_audit',
+      input: {
+        cohortSize: cohortApps.length,
+        minimumGroupSize: 5,
+        features: { resume, assessment, interview },
+      },
+      output: {
+        passed,
+        flags,
+        heuristicDisparateImpact: computation.disparateImpact,
+        mlEvidence,
+        equalOpportunityDifference: mlEvidence?.equalOpportunityDifference ?? null,
+        equalOpportunityStatus: mlEvidence?.equalOpportunityStatus ?? 'insufficient_data',
+      },
+      modelVersion: mlEvidence?.modelVersion ?? 'heuristic-cohort-audit',
+    })
+    await logAction({
+      actor: 'ai',
+      action: 'fairness-gate-run',
+      candidateId: String(app.candidate),
+      jobId: String(app.job),
+      mode: 'assist',
+      modelVersion: mlEvidence?.modelVersion,
+      payload: {
+        passed,
+        flags,
+        disparateImpact: computation.disparateImpact,
+        mlMetric: mlEvidence?.metric ?? 'application-cohort-audit',
+        cohortSize: mlEvidence?.cohortSize ?? cohortApps.length,
+        equalOpportunityDifference: mlEvidence?.equalOpportunityDifference ?? null,
+        equalOpportunityStatus: mlEvidence?.equalOpportunityStatus ?? 'insufficient_data',
+      },
+    })
     if (passed) {
       await notifyCandidate(String(app.candidate), { type: 'fairness_passed', title: 'Application review updated', body: 'Your application has passed the AI fairness review stage.', link: '/candidate/applications' })
       const jobInfo = await JobModel.findById(String(app.job), { title: 1 }).lean()
@@ -652,6 +797,9 @@ applicationsRouter.post('/:id/fairness-gate', requireAuth, requireRole('recruite
       disparateImpact: computation.disparateImpact,
       groupBreakdown: computation.details.groups,
       threshold: fairnessThreshold,
+      mlEvidence,
+      shapValues,
+      fairnessMetricStatus: mlEvidence?.demographicParityStatusByAttribute ?? {},
     })
   } catch (err) { next(err) }
 })

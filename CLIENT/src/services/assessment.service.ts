@@ -10,4 +10,6 @@ export const assessmentService = {
     api.post<Assessment>(`/assessments/${assessmentId}/modules/${moduleIndex}/submit`, { answers }).then((r) => r.data),
   complete: (assessmentId: string) =>
     api.post(`/assessments/${assessmentId}/complete`).then((r) => r.data),
+  reportProctoringEvent: (assessmentId: string, payload: { type: 'tab_switch' | 'window_blur' | 'other'; reason: string }) =>
+    api.post(`/assessments/${assessmentId}/proctoring-event`, payload).then((r) => r.data),
 }

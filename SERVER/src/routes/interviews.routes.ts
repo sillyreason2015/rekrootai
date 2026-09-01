@@ -193,10 +193,13 @@ interviewsRouter.post('/:id/transcript', requireAuth, async (req, res, next) => 
           timestamp: line.timestamp ?? new Date().toISOString(),
         })))
       : []
-    const speakers = [...new Set(transcript.map((line) => line.speaker))]
+    const candidate = await CandidateModel.findOne({ user: req.user!._id }, { _id: 1 }).lean()
+    const authenticatedSpeaker = candidate && String(candidate._id) === String(current.candidate) ? 'candidate' : 'recruiter'
+    const authorizedTranscript = transcript.filter((line) => line.speaker === authenticatedSpeaker)
+    const speakers = [...new Set(authorizedTranscript.map((line) => line.speaker))]
     let mergedTranscript = Array.isArray(current.transcript) ? [...current.transcript] as PersistedTranscriptLine[] : []
     for (const speaker of speakers) {
-      const speakerEntries = transcript.filter((line) => line.speaker === speaker)
+      const speakerEntries = authorizedTranscript.filter((line) => line.speaker === speaker)
       mergedTranscript = mergeTranscriptEntries(mergedTranscript, speakerEntries, speaker)
     }
     const speakerSegments = buildSpeakerSegments(mergedTranscript)
@@ -228,12 +231,14 @@ interviewsRouter.post('/:id/proctoring-event', requireAuth, async (req, res, nex
     const interview = await ensureInterviewAccess(String(req.params.id), String(req.user!._id), String(req.user!.role))
     if (!interview) throw new HttpError(404, 'Interview not found')
     const body = req.body as { type?: 'tab_switch' | 'window_blur' | 'camera_off' | 'mic_off' | 'other'; reason?: string }
+    const allowedEventTypes = new Set(['tab_switch', 'window_blur', 'camera_off', 'mic_off', 'other'])
+    if (!body.type || !allowedEventTypes.has(body.type)) throw new HttpError(400, 'Invalid proctoring event type')
     const candidate = await CandidateModel.findOne({ user: req.user!._id }, { _id: 1 }).lean()
     const actor = candidate && String(candidate._id) === String(interview.candidate) ? 'candidate' : 'recruiter'
     const event = {
       actor,
-      type: body.type ?? 'other',
-      reason: String(body.reason ?? 'Proctoring event detected'),
+      type: body.type,
+      reason: String(body.reason ?? 'Proctoring event detected').trim().slice(0, 500),
       at: new Date().toISOString(),
     }
     await InterviewModel.findByIdAndUpdate(interview._id, {
@@ -308,11 +313,16 @@ interviewsRouter.post('/:id/complete', requireAuth, requireRole('recruiter', 'ad
       aiRecommendation?: 'advance' | 'hold' | 'reject'
     }
     const rubric = Array.isArray(current.rubric) ? current.rubric : []
+    if (!rubric.length) throw new HttpError(409, 'Save the interview rubric before completing the interview')
+    if (rubric.some((item) => !item.criterion?.trim() || !Number.isFinite(Number(item.score)) || Number(item.score) < 0 || Number(item.score) > 5)) {
+      throw new HttpError(400, 'Every rubric criterion must have a score from 0 to 5')
+    }
     const rubricScore = rubric.length
       ? Math.round((rubric.reduce((sum, item) => sum + Number(item.score ?? 0), 0) / (rubric.length * 5)) * 100)
       : 0
-    const requestedScore = body.score ?? rubricScore
-    const score = Math.min(100, Math.max(0, Number(requestedScore ?? 0)))
+    // The score is derived exclusively from the persisted rubric. A client
+    // supplied score is intentionally ignored to prevent score tampering.
+    const score = rubricScore
     const aiRecommendation = body.aiRecommendation ?? current.aiRecommendation
     const interview = await InterviewModel.findByIdAndUpdate(
       req.params.id,

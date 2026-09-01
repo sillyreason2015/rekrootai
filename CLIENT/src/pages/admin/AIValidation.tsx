@@ -24,6 +24,13 @@ interface FairnessResult {
     penalty: number
     final: number
   }
+  fairnessMetricStatus?: Record<string, 'computed' | 'insufficient_data'>
+  mlEvidence?: {
+    cohortSize?: number
+    modelVersion?: string
+    equalOpportunityDifference?: number | null
+    equalOpportunityStatus?: 'computed' | 'insufficient_data'
+  } | null
 }
 
 export default function AIValidation() {
@@ -79,7 +86,7 @@ export default function AIValidation() {
         </div>
         <ul className="text-xs text-muted-foreground space-y-0.5 list-disc list-inside">
           <li>Fairness gate checks for demographic parity before confirming any shortlist decision</li>
-          <li>SHAP explanations show the exact contribution of each factor to the candidate's final score</li>
+          <li>When model evidence is available, SHAP explanations show each factor's contribution to the model score</li>
           <li>Recruiter retains full override authority — all AI outputs are advisory</li>
           <li>Every run is logged in the audit trail with actor, timestamp, and model version</li>
         </ul>
@@ -141,7 +148,7 @@ export default function AIValidation() {
       <Button onClick={() => runMutation.mutate()} disabled={!selectedApp || runMutation.isPending}
         className="gap-2">
         {runMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-        Run Full AI Pipeline (Fairness Gate + SHAP)
+        Run Fairness Review + Available Model Evidence
       </Button>
 
       {error && (
@@ -196,6 +203,22 @@ export default function AIValidation() {
                 </ul>
               )}
               <p className="text-xs text-muted-foreground">{result.message}</p>
+              <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+                <p className="text-xs font-semibold">Evidence coverage</p>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(result.fairnessMetricStatus ?? {}).map(([attribute, status]) => (
+                    <span key={attribute} className={cn(
+                      'rounded-full border px-2 py-1 text-[11px]',
+                      status === 'computed' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700',
+                    )}>
+                      {attribute}: {status === 'computed' ? 'computed' : 'insufficient data'}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Cohort: {result.mlEvidence?.cohortSize ?? 'not available'} candidates · Model: {result.mlEvidence?.modelVersion ?? 'heuristic audit'}
+                </p>
+              </div>
             </CardContent>
           </Card>
 

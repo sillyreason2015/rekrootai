@@ -29,6 +29,7 @@ const schema = z.object({
   LIVEKIT_HOST: z.string().optional(),
 
   ML_SERVICE_URL: z.string().url().default('http://localhost:8000'),
+  ML_SERVICE_TOKEN: z.string().min(32).optional(),
   GEMINI_API_KEY: z.string().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),

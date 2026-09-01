@@ -149,6 +149,11 @@ export default function Assessment() {
     maxViolations: MAX_VIOLATIONS,
     onMaxViolations: forceSubmit,
     resetKey: activeModule ?? -1,
+    onViolationReason: (reason) => {
+      if (!assessment) return
+      const type = reason.toLowerCase().includes('tab') ? 'tab_switch' : 'window_blur'
+      void assessmentService.reportProctoringEvent(assessment._id, { type, reason })
+    },
   })
 
   // Timer — uses an absolute deadline so background-throttled intervals don't slow the clock
