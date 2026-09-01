@@ -12,7 +12,8 @@
     "start": "node dist/index.js",
     "type-check": "tsc --noEmit -p tsconfig.json",
     "contract-check": "node scripts/route-contract-check.mjs",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "test:load": "node scripts/load-test.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1039.0",
