@@ -44,6 +44,7 @@ After deployment, verify:
 
 1. `https://rekrootai.vercel.app/` loads and refreshes on a nested route.
 2. `https://rekrootai.vercel.app/api/health` reaches the API.
+3. `https://rekrootai.vercel.app/api/ready` returns HTTP 200 and reports MongoDB and Redis as `ok`.
 3. Candidate CV processing does not send raw CV text to enrichment or ML.
 4. A new application receives either a production model score or a visible 503 (never a silent production heuristic fallback).
 5. Fairness review reports cohort size, per-attribute status, and insufficient-data states.

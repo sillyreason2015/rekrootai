@@ -75,6 +75,7 @@ function round(value) {
 
 const results = await Promise.all([
   runScenario({ name: 'health', path: '/api/health', expectedStatuses: [200] }),
+  runScenario({ name: 'readiness', path: '/api/ready', expectedStatuses: [200] }),
   runScenario({ name: 'public-jobs', path: '/api/jobs', expectedStatuses: [200] }),
   runScenario({
     name: 'invalid-login-validation',

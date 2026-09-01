@@ -27,6 +27,15 @@ test('GET /health returns ok', async () => {
   assert.equal(res.body.ok, true)
 })
 
+test('GET /ready exposes dependency readiness without secrets', async () => {
+  const res = await request(app).get('/ready')
+  assert.ok([200, 503].includes(res.status))
+  assert.equal(typeof res.body.ok, 'boolean')
+  assert.ok(res.body.dependencies)
+  assert.equal(res.body.dependencies.mongodb === 'ok' || res.body.dependencies.mongodb === 'unavailable', true)
+  assert.equal('MONGODB_URI' in res.body, false)
+})
+
 test('POST /auth/login with missing body returns 400', async () => {
   const res = await request(app).post('/auth/login').send({})
   assert.ok(res.status >= 400, `expected 4xx, got ${res.status}`)

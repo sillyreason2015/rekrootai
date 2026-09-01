@@ -19,6 +19,7 @@ import { anonymizeRouter } from './routes/anonymize.routes.js'
 import { HttpError } from './lib/http.js'
 import { env } from './config/env.js'
 import { maintenanceGuard } from './lib/settings.js'
+import { redis } from './lib/redis.js'
 
 export const app = express()
 
@@ -59,6 +60,30 @@ app.get('/health', (_req, res) => {
     service: 'rekroot-server',
     now: new Date().toISOString(),
     mongoState: mongoose.connection.readyState,
+  })
+})
+
+app.get('/ready', async (_req, res) => {
+  let redisStatus: 'ok' | 'not_configured' | 'unavailable' = redis ? 'unavailable' : 'not_configured'
+  if (redis) {
+    try {
+      await Promise.race([
+        redis.ping(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Redis readiness timeout')), 2_000)),
+      ])
+      redisStatus = 'ok'
+    } catch {
+      redisStatus = 'unavailable'
+    }
+  }
+  const mongoReady = mongoose.connection.readyState === 1
+  const ready = mongoReady && (env.NODE_ENV !== 'production' || redisStatus === 'ok')
+  res.setHeader('Cache-Control', 'no-store')
+  res.status(ready ? 200 : 503).json({
+    ok: ready,
+    service: 'rekroot-server',
+    now: new Date().toISOString(),
+    dependencies: { mongodb: mongoReady ? 'ok' : 'unavailable', redis: redisStatus },
   })
 })
 
