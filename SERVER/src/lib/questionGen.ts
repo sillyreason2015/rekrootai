@@ -7,7 +7,7 @@ type QType = 'mcq' | 'open'
 type Difficulty = 'easy' | 'medium' | 'hard'
 type ModuleType = 'aptitude' | 'technical' | 'situational' | 'personality' | 'values'
 
-interface GenQuestion {
+export interface GenQuestion {
   text: string
   type: QType
   options?: string[]
@@ -146,6 +146,70 @@ export function generateQuestions(
     ...q,
     category: category ?? q.category,
   }))
+}
+
+/** Generate role-aware fallback questions when an AI provider is unavailable. */
+export function generateContextualQuestions(
+  moduleType: ModuleType,
+  difficulty: Difficulty,
+  count: number,
+  category: string | undefined,
+  context: { title: string; skills: string[]; requirements: string[] },
+): GenQuestion[] {
+  const terms = [...context.skills, ...context.requirements]
+    .map((term) => term.replace(/^[-*•\d.\s]+/, '').trim())
+    .filter((term) => term.length >= 2)
+    .filter((term, index, all) => all.findIndex((candidate) => candidate.toLowerCase() === term.toLowerCase()) === index)
+    .slice(0, 12)
+  const role = context.title.trim() || 'this role'
+  const points = difficulty === 'easy' ? 1 : difficulty === 'medium' ? 2 : 3
+  const selected = Array.from({ length: Math.max(0, count) }, (_, index) => terms[index % Math.max(terms.length, 1)] ?? 'the stated requirements')
+  const angles = ['choosing an approach', 'validating the result', 'handling a failure', 'communicating trade-offs']
+  const placeCorrect = (correct: string, distractors: string[], index: number) => {
+    const options = [correct, ...distractors]
+    const shift = index % options.length
+    return { options: [...options.slice(options.length - shift), ...options.slice(0, options.length - shift)], correctIndex: shift }
+  }
+
+  return selected.map((term, index) => {
+    const angle = angles[index % angles.length]
+    if (moduleType === 'technical') {
+      const placed = placeCorrect('Define the expected outcome, apply the appropriate method, test the result, and document trade-offs', ['Choose the quickest familiar approach and skip validation if the deadline is close', 'Wait until the stakeholder provides a step-by-step implementation plan', `Use ${term} wherever possible without checking whether it fits the stated outcome`], index)
+      return {
+        text: `In the ${role} role, you need to apply ${term} while ${angle} for a real stakeholder. Which approach is strongest?`,
+        type: 'mcq', ...placed, points, category: category ?? moduleType, difficulty,
+        tags: ['role-specific', term.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')].filter(Boolean),
+      }
+    }
+    if (moduleType === 'situational') {
+      const placed = placeCorrect('Make the risk visible, assess its impact, agree a mitigation with the right people, and verify the result', ['Hide the risk until there is enough time to fix it without discussion', 'Escalate immediately without gathering evidence or proposing a mitigation', 'Continue unchanged and assume another team will notice the issue'], index)
+      return {
+        text: `You are working as a ${role} and a delivery risk appears while applying ${term}. What is the best response when ${angle}?`,
+        type: 'mcq', ...placed, points, category: category ?? moduleType, difficulty, tags: ['role-specific', 'judgement'],
+      }
+    }
+    if (moduleType === 'personality') {
+      const placed = placeCorrect('I clarify expectations, plan the work, and communicate progress', ['I begin immediately and adjust only if blocked', 'I wait for detailed direction before taking action', 'I avoid the task until someone else resolves the uncertainty'], index)
+      return {
+      text: `When work in a ${role} role requires ${term}, which behaviour best describes how you usually respond while ${angle}?`,
+      type: 'mcq', ...placed,
+      points, category: category ?? moduleType, difficulty, tags: ['role-specific', 'self-awareness'],
+      }
+    }
+    if (moduleType === 'values') {
+      const placed = placeCorrect('Explain the risk, propose a safe alternative, and document the decision before proceeding', ['Proceed silently because meeting the deadline is always the highest priority', 'Refuse without explaining the concern or offering an alternative', 'Remove the quality or ethical check so the work can be completed faster'], index)
+      return {
+      text: `A decision involving ${term} creates pressure to move faster than the quality or ethical standard expected in the ${role} role. What is the most responsible response when ${angle}?`,
+      type: 'mcq', ...placed,
+      points, category: category ?? moduleType, difficulty, tags: ['role-specific', 'integrity'],
+      }
+    }
+    return {
+      text: `A ${role} project involving ${term} has 20 units of work and 5 working days remaining. If the team completes 3 units per day for the first 4 days, how many units remain for the final day?`,
+      type: 'mcq', options: ['4 units', '8 units', '12 units', '16 units'], correctIndex: 1,
+      points, category: category ?? moduleType, difficulty, tags: ['role-specific', 'numerical'],
+    }
+  })
 }
 
 /**

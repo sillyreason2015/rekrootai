@@ -6,7 +6,7 @@ import { QuestionBankModel } from '../models/QuestionBank.model.js'
 import { UserModel } from '../models/User.model.js'
 import { JobModel } from '../models/Job.model.js'
 import { CompanyModel } from '../models/Company.model.js'
-import { generateQuestions, extractQuestionsFromText } from '../lib/questionGen.js'
+import { generateQuestions, generateContextualQuestions, extractQuestionsFromText } from '../lib/questionGen.js'
 import { env } from '../config/env.js'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -55,19 +55,25 @@ Module type: ${moduleType} — focus on ${moduleDescriptions[moduleType] ?? modu
 Difficulty: ${difficulty}
 
 Rules:
-- For mcq questions include exactly 4 options and set correctIndex (0-3) to the best answer
-- For open questions omit options and correctIndex
+- For mcq questions include exactly 4 options, exactly one defensible best answer, and set correctIndex (0-3)
+- Generate MCQ for every question so the current assessment engine can score it reliably; open-ended evaluation is not enabled yet
 - points: easy=1, medium=2, hard=3 (open hard=4)
 - tags: 2-4 relevant lowercase tags
 - category: use the moduleType value
-- Mix mcq and open types (at least 1 open per 4 questions unless count<=2)
-- Make questions SPECIFIC to the job — reference actual skills, tools, or scenarios from the job context
+- Use the requested module type consistently; do not turn technical or situational questions into generic trivia
+- Make every question SPECIFIC to the job — reference at least one exact skill or requirement in the question text
+- Do not invent tools, regulations, facts, employers, metrics, or requirements not present in the job context
+- Do not repeat a question, scenario, skill, or answer pattern; avoid trick questions and subjective MCQ answers
+- For aptitude, use a realistic numerical or logical problem grounded in the role context, with enough information to solve it
 
 Respond with ONLY a valid JSON array. No markdown, no explanation. Example format:
 [{"text":"...","type":"mcq","options":["A","B","C","D"],"correctIndex":1,"points":2,"category":"${moduleType}","difficulty":"${difficulty}","tags":["tag1","tag2"]}]`
 
   const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY!)
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    generationConfig: { temperature: 0.25, topP: 0.8, responseMimeType: 'application/json' },
+  })
   const result = await model.generateContent(prompt)
   const raw = result.response.text()
 
@@ -149,11 +155,19 @@ const COOLDOWN_MS = 30_000                  // 30 seconds per user
 function validateGeneratedQuestions(
   questions: Array<{ text: string; type: 'mcq' | 'open'; options?: string[]; correctIndex?: number; points: number; category: string; difficulty: string; tags: string[] }>,
   expectedCount: number,
+  expectedCategory?: string,
+  expectedType: 'mcq' | 'open' = 'mcq',
 ) {
   if (questions.length < expectedCount) throw new Error(`Question generator returned ${questions.length} questions; expected ${expectedCount}.`)
+  const seenQuestions = new Set<string>()
   return questions.slice(0, expectedCount).map((question, index) => {
     const text = question.text.trim()
     if (text.length < 10 || text.length > 2_000) throw new Error(`Generated question ${index + 1} has invalid text.`)
+    const normalisedText = text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    if (seenQuestions.has(normalisedText)) throw new Error(`Generated question ${index + 1} duplicates another question.`)
+    seenQuestions.add(normalisedText)
+    if (expectedCategory && question.category !== expectedCategory) throw new Error(`Generated question ${index + 1} has the wrong module category.`)
+    if (question.type !== expectedType) throw new Error(`Generated question ${index + 1} has the wrong question type.`)
     const points = Number(question.points)
     if (!Number.isFinite(points) || points < 1 || points > 4) throw new Error(`Generated question ${index + 1} has invalid points.`)
     const tags = question.tags.filter((tag) => typeof tag === 'string' && tag.trim()).map((tag) => tag.trim().toLowerCase()).slice(0, 8)
@@ -162,6 +176,9 @@ function validateGeneratedQuestions(
       const correctIndex = Number(question.correctIndex)
       if (options.length !== 4 || options.some((option) => option.length < 1 || option.length > 500)) {
         throw new Error(`Generated multiple-choice question ${index + 1} must have exactly four valid options.`)
+      }
+      if (new Set(options.map((option) => option.toLowerCase())).size !== options.length) {
+        throw new Error(`Generated multiple-choice question ${index + 1} contains duplicate options.`)
       }
       if (!Number.isInteger(correctIndex) || correctIndex < 0 || correctIndex > 3) {
         throw new Error(`Generated multiple-choice question ${index + 1} has an invalid correct answer.`)
@@ -224,27 +241,57 @@ questionBankRouter.post('/generate', requireAuth, requireRole('recruiter', 'admi
       const cacheKey = `${jobId}:${moduleType}:${diff}:${n}`
       const cached = geminiCache.get(cacheKey)
       if (cached && cached.expiresAt > Date.now()) {
-        generated = validateGeneratedQuestions(cached.questions, n)
-        source = 'gemini-cached'
+        try {
+          generated = validateGeneratedQuestions(cached.questions, n, moduleType, 'mcq')
+          source = 'gemini-cached'
+        } catch {
+          // Discard older/weak cache entries rather than serving them again.
+          geminiCache.delete(cacheKey)
+          generated = generateContextualQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values', diff, n, category, {
+            title: job.title,
+            skills: job.skills,
+            requirements: job.requirements,
+          })
+          source = 'templates-role-aware'
+        }
       } else {
         userCooldown.set(userId, Date.now())
         try {
           generated = validateGeneratedQuestions(await generateWithGemini(
             { title: job.title, description: job.description, skills: job.skills, requirements: job.requirements },
             moduleType, diff, n,
-          ), n)
+          ), n, moduleType, 'mcq')
           geminiCache.set(cacheKey, { questions: generated, expiresAt: Date.now() + CACHE_TTL_MS })
           source = 'gemini'
         } catch (geminiErr) {
           const msg = geminiErr instanceof Error ? geminiErr.message : String(geminiErr)
           console.error('[questionbank] Gemini generation failed:', msg)
           geminiError = msg
-          generated = generateQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values', diff, n, category)
+          generated = generateContextualQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values', diff, n, category, {
+            title: job.title,
+            skills: job.skills,
+            requirements: job.requirements,
+          })
           source = (msg.includes('429') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate'))
             ? 'templates-rate-limited'
             : 'templates-gemini-error'
         }
       }
+    } else if (jobId) {
+      // Keep a selected job useful even when Gemini is unavailable: generate
+      // deterministic role-aware prompts instead of silently returning generic trivia.
+      const job = await JobModel.findById(jobId).lean()
+      if (!job) throw new HttpError(404, 'Job not found')
+      if (req.user?.role !== 'super_admin') {
+        const company = await CompanyModel.findById(String(job.company), { name: 1, legalName: 1 }).lean()
+        const jobCompanyNames = [company?.name, company?.legalName].filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        if (!jobCompanyNames.some((name) => companyNames.includes(name))) throw new HttpError(403, 'Forbidden')
+      }
+      generated = generateContextualQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values', diff, n, category, {
+        title: job.title,
+        skills: job.skills,
+        requirements: job.requirements,
+      })
     } else {
       generated = generateQuestions(moduleType as 'aptitude' | 'technical' | 'situational' | 'personality' | 'values', diff, n, category)
     }
