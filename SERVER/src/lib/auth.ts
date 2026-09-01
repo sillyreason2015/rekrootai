@@ -53,6 +53,14 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
   next()
 }
 
+/** Populate a user when a bearer token is present, but keep public routes public. */
+export function optionalAuth(req: Request, _res: Response, next: NextFunction): void {
+  const token = extractToken(req)
+  const payload = token ? verifyAccessToken(token) : null
+  if (payload) req.user = { _id: payload.sub, role: payload.role, email: payload.email }
+  next()
+}
+
 export function requireRole(...roles: Role[]) {
   return (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.user) { next(new HttpError(401, 'Unauthorized')); return }

@@ -1,7 +1,8 @@
 import { Router } from 'express'
+import mongoose from 'mongoose'
 import { JobModel } from '../models/Job.model.js'
 import { UserModel } from '../models/User.model.js'
-import { requireAuth, requireRole } from '../lib/auth.js'
+import { optionalAuth, requireAuth, requireRole } from '../lib/auth.js'
 import { HttpError } from '../lib/http.js'
 import { logAction } from '../data/store.js'
 import { notify } from '../lib/notify.js'
@@ -119,13 +120,19 @@ jobsRouter.get('/mine', requireAuth, requireRole('recruiter', 'admin', 'super_ad
 })
 
 // GET /jobs/:id
-jobsRouter.get('/:id', async (req, res, next) => {
+jobsRouter.get('/:id', optionalAuth, async (req, res, next) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) throw new HttpError(404, 'Job not found')
     const job = await JobModel.findById(req.params.id)
       .select('title company department level location type remote description requirements responsibilities skills salaryMin salaryMax salaryCurrency status applicationDeadline bannerUrl requiresQuestionnaire applicationQuestions assessmentModules createdAt')
       .populate('company', 'name logoUrl')
       .lean()
     if (!job) throw new HttpError(404, 'Job not found')
+    if (job.status !== 'published') {
+      if (!req.user || !['recruiter', 'admin', 'super_admin'].includes(req.user.role)) throw new HttpError(404, 'Job not found')
+      const scoped = await findScopedJob(req.user._id, String(job._id))
+      if (!scoped) throw new HttpError(404, 'Job not found')
+    }
     res.json(await serializePublicJob({ ...job, _id: String(job._id) }))
   } catch (err) { next(err) }
 })

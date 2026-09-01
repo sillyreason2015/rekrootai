@@ -161,6 +161,10 @@ applicationsRouter.post('/', requireAuth, requireRole('candidate', 'admin', 'sup
     ])
     if (!candidate) throw new HttpError(404, 'Candidate profile not found')
     if (!job) throw new HttpError(404, 'Job not found')
+    if (job.status !== 'published') throw new HttpError(409, 'This job is not accepting applications')
+    if (job.applicationDeadline && new Date(job.applicationDeadline).getTime() <= Date.now()) {
+      throw new HttpError(409, 'The application deadline has passed')
+    }
     const existing = await ApplicationModel.findOne({ candidate: candidate._id, job: jobId }).lean()
     if (existing) throw new HttpError(409, 'Already applied to this job')
 

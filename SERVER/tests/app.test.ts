@@ -62,6 +62,11 @@ test('GET /jobs does not require auth (returns 200 or DB-unavailable 500, never 
   assert.notEqual(res.status, 401, 'public /jobs route should not require auth')
 })
 
+test('GET /jobs/:id remains public without allowing an invalid bearer token to bypass auth', async () => {
+  const res = await request(app).get('/jobs/not-a-real-id').set('Authorization', 'Bearer invalid-token')
+  assert.equal(res.status, 404)
+})
+
 test('Protected route GET /applications/mine requires auth', async () => {
   const res = await request(app).get('/applications/mine')
   assert.equal(res.status, 401)
