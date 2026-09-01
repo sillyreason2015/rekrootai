@@ -47,6 +47,67 @@ async function serializePublicJob(job: Record<string, unknown>) {
   }
 }
 
+type PublicJobsPayload = {
+  data: Record<string, unknown>[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
+const PUBLIC_JOB_CACHE_TTL_MS = 30_000
+const PUBLIC_JOB_CACHE_MAX_ENTRIES = 100
+const publicJobCache = new Map<string, { expiresAt: number; payload: PublicJobsPayload }>()
+const publicJobInflight = new Map<string, Promise<PublicJobsPayload>>()
+
+function publicJobCacheKey(input: { search: string; type: string; remote: string; page: number; limit: number }) {
+  return JSON.stringify(input)
+}
+
+function rememberPublicJobs(key: string, payload: PublicJobsPayload) {
+  publicJobCache.set(key, { expiresAt: Date.now() + PUBLIC_JOB_CACHE_TTL_MS, payload })
+  while (publicJobCache.size > PUBLIC_JOB_CACHE_MAX_ENTRIES) {
+    const oldestKey = publicJobCache.keys().next().value
+    if (typeof oldestKey !== 'string') break
+    publicJobCache.delete(oldestKey)
+  }
+  return payload
+}
+
+async function loadPublicJobs(key: string, filter: Record<string, unknown>, page: number, limit: number): Promise<PublicJobsPayload> {
+  const existing = publicJobCache.get(key)
+  if (existing && existing.expiresAt > Date.now()) return existing.payload
+  if (existing) publicJobCache.delete(key)
+
+  const pending = publicJobInflight.get(key)
+  if (pending) return pending
+
+  const skip = (page - 1) * limit
+  const request = (async () => {
+    const [jobs, total] = await Promise.all([
+      JobModel.find(filter)
+        .select('title company department level location type remote description requirements responsibilities skills salaryMin salaryMax salaryCurrency status applicationDeadline bannerUrl requiresQuestionnaire applicationQuestions assessmentModules createdAt')
+        .populate('company', 'name logoUrl')
+        .sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+      JobModel.countDocuments(filter),
+    ])
+    const publicJobs = await Promise.all(jobs.map((job) => serializePublicJob(job as Record<string, unknown>)))
+    return rememberPublicJobs(key, {
+      data: publicJobs,
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    })
+  })()
+  publicJobInflight.set(key, request)
+  try {
+    return await request
+  } finally {
+    publicJobInflight.delete(key)
+  }
+}
+
 async function buildScopedJobFilterForTeam(userId: string, requestedTeamName?: string) {
   const scope = await resolveEffectiveTeamScope(userId, requestedTeamName)
   return buildTeamScopedJobFilter(scope, userId)
@@ -65,7 +126,6 @@ jobsRouter.get('/', async (req, res, next) => {
     const remote = String(req.query.remote ?? '')
     const page = Math.max(1, Number(req.query.page ?? 1) || 1)
     const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 10) || 10))
-    const skip = (page - 1) * limit
     const filter: Record<string, unknown> = { status: 'published' }
     if (type) filter.type = type
     if (remote) filter.remote = remote
@@ -74,24 +134,12 @@ jobsRouter.get('/', async (req, res, next) => {
       { department: { $regex: escapeRegExp(search), $options: 'i' } },
       { location: { $regex: escapeRegExp(search), $options: 'i' } },
     ]
-    const [jobs, total] = await Promise.all([
-      JobModel.find(filter)
-        .select('title company department level location type remote description requirements responsibilities skills salaryMin salaryMax salaryCurrency status applicationDeadline bannerUrl requiresQuestionnaire applicationQuestions assessmentModules createdAt')
-        .populate('company', 'name logoUrl')
-        .sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      JobModel.countDocuments(filter),
-    ])
-    const publicJobs = await Promise.all(jobs.map((job) => serializePublicJob(job as Record<string, unknown>)))
+    const key = publicJobCacheKey({ search, type, remote, page, limit })
+    const payload = await loadPublicJobs(key, filter, page, limit)
     // Only published public data is cached; authenticated/private routes do
     // not use this header. Keep the window short so new roles appear quickly.
     res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60')
-    res.json({
-      data: publicJobs,
-      total,
-      page,
-      limit,
-      totalPages: Math.max(1, Math.ceil(total / limit)),
-    })
+    res.json(payload)
   } catch (err) { next(err) }
 })
 
