@@ -10,6 +10,10 @@ import { sendEmail } from '../lib/mail.js'
 
 export const jobsRouter = Router()
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 async function buildScopedJobFilterForTeam(userId: string, requestedTeamName?: string) {
   const scope = await resolveEffectiveTeamScope(userId, requestedTeamName)
   return buildTeamScopedJobFilter(scope, userId)
@@ -27,20 +31,23 @@ jobsRouter.get('/', async (req, res, next) => {
     const type = String(req.query.type ?? '')
     const remote = String(req.query.remote ?? '')
     const page = Math.max(1, Number(req.query.page ?? 1) || 1)
-    const limit = Math.max(1, Number(req.query.limit ?? 10) || 10)
+    const limit = Math.min(50, Math.max(1, Number(req.query.limit ?? 10) || 10))
     const skip = (page - 1) * limit
     const filter: Record<string, unknown> = { status: 'published' }
     if (type) filter.type = type
     if (remote) filter.remote = remote
     if (search) filter.$or = [
-      { title: { $regex: search, $options: 'i' } },
-      { department: { $regex: search, $options: 'i' } },
-      { location: { $regex: search, $options: 'i' } },
+      { title: { $regex: escapeRegExp(search), $options: 'i' } },
+      { department: { $regex: escapeRegExp(search), $options: 'i' } },
+      { location: { $regex: escapeRegExp(search), $options: 'i' } },
     ]
     const [jobs, total] = await Promise.all([
       JobModel.find(filter).populate('assignedRecruiter', 'firstName lastName email role').sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       JobModel.countDocuments(filter),
     ])
+    // Only published public data is cached; authenticated/private routes do
+    // not use this header. Keep the window short so new roles appear quickly.
+    res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60')
     res.json({
       data: jobs,
       total,
